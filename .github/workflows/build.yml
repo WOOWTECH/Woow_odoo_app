@@ -41,3 +41,32 @@ jobs:
         name: woowtech-odoo-debug
         path: app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
+
+    - name: Rename APK
+      run: |
+        mkdir -p releases
+        cp app/build/outputs/apk/debug/app-debug.apk releases/woowtech-odoo-v1.0.0-debug.apk
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: github.ref == 'refs/heads/main'
+      with:
+        tag_name: v1.0.0-${{ github.run_number }}
+        name: WoowTech Odoo v1.0.0 Build ${{ github.run_number }}
+        body: |
+          ## WoowTech Odoo Android App
+
+          **Build:** ${{ github.run_number }}
+          **Commit:** ${{ github.sha }}
+
+          ### Download
+          Download the APK below and install on your Android device.
+
+          ### Requirements
+          - Android 10+ (API 29)
+          - HTTPS Odoo server
+        files: releases/woowtech-odoo-v1.0.0-debug.apk
+        draft: false
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
