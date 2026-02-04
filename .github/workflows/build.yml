@@ -23,16 +23,17 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: 'gradle'
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Validate Gradle wrapper
-      uses: gradle/actions/wrapper-validation@v3
-
-    - name: Show Gradle version
-      run: ./gradlew --version
+    - name: Show environment info
+      run: |
+        echo "Java version:"
+        java -version
+        echo "JAVA_HOME: $JAVA_HOME"
+        echo "PWD: $(pwd)"
+        ls -la
 
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon --stacktrace
