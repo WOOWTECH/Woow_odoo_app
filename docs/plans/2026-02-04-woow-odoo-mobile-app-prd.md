@@ -9,10 +9,33 @@
 | 項目 | 內容 |
 |------|------|
 | 專案名稱 | WoowTech Odoo Mobile App |
-| 版本 | 1.0.0 |
+| 版本 | 1.1.0 |
 | 建立日期 | 2026-02-04 |
+| 更新日期 | 2026-02-04 |
 | 作者 | WoowTech Development Team |
-| 狀態 | Draft |
+| 狀態 | **Approved** |
+
+---
+
+## 需求確認摘要 | Requirements Summary
+
+| 項目 | 決定 |
+|------|------|
+| **發佈方式** | 內部分發 APK |
+| **App 名稱** | WoowTech Odoo |
+| **Logo** | WoowTech 藍紫色圓形 Logo |
+| **目標 Odoo** | 僅 Odoo 18 Community |
+| **主題色** | #6183FC（用戶可自訂任意顏色） |
+| **語言** | 繁體中文 + 英文 |
+| **安全功能** | 生物辨識 + PIN 碼（可選啟用） |
+| **網路協定** | 僅 HTTPS |
+| **測試伺服器** | https://woowtechaicoder-odootest.woowtech.io/ |
+| **離線功能** | 基本快取帳號資訊 |
+| **工具欄** | 頂部固定（Logo + 漢堡選單） |
+| **公司網站** | https://aiot.woowtech.io |
+| **聯絡 Email** | woowtech@designsmart.com.tw |
+| **最低 Android** | Android 10+ (API 29) |
+| **Package Name** | io.woowtech.odoo |
 
 ---
 
@@ -20,17 +43,19 @@
 
 ### 1.1 專案概述 | Project Overview
 
-WoowTech Odoo Mobile App 是一款 Android 原生行動應用程式，旨在讓使用者能夠透過手機便捷地存取其 Odoo ERP 系統。應用程式採用 WebView 混合架構，結合原生 Android UI 元素，提供流暢的行動體驗。
+WoowTech Odoo Mobile App 是一款 Android 原生行動應用程式，旨在讓使用者能夠透過手機便捷地存取其 Odoo ERP 系統。應用程式採用 WebView 混合架構，結合原生 Android UI 元素（頂部固定工具欄），提供流暢的行動體驗。
 
-The WoowTech Odoo Mobile App is an Android native mobile application designed to provide convenient mobile access to Odoo ERP systems. The app uses a hybrid WebView architecture combined with native Android UI elements for a seamless mobile experience.
+The WoowTech Odoo Mobile App is an Android native mobile application designed to provide convenient mobile access to Odoo ERP systems. The app uses a hybrid WebView architecture combined with native Android UI elements (fixed top toolbar) for a seamless mobile experience.
 
 ### 1.2 目標 | Objectives
 
 - 提供簡單直觀的登入流程（URL + 資料庫 + 帳號密碼）
 - 使用 WebView 顯示 Odoo 手機版網頁介面
-- 提供原生置頂工具欄，方便存取個人設定、帳號管理等功能
+- 提供原生頂部固定工具欄（Logo + 漢堡選單），方便存取個人設定、帳號管理等功能
 - 支援多帳號切換
 - 支援 Odoo 18 Community Edition
+- 支援自訂主題色彩
+- 提供可選的生物辨識/PIN 碼鎖定功能
 
 ### 1.3 目標用戶 | Target Users
 
@@ -74,7 +99,7 @@ The WoowTech Odoo Mobile App is an Android native mobile application designed to
 
 | 層級 | 技術選擇 | 說明 |
 |------|---------|------|
-| **Platform** | Android | 目標 Android 7.0+ (API 24+) |
+| **Platform** | Android | 目標 Android 10+ (API 29) |
 | **Language** | Kotlin | 現代 Android 開發首選 |
 | **UI Framework** | Jetpack Compose | 宣告式 UI 框架 |
 | **Architecture** | MVVM + Clean Architecture | 分層架構設計 |
@@ -82,11 +107,22 @@ The WoowTech Odoo Mobile App is an Android native mobile application designed to
 | **Network** | OkHttp + Retrofit | HTTP 客戶端與 API 呼叫 |
 | **Local Storage** | DataStore + Room | 偏好設定與資料快取 |
 | **DI** | Hilt | 依賴注入 |
-| **Security** | Biometric API | 生物辨識認證 |
+| **Security** | Biometric API + PIN | 生物辨識與 PIN 碼認證 |
 
-### 3.2 Odoo API 整合 | Odoo API Integration
+### 3.2 專案配置 | Project Configuration
 
-#### 3.2.1 認證方式 | Authentication Methods
+| 項目 | 值 |
+|------|---|
+| Package Name | `io.woowtech.odoo` |
+| Min SDK | 29 (Android 10) |
+| Target SDK | 34 (Android 14) |
+| Compile SDK | 34 |
+| Kotlin Version | 1.9.x |
+| Compose BOM | 2024.02.00 |
+
+### 3.3 Odoo API 整合 | Odoo API Integration
+
+#### 3.3.1 認證方式 | Authentication Methods
 
 **JSON-RPC 認證 (主要)**:
 ```
@@ -120,22 +156,17 @@ Response:
 }
 ```
 
-**XML-RPC 認證 (備用)**:
-```
-Endpoint: /xmlrpc/2/common
-Method: authenticate(db, login, password, {})
-Returns: uid (user ID) or false
-```
-
-#### 3.2.2 Session 管理 | Session Management
+#### 3.3.2 Session 管理 | Session Management
 
 - 認證成功後儲存 session_id 作為 Cookie
 - WebView 需載入相同的 session Cookie
 - 實作 session 過期檢測與自動重新認證
 
-#### 3.2.3 API 版本相容性 | API Compatibility
+#### 3.3.3 目標版本 | Target Version
 
-> **重要提醒**: XML-RPC 和 JSON-RPC API 將在 Odoo 20 (2026 年秋季) 被棄用，未來將由 JSON-2 API 取代。目前版本針對 Odoo 18 Community Edition 設計。
+- **支援版本**: 僅 Odoo 18 Community Edition
+- **網路協定**: 僅 HTTPS（強制安全連線）
+- **測試伺服器**: https://woowtechaicoder-odootest.woowtech.io/
 
 ---
 
@@ -151,10 +182,10 @@ Returns: uid (user ID) or false
 │  │   Login     │  │   Main      │  │    Configuration    │ │
 │  │   Module    │  │   WebView   │  │       Module        │ │
 │  │             │  │             │  │                     │ │
-│  │ • URL Input │  │ • Odoo Web  │  │ • Profile Details   │ │
-│  │ • Database  │  │ • Floating  │  │ • Settings          │ │
-│  │ • Username  │  │   Menu      │  │ • Switch Accounts   │ │
-│  │ • Password  │  │   Button    │  │ • Add Account       │ │
+│  │ • URL Input │  │ • Top Bar   │  │ • Profile Details   │ │
+│  │ • Database  │  │   (Logo +   │  │ • Settings          │ │
+│  │ • Username  │  │   Hamburger)│  │ • Switch Accounts   │ │
+│  │ • Password  │  │ • Odoo Web  │  │ • Add Account       │ │
 │  │             │  │             │  │ • Logout            │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
@@ -167,18 +198,18 @@ Returns: uid (user ID) or false
 **畫面元素**:
 | 元素 | 類型 | 說明 |
 |------|------|------|
-| App Logo | Image | 頂部顯示 "mobo FullSuite" 或自訂品牌 Logo |
-| 標題 | Text | "Add New Account" |
-| 副標題 | Text | "Enter your credentials to continue" |
-| URL 輸入框 | TextField | Protocol 選擇 (https://) + URL 輸入 |
+| App Logo | Image | 頂部顯示 WoowTech Logo（藍紫色圓形） |
+| App Name | Text | "WoowTech Odoo" |
+| 標題 | Text | "Add New Account" / "新增帳號" |
+| 副標題 | Text | "Enter your credentials to continue" / "輸入您的認證資訊以繼續" |
+| URL 輸入框 | TextField | "https://" 前綴 + URL 輸入 |
 | Database 輸入框 | TextField | 資料庫名稱輸入 |
 | Next 按鈕 | Button | 進入下一步（輸入帳號密碼） |
 
 **登入流程**:
 ```
 Step 1: 輸入伺服器資訊
-├── Protocol: https:// (下拉選擇 http:// 或 https://)
-├── Server URL: example.odoo.com
+├── Server URL: https://example.odoo.com (僅 HTTPS)
 └── Database Name: production_db
 
 Step 2: 驗證伺服器連線
@@ -207,25 +238,41 @@ Step 4: 認證
 | 資料庫不存在 | Database not found | 找不到資料庫 |
 | 認證失敗 | Invalid username or password | 帳號或密碼錯誤 |
 | Session 過期 | Session expired, please login again | Session 已過期，請重新登入 |
+| 非 HTTPS | Secure connection required (HTTPS) | 需要安全連線 (HTTPS) |
 
 ### 4.3 主畫面模組 | Main Screen Module
 
-#### 4.3.1 WebView 區域
+#### 4.3.1 頂部固定工具欄 | Fixed Top Toolbar
+
+**位置**: 畫面頂部，永遠固定顯示
+
+**畫面結構**:
+```
+┌─────────────────────────────────────────────┐
+│ [WoowTech Logo]              [≡ 漢堡選單]   │
+├─────────────────────────────────────────────┤
+│                                             │
+│              WebView 區域                    │
+│           (Odoo 手機版網頁)                  │
+│                                             │
+│                                             │
+└─────────────────────────────────────────────┘
+```
+
+**工具欄元素**:
+| 元素 | 位置 | 動作 |
+|------|------|------|
+| WoowTech Logo | 左側 | 顯示品牌識別 |
+| 漢堡選單按鈕 | 右側 | 點擊進入 Configuration 頁面 |
+
+#### 4.3.2 WebView 區域
 
 - 載入 Odoo 手機版網頁 (responsive web view)
 - 共享 session Cookie 以維持登入狀態
 - 支援 JavaScript
 - 處理 file upload/download
 - 支援返回鍵導航
-
-#### 4.3.2 置頂工具欄 | Floating Action Menu
-
-**位置**: 畫面右下角浮動按鈕 (FAB)
-
-**點擊後展開選項**:
-1. **Configuration** - 進入設定頁面
-2. **Refresh** - 重新載入 WebView
-3. **Share** - 分享當前頁面 URL
+- 僅允許 HTTPS 連線
 
 ### 4.4 Configuration 模組 | Configuration Module
 
@@ -249,7 +296,7 @@ Step 4: 認證
 │  │   Manage and switch between      ⌄  │   │
 │  │   accounts                          │   │
 │  │   ┌─────────────────────────────┐   │   │
-│  │   │ No accounts                 │   │   │
+│  │   │ [已儲存的帳號列表]           │   │   │
 │  │   └─────────────────────────────┘   │   │
 │  │   [+ Add Account]                   │   │
 │  ├─────────────────────────────────────┤   │
@@ -279,19 +326,21 @@ Step 4: 認證
 **Appearance (外觀)**:
 | 設定項目 | 類型 | 說明 |
 |---------|------|------|
+| Theme Color | Color Picker | 自訂主題顏色（預設 #6183FC） |
 | Reduce Motion | Toggle | 減少動畫效果 |
 
-**Security (安全性)**:
+**Security (安全性)** - 可選功能:
 | 設定項目 | 類型 | 說明 |
 |---------|------|------|
-| App Lock | Toggle | 啟用生物辨識鎖定 |
+| App Lock | Toggle | 啟用應用程式鎖定 |
+| Biometric Unlock | Toggle | 啟用生物辨識解鎖（指紋/臉部） |
+| PIN Code | Button | 設定 PIN 碼備用解鎖 |
 
 **Language & Region (語言與地區)**:
-| 設定項目 | 類型 | 說明 |
+| 設定項目 | 類型 | 選項 |
 |---------|------|------|
-| Language | Picker | 選擇偏好語言 |
-| Currency | Picker | 預設交易貨幣 |
-| Timezone | Picker | 本地時區 |
+| Language | Picker | English, 繁體中文 |
+| Timezone | Picker | 本地時區（從系統獲取） |
 
 **Data & Storage (資料與儲存)**:
 | 設定項目 | 類型 | 說明 |
@@ -301,17 +350,15 @@ Step 4: 認證
 **Help & Support (幫助與支援)**:
 | 設定項目 | 類型 | 連結 |
 |---------|------|------|
-| Odoo Help Center | Link | 官方文件與指南 |
-| Odoo Support | Link | 建立支援工單 |
-| Odoo Community Forum | Link | 社群論壇 |
+| Odoo Help Center | Link | https://www.odoo.com/help |
+| Odoo Community Forum | Link | https://www.odoo.com/forum |
 
 **About (關於)**:
-| 設定項目 | 類型 | 連結 |
-|---------|------|------|
-| Visit Website | Link | www.woowtech.com |
-| Contact Us | Link | Email 聯絡 |
-| More Apps | Link | 其他應用程式 |
-| Social Links | Icons | Facebook, LinkedIn, Instagram, YouTube |
+| 設定項目 | 類型 | 值 |
+|---------|------|---|
+| Visit Website | Link | https://aiot.woowtech.io |
+| Contact Us | Link | mailto:woowtech@designsmart.com.tw |
+| App Version | Text | 1.0.0 |
 | Copyright | Text | © 2026 WoowTech |
 
 ### 4.5 多帳號管理 | Multi-Account Management
@@ -341,6 +388,12 @@ data class OdooAccount(
 | Remove Account | 移除已儲存的帳號 |
 | Edit Account | 修改帳號資訊（重新驗證） |
 
+#### 4.5.3 離線功能 | Offline Features
+
+- 快取已登入的帳號資訊（URL、資料庫、用戶名稱）
+- 無網路時顯示「無法連線」提示
+- 網路恢復後自動重新載入 WebView
+
 ---
 
 ## 5. 使用者介面設計 | UI/UX Design
@@ -348,17 +401,21 @@ data class OdooAccount(
 ### 5.1 設計規範 | Design Guidelines
 
 **色彩系統**:
-| 用途 | 顏色 | Hex |
-|------|------|-----|
-| Primary | Crimson Red | #C62828 |
-| Primary Dark | Dark Red | #8E0000 |
-| Accent | Pink | #E91E63 |
-| Background | Light Gray | #F5F5F5 |
-| Surface | White | #FFFFFF |
-| Text Primary | Dark Gray | #212121 |
-| Text Secondary | Medium Gray | #757575 |
-| Error | Red | #D32F2F |
-| Success | Green | #388E3C |
+| 用途 | 顏色 | Hex | 說明 |
+|------|------|-----|------|
+| Primary | WoowTech Blue | #6183FC | 主題色（可自訂） |
+| Primary Dark | Dark Blue | #4A6AE0 | 深色變體 |
+| Background | Light Gray | #F5F5F5 | 背景色 |
+| Surface | White | #FFFFFF | 卡片/表面色 |
+| Text Primary | Dark Gray | #212121 | 主要文字 |
+| Text Secondary | Medium Gray | #757575 | 次要文字 |
+| Error | Red | #D32F2F | 錯誤提示 |
+| Success | Green | #388E3C | 成功提示 |
+
+**動態主題色**:
+- 用戶可在設定頁面選擇任意顏色作為主題色
+- 使用 Material You 動態主題系統
+- 主題色會應用於：工具欄、按鈕、連結、圖示高亮等
 
 **Typography**:
 | 樣式 | Font | Size | Weight |
@@ -383,24 +440,35 @@ data class OdooAccount(
 ```
 App Launch
     │
+    ├── App Lock Enabled?
+    │   ├── Yes → Biometric/PIN Screen → Continue
+    │   └── No → Continue
+    │
     ├── Has Active Session?
     │   ├── Yes → Main Screen (WebView)
     │   └── No → Login Screen
     │
 Main Screen
     │
-    ├── WebView (Odoo Mobile Web)
+    ├── Top Toolbar
+    │   ├── Logo (Left)
+    │   └── Hamburger Menu (Right) → Configuration Screen
     │
-    └── FAB Menu
-        ├── Configuration → Configuration Screen
-        │   ├── Profile Card → Profile Details
-        │   ├── Settings → Settings Screen
-        │   ├── Switch Accounts → Account List
-        │   │   └── Add Account → Login Screen
-        │   └── Logout → Login Screen
-        │
-        ├── Refresh → Reload WebView
-        └── Share → Share Intent
+    └── WebView (Odoo Mobile Web)
+
+Configuration Screen
+    │
+    ├── Profile Card → Profile Details
+    ├── Settings → Settings Screen
+    │   ├── Appearance (Theme Color Picker)
+    │   ├── Security (Biometric/PIN)
+    │   ├── Language & Region
+    │   ├── Data & Storage
+    │   ├── Help & Support
+    │   └── About
+    ├── Switch Accounts → Account List
+    │   └── Add Account → Login Screen
+    └── Logout → Login Screen
 ```
 
 ---
@@ -413,14 +481,15 @@ Main Screen
 |------|---------|
 | 密碼儲存 | 使用 Android Keystore 加密 |
 | Session 儲存 | EncryptedSharedPreferences |
-| 網路傳輸 | 強制 HTTPS (可選擇允許 HTTP) |
+| 網路傳輸 | **僅 HTTPS**（強制安全連線） |
 | Certificate Pinning | 可選配置 |
 
 ### 6.2 認證安全 | Authentication Security
 
 | 項目 | 實作方式 |
 |------|---------|
-| 生物辨識 | Android Biometric API |
+| 生物辨識 | Android Biometric API（可選啟用） |
+| PIN 碼 | 4-6 位數 PIN 碼備用解鎖（可選啟用） |
 | Session 過期 | 自動檢測並重新導向登入 |
 | 多次失敗鎖定 | 5 次失敗後延遲 30 秒 |
 
@@ -429,7 +498,7 @@ Main Screen
 | 項目 | 設定 |
 |------|------|
 | JavaScript | 啟用（必須） |
-| Mixed Content | 禁止（僅 HTTPS） |
+| Mixed Content | **禁止**（僅 HTTPS） |
 | File Access | 限制於下載目錄 |
 | Geolocation | 需使用者授權 |
 
@@ -454,7 +523,7 @@ woow_odoo_app/
 ├── app/
 │   ├── src/
 │   │   ├── main/
-│   │   │   ├── java/com/woowtech/odoo/
+│   │   │   ├── java/io/woowtech/odoo/
 │   │   │   │   ├── WoowOdooApp.kt
 │   │   │   │   ├── di/
 │   │   │   │   │   └── AppModule.kt
@@ -464,48 +533,64 @@ woow_odoo_app/
 │   │   │   │   │   │   └── OdooJsonRpcClient.kt
 │   │   │   │   │   ├── repository/
 │   │   │   │   │   │   ├── AccountRepository.kt
+│   │   │   │   │   │   ├── SettingsRepository.kt
 │   │   │   │   │   │   └── UserRepository.kt
 │   │   │   │   │   └── local/
 │   │   │   │   │       ├── AccountDao.kt
-│   │   │   │   │       └── AppDatabase.kt
+│   │   │   │   │       ├── AppDatabase.kt
+│   │   │   │   │       └── EncryptedPrefs.kt
 │   │   │   │   ├── domain/
 │   │   │   │   │   ├── model/
 │   │   │   │   │   │   ├── OdooAccount.kt
-│   │   │   │   │   │   └── UserProfile.kt
+│   │   │   │   │   │   ├── UserProfile.kt
+│   │   │   │   │   │   └── AppSettings.kt
 │   │   │   │   │   └── usecase/
 │   │   │   │   │       ├── AuthenticateUseCase.kt
-│   │   │   │   │       └── GetProfileUseCase.kt
+│   │   │   │   │       ├── GetProfileUseCase.kt
+│   │   │   │   │       └── BiometricAuthUseCase.kt
 │   │   │   │   ├── ui/
 │   │   │   │   │   ├── theme/
 │   │   │   │   │   │   ├── Color.kt
 │   │   │   │   │   │   ├── Theme.kt
+│   │   │   │   │   │   ├── DynamicTheme.kt
 │   │   │   │   │   │   └── Type.kt
 │   │   │   │   │   ├── navigation/
 │   │   │   │   │   │   └── NavGraph.kt
+│   │   │   │   │   ├── auth/
+│   │   │   │   │   │   ├── BiometricScreen.kt
+│   │   │   │   │   │   └── PinScreen.kt
 │   │   │   │   │   ├── login/
 │   │   │   │   │   │   ├── LoginScreen.kt
 │   │   │   │   │   │   └── LoginViewModel.kt
 │   │   │   │   │   ├── main/
 │   │   │   │   │   │   ├── MainScreen.kt
 │   │   │   │   │   │   ├── MainViewModel.kt
+│   │   │   │   │   │   ├── TopToolbar.kt
 │   │   │   │   │   │   └── OdooWebView.kt
 │   │   │   │   │   ├── config/
 │   │   │   │   │   │   ├── ConfigScreen.kt
 │   │   │   │   │   │   ├── ProfileScreen.kt
-│   │   │   │   │   │   └── SettingsScreen.kt
+│   │   │   │   │   │   ├── SettingsScreen.kt
+│   │   │   │   │   │   └── ThemeColorPicker.kt
 │   │   │   │   │   └── components/
-│   │   │   │   │       ├── TopBar.kt
 │   │   │   │   │       ├── AccountCard.kt
-│   │   │   │   │       └── SettingsItem.kt
+│   │   │   │   │       ├── SettingsItem.kt
+│   │   │   │   │       └── ColorPickerDialog.kt
 │   │   │   │   └── util/
 │   │   │   │       ├── SecurityUtils.kt
-│   │   │   │       └── NetworkUtils.kt
+│   │   │   │       ├── NetworkUtils.kt
+│   │   │   │       └── BiometricUtils.kt
 │   │   │   ├── res/
 │   │   │   │   ├── drawable/
+│   │   │   │   │   ├── ic_launcher.xml
+│   │   │   │   │   └── woowtech_logo.png
+│   │   │   │   ├── mipmap-xxxhdpi/
+│   │   │   │   │   └── ic_launcher.png
 │   │   │   │   ├── values/
 │   │   │   │   │   ├── strings.xml
-│   │   │   │   │   ├── strings-zh-rTW.xml
 │   │   │   │   │   └── colors.xml
+│   │   │   │   ├── values-zh-rTW/
+│   │   │   │   │   └── strings.xml
 │   │   │   │   └── xml/
 │   │   │   │       └── network_security_config.xml
 │   │   │   └── AndroidManifest.xml
@@ -523,18 +608,19 @@ woow_odoo_app/
 
 ## 9. 開發階段 | Development Phases
 
-### Phase 1: 核心功能 (MVP) - 預估 4 週
+### Phase 1: 核心功能 (MVP)
 
 | 功能 | 優先級 | 狀態 |
 |------|--------|------|
 | 登入畫面 UI | P0 | Planned |
 | JSON-RPC 認證 | P0 | Planned |
+| 頂部固定工具欄 | P0 | Planned |
 | WebView 整合 | P0 | Planned |
 | Session 管理 | P0 | Planned |
 | 基本 Configuration 頁面 | P0 | Planned |
 | 登出功能 | P0 | Planned |
 
-### Phase 2: 帳號管理 - 預估 2 週
+### Phase 2: 帳號管理與設定
 
 | 功能 | 優先級 | 狀態 |
 |------|--------|------|
@@ -542,24 +628,25 @@ woow_odoo_app/
 | 帳號切換 | P1 | Planned |
 | 帳號移除 | P1 | Planned |
 | 個人資料編輯 | P1 | Planned |
+| 主題色自訂（Color Picker）| P1 | Planned |
+| 多語言支援（繁中/英文）| P1 | Planned |
 
-### Phase 3: 進階功能 - 預估 2 週
+### Phase 3: 安全功能
 
 | 功能 | 優先級 | 狀態 |
 |------|--------|------|
-| 生物辨識鎖定 | P2 | Planned |
-| 多語言支援 | P2 | Planned |
-| 深色模式 | P2 | Planned |
+| 生物辨識鎖定（可選）| P2 | Planned |
+| PIN 碼鎖定（可選）| P2 | Planned |
 | 快取管理 | P2 | Planned |
 
-### Phase 4: 優化與發佈 - 預估 1 週
+### Phase 4: 優化與發佈
 
 | 功能 | 優先級 | 狀態 |
 |------|--------|------|
 | 效能優化 | P2 | Planned |
 | 錯誤處理完善 | P2 | Planned |
-| Play Store 準備 | P2 | Planned |
-| 文件撰寫 | P2 | Planned |
+| APK 簽章 | P2 | Planned |
+| 內部分發準備 | P2 | Planned |
 
 ---
 
@@ -577,20 +664,22 @@ woow_odoo_app/
 - API 認證流程測試
 - 帳號管理流程測試
 - WebView Cookie 同步測試
+- 測試伺服器: https://woowtechaicoder-odootest.woowtech.io/
 
 ### 10.3 UI 測試 | UI Tests
 
 - 登入流程 E2E 測試
 - 導航測試
-- 無障礙測試
+- 主題色切換測試
+- 多語言切換測試
 
 ### 10.4 相容性測試 | Compatibility Tests
 
 | 測試項目 | 範圍 |
 |---------|------|
-| Android 版本 | 7.0 - 14 |
+| Android 版本 | 10 - 14 (API 29-34) |
 | 螢幕尺寸 | 5" - 10" |
-| Odoo 版本 | 16, 17, 18 Community |
+| Odoo 版本 | 18 Community |
 
 ---
 
@@ -672,17 +761,40 @@ woow_odoo_app/
 | add_account | Add Account | 新增帳號 |
 | logout | Logout | 登出 |
 | appearance | Appearance | 外觀 |
+| theme_color | Theme Color | 主題顏色 |
 | security | Security | 安全性 |
+| app_lock | App Lock | 應用程式鎖定 |
+| biometric_unlock | Biometric Unlock | 生物辨識解鎖 |
+| pin_code | PIN Code | PIN 碼 |
 | language_region | Language & Region | 語言與地區 |
 | data_storage | Data & Storage | 資料與儲存 |
+| clear_cache | Clear Cache | 清除快取 |
 | help_support | Help & Support | 幫助與支援 |
 | about | About | 關於 |
+| visit_website | Visit Website | 造訪網站 |
+| contact_us | Contact Us | 聯絡我們 |
+| error_network | Unable to connect to server | 無法連接到伺服器 |
+| error_invalid_url | Invalid server URL | 伺服器網址無效 |
+| error_database | Database not found | 找不到資料庫 |
+| error_auth | Invalid username or password | 帳號或密碼錯誤 |
+| error_session | Session expired, please login again | Session 已過期，請重新登入 |
+| error_https | Secure connection required (HTTPS) | 需要安全連線 (HTTPS) |
 
-### C. 參考連結 | Reference Links
+### C. 品牌資產 | Brand Assets
+
+| 資產 | 說明 |
+|------|------|
+| Logo | WoowTech 藍紫色圓形 Logo |
+| 主題色 | #6183FC（預設，可自訂） |
+| 公司網站 | https://aiot.woowtech.io |
+| 聯絡 Email | woowtech@designsmart.com.tw |
+
+### D. 參考連結 | Reference Links
 
 - [Odoo 18 External API Documentation](https://www.odoo.com/documentation/18.0/developer/reference/external_api.html)
 - [Android Jetpack Compose](https://developer.android.com/jetpack/compose)
 - [Material Design 3](https://m3.material.io/)
+- [Android Biometric API](https://developer.android.com/training/sign-in/biometric-auth)
 - [Android Security Best Practices](https://developer.android.com/topic/security/best-practices)
 
 ---
