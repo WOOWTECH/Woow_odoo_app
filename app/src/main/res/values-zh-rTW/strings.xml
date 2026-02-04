@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Info -->
+    <string name="app_name">WoowTech Odoo</string>
+    <string name="app_version">1.0.0</string>
+    <string name="copyright">© 2026 WoowTech</string>
+
+    <!-- Login Screen -->
+    <string name="login_title">新增帳號</string>
+    <string name="login_subtitle">輸入您的認證資訊以繼續</string>
+    <string name="server_url">伺服器網址</string>
+    <string name="server_url_hint">example.odoo.com</string>
+    <string name="database_name">資料庫名稱</string>
+    <string name="database_name_hint">輸入資料庫名稱</string>
+    <string name="username">使用者名稱</string>
+    <string name="username_hint">輸入使用者名稱或電子郵件</string>
+    <string name="password">密碼</string>
+    <string name="password_hint">輸入密碼</string>
+    <string name="remember_me">記住我</string>
+    <string name="next_button">下一步</string>
+    <string name="login_button">登入</string>
+    <string name="back_button">返回</string>
+    <string name="https_prefix">https://</string>
+
+    <!-- Main Screen -->
+    <string name="menu">選單</string>
+    <string name="refresh">重新整理</string>
+    <string name="loading">載入中…</string>
+    <string name="no_connection">沒有網路連線</string>
+    <string name="retry">重試</string>
+
+    <!-- Configuration Screen -->
+    <string name="configuration">設定</string>
+    <string name="settings">設定</string>
+    <string name="settings_subtitle">應用程式偏好設定和選項</string>
+    <string name="switch_accounts">切換帳號</string>
+    <string name="switch_accounts_subtitle">管理和切換帳號</string>
+    <string name="add_account">新增帳號</string>
+    <string name="logout">登出</string>
+    <string name="logout_subtitle">從此裝置登出</string>
+    <string name="logout_confirm_title">登出</string>
+    <string name="logout_confirm_message">確定要登出嗎？</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">確認</string>
+    <string name="no_other_accounts">沒有其他帳號</string>
+
+    <!-- Profile Screen -->
+    <string name="profile_details">個人資料</string>
+    <string name="full_name">姓名</string>
+    <string name="email">電子郵件</string>
+    <string name="phone">電話</string>
+    <string name="mobile">手機</string>
+    <string name="website">網站</string>
+    <string name="job_title">職稱</string>
+    <string name="save">儲存</string>
+    <string name="edit_avatar">編輯頭像</string>
+    <string name="profile_updated">個人資料已更新</string>
+
+    <!-- Settings Screen -->
+    <string name="appearance">外觀</string>
+    <string name="theme_color">主題顏色</string>
+    <string name="theme_color_subtitle">自訂應用程式主題顏色</string>
+    <string name="reduce_motion">減少動畫</string>
+    <string name="reduce_motion_subtitle">減少動畫效果</string>
+
+    <string name="security">安全性</string>
+    <string name="app_lock">應用程式鎖定</string>
+    <string name="app_lock_subtitle">需要驗證才能開啟應用程式</string>
+    <string name="biometric_unlock">生物辨識解鎖</string>
+    <string name="biometric_unlock_subtitle">使用指紋或臉部解鎖</string>
+    <string name="pin_code">PIN 碼</string>
+    <string name="pin_code_subtitle">設定 PIN 碼作為備用解鎖方式</string>
+    <string name="set_pin">設定 PIN 碼</string>
+    <string name="change_pin">變更 PIN 碼</string>
+
+    <string name="language_region">語言與地區</string>
+    <string name="language">語言</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">繁體中文</string>
+    <string name="timezone">時區</string>
+
+    <string name="data_storage">資料與儲存</string>
+    <string name="clear_cache">清除快取</string>
+    <string name="clear_cache_subtitle">釋放儲存空間</string>
+    <string name="cache_size">已使用 %s</string>
+    <string name="cache_cleared">快取已清除</string>
+
+    <string name="help_support">幫助與支援</string>
+    <string name="odoo_help_center">Odoo 說明中心</string>
+    <string name="odoo_help_center_subtitle">官方文件與指南</string>
+    <string name="odoo_community_forum">Odoo 社群論壇</string>
+    <string name="odoo_community_forum_subtitle">從社群獲得幫助</string>
+
+    <string name="about">關於</string>
+    <string name="visit_website">造訪網站</string>
+    <string name="contact_us">聯絡我們</string>
+    <string name="app_version_title">應用程式版本</string>
+
+    <!-- Color Picker -->
+    <string name="select_color">選擇顏色</string>
+    <string name="custom_color">自訂顏色</string>
+    <string name="preset_colors">預設顏色</string>
+    <string name="apply">套用</string>
+
+    <!-- PIN Screen -->
+    <string name="enter_pin">輸入 PIN 碼</string>
+    <string name="create_pin">建立 PIN 碼</string>
+    <string name="confirm_pin">確認 PIN 碼</string>
+    <string name="pin_mismatch">PIN 碼不符</string>
+    <string name="pin_set_success">PIN 碼設定成功</string>
+    <string name="wrong_pin">PIN 碼錯誤</string>
+    <string name="attempts_remaining">剩餘 %d 次嘗試機會</string>
+    <string name="try_again_later">嘗試次數過多，請稍後再試</string>
+
+    <!-- Biometric -->
+    <string name="biometric_title">生物辨識登入</string>
+    <string name="biometric_subtitle">使用指紋或臉部登入</string>
+    <string name="biometric_negative">使用 PIN 碼</string>
+    <string name="biometric_not_available">生物辨識驗證無法使用</string>
+    <string name="biometric_not_enrolled">尚未設定生物辨識資料</string>
+
+    <!-- Error Messages -->
+    <string name="error_network">無法連接到伺服器</string>
+    <string name="error_invalid_url">伺服器網址無效</string>
+    <string name="error_database">找不到資料庫</string>
+    <string name="error_auth">帳號或密碼錯誤</string>
+    <string name="error_session">Session 已過期，請重新登入</string>
+    <string name="error_https">需要安全連線 (HTTPS)</string>
+    <string name="error_unknown">發生未預期的錯誤</string>
+    <string name="error_timeout">連線逾時</string>
+    <string name="error_server">伺服器錯誤</string>
+
+    <!-- Success Messages -->
+    <string name="success_login">登入成功</string>
+    <string name="success_logout">已成功登出</string>
+    <string name="success_saved">已成功儲存</string>
+
+    <!-- Accessibility -->
+    <string name="content_description_logo">WoowTech 標誌</string>
+    <string name="content_description_menu">開啟選單</string>
+    <string name="content_description_back">返回</string>
+    <string name="content_description_close">關閉</string>
+    <string name="content_description_avatar">使用者頭像</string>
+    <string name="content_description_visibility_on">顯示密碼</string>
+    <string name="content_description_visibility_off">隱藏密碼</string>
+</resources>

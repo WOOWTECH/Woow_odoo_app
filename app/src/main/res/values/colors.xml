@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary colors -->
+    <color name="woowtech_blue">#6183FC</color>
+    <color name="woowtech_blue_dark">#4A6AE0</color>
+    <color name="woowtech_blue_light">#8BA3FF</color>
+
+    <!-- Surface colors -->
+    <color name="surface_light">#FFFFFF</color>
+    <color name="surface_dark">#1C1B1F</color>
+    <color name="background_light">#F5F5F5</color>
+    <color name="background_dark">#121212</color>
+
+    <!-- Text colors -->
+    <color name="text_primary_light">#212121</color>
+    <color name="text_primary_dark">#E1E1E1</color>
+    <color name="text_secondary_light">#757575</color>
+    <color name="text_secondary_dark">#B3B3B3</color>
+
+    <!-- Status colors -->
+    <color name="error">#D32F2F</color>
+    <color name="success">#388E3C</color>
+    <color name="warning">#F57C00</color>
+    <color name="info">#1976D2</color>
+
+    <!-- Splash/Launch colors -->
+    <color name="splash_background">#6183FC</color>
+</resources>

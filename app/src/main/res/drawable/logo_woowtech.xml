@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- WoowTech logo - blue/purple circular design with W -->
+    <!-- Background circle with gradient effect -->
+    <path
+        android:fillColor="#6183FC"
+        android:pathData="M24,0
+            A24,24 0 1,1 24,48
+            A24,24 0 1,1 24,0z"/>
+    <!-- Inner lighter circle -->
+    <path
+        android:fillColor="#7B9AFF"
+        android:pathData="M24,4
+            A20,20 0 1,1 24,44
+            A20,20 0 1,1 24,4z"/>
+    <!-- W letter -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,16
+            L16,16
+            L20,28
+            L24,16
+            L28,16
+            L32,28
+            L36,16
+            L40,16
+            L33,38
+            L29,38
+            L24,25
+            L19,38
+            L15,38
+            Z"/>
+</vector>

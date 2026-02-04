@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Info -->
+    <string name="app_name">WoowTech Odoo</string>
+    <string name="app_version">1.0.0</string>
+    <string name="copyright">© 2026 WoowTech</string>
+
+    <!-- Login Screen -->
+    <string name="login_title">Add New Account</string>
+    <string name="login_subtitle">Enter your credentials to continue</string>
+    <string name="server_url">Server URL</string>
+    <string name="server_url_hint">example.odoo.com</string>
+    <string name="database_name">Database Name</string>
+    <string name="database_name_hint">Enter database name</string>
+    <string name="username">Username</string>
+    <string name="username_hint">Enter username or email</string>
+    <string name="password">Password</string>
+    <string name="password_hint">Enter password</string>
+    <string name="remember_me">Remember me</string>
+    <string name="next_button">Next</string>
+    <string name="login_button">Login</string>
+    <string name="back_button">Back</string>
+    <string name="https_prefix">https://</string>
+
+    <!-- Main Screen -->
+    <string name="menu">Menu</string>
+    <string name="refresh">Refresh</string>
+    <string name="loading">Loading…</string>
+    <string name="no_connection">No internet connection</string>
+    <string name="retry">Retry</string>
+
+    <!-- Configuration Screen -->
+    <string name="configuration">Configuration</string>
+    <string name="settings">Settings</string>
+    <string name="settings_subtitle">App preferences and options</string>
+    <string name="switch_accounts">Switch Accounts</string>
+    <string name="switch_accounts_subtitle">Manage and switch between accounts</string>
+    <string name="add_account">Add Account</string>
+    <string name="logout">Logout</string>
+    <string name="logout_subtitle">Sign out from this device</string>
+    <string name="logout_confirm_title">Logout</string>
+    <string name="logout_confirm_message">Are you sure you want to logout?</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+    <string name="no_other_accounts">No other accounts</string>
+
+    <!-- Profile Screen -->
+    <string name="profile_details">Profile Details</string>
+    <string name="full_name">Full Name</string>
+    <string name="email">Email</string>
+    <string name="phone">Phone</string>
+    <string name="mobile">Mobile</string>
+    <string name="website">Website</string>
+    <string name="job_title">Job Title</string>
+    <string name="save">Save</string>
+    <string name="edit_avatar">Edit Avatar</string>
+    <string name="profile_updated">Profile updated successfully</string>
+
+    <!-- Settings Screen -->
+    <string name="appearance">Appearance</string>
+    <string name="theme_color">Theme Color</string>
+    <string name="theme_color_subtitle">Customize app theme color</string>
+    <string name="reduce_motion">Reduce Motion</string>
+    <string name="reduce_motion_subtitle">Minimize animations</string>
+
+    <string name="security">Security</string>
+    <string name="app_lock">App Lock</string>
+    <string name="app_lock_subtitle">Require authentication to open app</string>
+    <string name="biometric_unlock">Biometric Unlock</string>
+    <string name="biometric_unlock_subtitle">Use fingerprint or face to unlock</string>
+    <string name="pin_code">PIN Code</string>
+    <string name="pin_code_subtitle">Set up PIN code for backup unlock</string>
+    <string name="set_pin">Set PIN</string>
+    <string name="change_pin">Change PIN</string>
+
+    <string name="language_region">Language &amp; Region</string>
+    <string name="language">Language</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">繁體中文</string>
+    <string name="timezone">Timezone</string>
+
+    <string name="data_storage">Data &amp; Storage</string>
+    <string name="clear_cache">Clear Cache</string>
+    <string name="clear_cache_subtitle">Free up storage space</string>
+    <string name="cache_size">%s used</string>
+    <string name="cache_cleared">Cache cleared successfully</string>
+
+    <string name="help_support">Help &amp; Support</string>
+    <string name="odoo_help_center">Odoo Help Center</string>
+    <string name="odoo_help_center_subtitle">Official documentation and guides</string>
+    <string name="odoo_community_forum">Odoo Community Forum</string>
+    <string name="odoo_community_forum_subtitle">Get help from the community</string>
+
+    <string name="about">About</string>
+    <string name="visit_website">Visit Website</string>
+    <string name="contact_us">Contact Us</string>
+    <string name="app_version_title">App Version</string>
+
+    <!-- Color Picker -->
+    <string name="select_color">Select Color</string>
+    <string name="custom_color">Custom Color</string>
+    <string name="preset_colors">Preset Colors</string>
+    <string name="apply">Apply</string>
+
+    <!-- PIN Screen -->
+    <string name="enter_pin">Enter PIN</string>
+    <string name="create_pin">Create PIN</string>
+    <string name="confirm_pin">Confirm PIN</string>
+    <string name="pin_mismatch">PINs do not match</string>
+    <string name="pin_set_success">PIN set successfully</string>
+    <string name="wrong_pin">Wrong PIN</string>
+    <string name="attempts_remaining">%d attempts remaining</string>
+    <string name="try_again_later">Too many attempts. Try again later.</string>
+
+    <!-- Biometric -->
+    <string name="biometric_title">Biometric Login</string>
+    <string name="biometric_subtitle">Use fingerprint or face to login</string>
+    <string name="biometric_negative">Use PIN</string>
+    <string name="biometric_not_available">Biometric authentication not available</string>
+    <string name="biometric_not_enrolled">No biometric data enrolled</string>
+
+    <!-- Error Messages -->
+    <string name="error_network">Unable to connect to server</string>
+    <string name="error_invalid_url">Invalid server URL</string>
+    <string name="error_database">Database not found</string>
+    <string name="error_auth">Invalid username or password</string>
+    <string name="error_session">Session expired, please login again</string>
+    <string name="error_https">Secure connection required (HTTPS)</string>
+    <string name="error_unknown">An unexpected error occurred</string>
+    <string name="error_timeout">Connection timeout</string>
+    <string name="error_server">Server error</string>
+
+    <!-- Success Messages -->
+    <string name="success_login">Login successful</string>
+    <string name="success_logout">Logged out successfully</string>
+    <string name="success_saved">Saved successfully</string>
+
+    <!-- Accessibility -->
+    <string name="content_description_logo">WoowTech Logo</string>
+    <string name="content_description_menu">Open menu</string>
+    <string name="content_description_back">Go back</string>
+    <string name="content_description_close">Close</string>
+    <string name="content_description_avatar">User avatar</string>
+    <string name="content_description_visibility_on">Show password</string>
+    <string name="content_description_visibility_off">Hide password</string>
+</resources>

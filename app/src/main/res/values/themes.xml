@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.WoowTechOdoo" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/woowtech_blue</item>
+        <item name="android:navigationBarColor">@color/surface_light</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">@color/background_light</item>
+    </style>
+
+    <style name="Theme.WoowTechOdoo.Splash" parent="Theme.WoowTechOdoo">
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
+</resources>
