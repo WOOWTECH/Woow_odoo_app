@@ -23,13 +23,14 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace
+      run: ./gradlew assembleDebug --no-daemon --stacktrace --info
+      env:
+        GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=512m"
 
     - name: List APK
       run: ls -la app/build/outputs/apk/debug/
