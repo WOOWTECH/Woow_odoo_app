@@ -29,24 +29,26 @@ GitHub Actions 建置 APK 時在 "Build Debug APK" 步驟持續失敗。
 
 參考資料：[Kotlin Compose Compiler Migration Guide](https://kotlinlang.org/docs/compose-compiler-migration-guide.html)
 
-**解決方案：**
-1. 從所有 Gradle 檔案中移除 `kotlin.compose` plugin
-2. 使用傳統的 `composeOptions` 配置方式：
-```kotlin
-// app/build.gradle.kts
-composeOptions {
-    kotlinCompilerExtensionVersion = "1.5.10"
-}
+**最終解決方案：**
+升級到 Kotlin 2.0.21，因為：
+1. `kotlin.compose` plugin 是為 Kotlin 2.0+ 設計的
+2. Compose compiler 版本會自動匹配 Kotlin 版本
+3. 不需要手動配置 `kotlinCompilerExtensionVersion`
+
+```toml
+# gradle/libs.versions.toml
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.28"
 ```
 
 #### 🟡 中優先級問題
 
 **2. Alpha 版本依賴**
 
-| 依賴 | 目前版本 | 建議版本 |
-|------|----------|----------|
-| security-crypto | 1.1.0-alpha06 | 1.0.0 (穩定版) |
-| biometric | 1.2.0-alpha05 | 1.1.0 (穩定版) |
+| 依賴 | 目前版本 | 狀態 |
+|------|----------|------|
+| security-crypto | 1.1.0-alpha06 | 保留 (穩定版缺少必要功能) |
+| biometric | 1.2.0-alpha05 | 保留 (穩定版缺少必要功能) |
 
 **3. 無用的權限宣告**
 - `WRITE_EXTERNAL_STORAGE` 權限設定 `maxSdkVersion="28"`
@@ -68,45 +70,38 @@ composeOptions {
 - 所有 R.drawable 資源引用
 - 所有 XML 資源配置
 - Room/Hilt/Compose 註解
-- 依賴版本相容性（AGP 8.3.0 + Kotlin 1.9.22 + KSP 1.9.22-1.0.17）
 - Gradle 配置結構
 
 ## 修復計畫
 
-### 步驟 1：修復 Compose Compiler 配置
-```kotlin
-// app/build.gradle.kts
-android {
-    ...
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.10"
-    }
-}
-```
-
-### 步驟 2：更新 Alpha 依賴（可選）
+### 步驟 1：升級到 Kotlin 2.0.21
 ```toml
 # gradle/libs.versions.toml
-securityCrypto = "1.0.0"
-biometric = "1.1.0"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.28"
 ```
 
-### 步驟 3：移除無用權限（可選）
-移除 AndroidManifest.xml 中的 WRITE_EXTERNAL_STORAGE 權限
+### 步驟 2：保留 kotlin.compose plugin
+由於使用 Kotlin 2.0+，`org.jetbrains.kotlin.plugin.compose` 現在是正確的配置方式。
+
+### 步驟 3：移除 composeOptions（如果存在）
+Kotlin 2.0+ 不需要手動指定 `kotlinCompilerExtensionVersion`。
 
 ## 預期結果
 
-修復 Compose Compiler 配置後，GitHub Actions 建置應該能夠成功完成。
+升級到 Kotlin 2.0.21 後，GitHub Actions 建置應該能夠成功完成。
 
 ## 版本相容性對照表
 
-| Kotlin | Compose Compiler | Compose BOM |
-|--------|------------------|-------------|
-| 1.9.22 | 1.5.10 | 2024.02.00 |
-| 1.9.23 | 1.5.11 | 2024.03.00 |
-| 2.0.0+ | 內建 | 2024.04.00+ |
+| Kotlin | Compose Compiler | KSP | Compose BOM |
+|--------|------------------|-----|-------------|
+| 1.9.22 | 1.5.10 | 1.9.22-1.0.17 | 2024.02.00 |
+| 1.9.23 | 1.5.11 | 1.9.23-1.0.20 | 2024.03.00 |
+| 2.0.0 | 內建 (2.0.0) | 2.0.0-1.0.21 | 2024.04.00+ |
+| 2.0.21 | 內建 (2.0.21) | 2.0.21-1.0.28 | 2024.02.00+ |
 
 ## 參考資料
 
 - [Compose to Kotlin Compatibility Map](https://developer.android.com/jetpack/androidx/releases/compose-kotlin)
-- [Compose Compiler Releases](https://developer.android.com/jetpack/androidx/releases/compose-compiler)
+- [Kotlin Compose Compiler Migration Guide](https://kotlinlang.org/docs/compose-compiler-migration-guide.html)
+- [Jetpack Compose compiler moving to Kotlin repository](https://android-developers.googleblog.com/2024/04/jetpack-compose-compiler-moving-to-kotlin-repository.html)
