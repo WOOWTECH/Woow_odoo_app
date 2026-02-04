@@ -20,13 +20,20 @@ GitHub Actions 建置 APK 時在 "Build Debug APK" 步驟持續失敗。
 
 | 項目 | 值 |
 |------|-----|
-| 檔案 | `gradle/libs.versions.toml` |
-| 問題 | 使用 `org.jetbrains.kotlin.plugin.compose` (Kotlin 2.0+ 新方式) 配合 Kotlin 1.9.22 |
-| 影響 | **這是最可能導致建置失敗的原因** |
+| 檔案 | `gradle/libs.versions.toml`, `build.gradle.kts`, `app/build.gradle.kts` |
+| 問題 | 使用 `org.jetbrains.kotlin.plugin.compose` (Kotlin 2.0+ 專用) 配合 Kotlin 1.9.22 |
+| 影響 | **這是導致建置失敗的根本原因** |
+
+**根本原因：**
+`org.jetbrains.kotlin.plugin.compose` 插件**只適用於 Kotlin 2.0+**，不支援 Kotlin 1.9.x。
+
+參考資料：[Kotlin Compose Compiler Migration Guide](https://kotlinlang.org/docs/compose-compiler-migration-guide.html)
 
 **解決方案：**
-在 `app/build.gradle.kts` 中加入明確的 Compose Compiler 版本：
+1. 從所有 Gradle 檔案中移除 `kotlin.compose` plugin
+2. 使用傳統的 `composeOptions` 配置方式：
 ```kotlin
+// app/build.gradle.kts
 composeOptions {
     kotlinCompilerExtensionVersion = "1.5.10"
 }
