@@ -2,16 +2,22 @@ package io.woowtech.odoo.ui.main
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.os.Message
 import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebResourceResponse
 import android.webkit.WebViewClient
+import android.view.ViewGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,7 +49,6 @@ fun MainScreen(
     onMenuClick: () -> Unit
 ) {
     val account by viewModel.activeAccount.collectAsState(initial = null)
-    val credentials by viewModel.credentials.collectAsState()
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
@@ -79,11 +84,17 @@ fun MainScreen(
 
         // WebView
         Box(modifier = Modifier.fillMaxSize()) {
-            credentials?.let { creds ->
+            account?.let { acc ->
+                // Get session ID and sync to WebView's CookieManager
+                val sessionId = viewModel.getSessionId(acc.fullServerUrl)
+
                 OdooWebView(
-                    credentials = creds,
+                    serverUrl = acc.fullServerUrl,
+                    database = acc.database,
+                    sessionId = sessionId,
                     onWebViewCreated = { webView = it },
-                    onLoadingChanged = { isLoading = it }
+                    onLoadingChanged = { isLoading = it },
+                    onSessionExpired = onMenuClick // Navigate to menu/login on session expiry
                 )
             }
 
@@ -102,15 +113,22 @@ fun MainScreen(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun OdooWebView(
-    credentials: WebViewCredentials,
+    serverUrl: String,
+    database: String,
+    sessionId: String?,
     onWebViewCreated: (WebView) -> Unit,
-    onLoadingChanged: (Boolean) -> Unit
+    onLoadingChanged: (Boolean) -> Unit,
+    onSessionExpired: () -> Unit
 ) {
-    var hasAutoLoggedIn by remember { mutableStateOf(false) }
-
     AndroidView(
         factory = { context ->
             WebView(context).apply {
+                // v1.0.14: Ensure WebView has proper layout params
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+
                 onWebViewCreated(this)
 
                 settings.apply {
@@ -121,18 +139,37 @@ fun OdooWebView(
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
+
+                    // v1.0.12: CRITICAL FIX - Disable wide viewport settings
+                    // These settings cause Odoo OWL to miscalculate layout dimensions
+                    // Playwright tests work WITHOUT these settings
+                    loadWithOverviewMode = false
+                    useWideViewPort = false
+
                     allowFileAccess = true
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                    userAgentString = settings.userAgentString + " WoowTechOdoo/1.0"
+
+                    // v1.0.10: Additional settings for OWL framework compatibility
+                    javaScriptCanOpenWindowsAutomatically = true
+                    mediaPlaybackRequiresUserGesture = false
+                    setSupportMultipleWindows(true)
+
+                    // v1.0.12: Use standard Chrome Mobile User-Agent (no custom suffix)
+                    // Some sites check for exact UA match
+                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                 }
 
-                // Enable cookies
+                // Enable cookies and sync session cookie from OkHttp to WebView
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
                 cookieManager.setAcceptThirdPartyCookies(this, true)
+
+                // Sync session cookie from native authentication to WebView
+                if (sessionId != null) {
+                    cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure")
+                    cookieManager.flush()
+                }
 
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -142,95 +179,50 @@ fun OdooWebView(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        // v1.0.14: Force layout recalculation for OWL framework
+                        view?.evaluateJavascript(
+                            """
+                            (function() {
+                                console.log('[WoowTech] Page loaded: ' + window.location.href);
+                                console.log('[WoowTech] Viewport: ' + window.innerWidth + 'x' + window.innerHeight);
 
-                        // Auto-login when on login page
-                        if (url != null && (url.contains("/web/login") || url.endsWith("/web")) && !hasAutoLoggedIn) {
-                            hasAutoLoggedIn = true
+                                // Force body to have correct dimensions
+                                document.body.style.minHeight = '100vh';
+                                document.body.style.height = '100%';
+                                document.documentElement.style.height = '100%';
 
-                            // Escape special characters in password for JavaScript
-                            val escapedPassword = credentials.password
-                                .replace("\\", "\\\\")
-                                .replace("'", "\\'")
-                                .replace("\"", "\\\"")
-                                .replace("\n", "\\n")
-                                .replace("\r", "\\r")
+                                // Force action_manager to have correct dimensions
+                                var am = document.querySelector('.o_action_manager');
+                                if (am) {
+                                    am.style.minHeight = 'calc(100vh - 46px)';
+                                    am.style.height = 'auto';
+                                    am.style.overflow = 'auto';
+                                    console.log('[WoowTech] ActionManager found, innerHTML: ' + am.innerHTML.length + ' chars');
+                                    console.log('[WoowTech] ActionManager size: ' + am.offsetWidth + 'x' + am.offsetHeight);
+                                }
 
-                            val escapedUsername = credentials.username
-                                .replace("\\", "\\\\")
-                                .replace("'", "\\'")
-
-                            val escapedDatabase = credentials.database
-                                .replace("\\", "\\\\")
-                                .replace("'", "\\'")
-
-                            // Inject JavaScript to auto-fill and submit the login form
-                            val jsCode = """
-                                (function() {
-                                    // Wait for page to be ready
-                                    function tryLogin() {
-                                        var loginField = document.querySelector('input[name="login"]');
-                                        var passwordField = document.querySelector('input[name="password"]');
-                                        var dbField = document.querySelector('input[name="db"]') || document.querySelector('select[name="db"]');
-                                        var form = document.querySelector('form.oe_login_form') || document.querySelector('form');
-
-                                        if (loginField && passwordField) {
-                                            // Fill in credentials
-                                            loginField.value = '${escapedUsername}';
-                                            passwordField.value = '${escapedPassword}';
-
-                                            // Set database if field exists
-                                            if (dbField) {
-                                                if (dbField.tagName === 'SELECT') {
-                                                    for (var i = 0; i < dbField.options.length; i++) {
-                                                        if (dbField.options[i].value === '${escapedDatabase}') {
-                                                            dbField.selectedIndex = i;
-                                                            break;
-                                                        }
-                                                    }
-                                                } else {
-                                                    dbField.value = '${escapedDatabase}';
-                                                }
-                                            }
-
-                                            // Trigger input events for any JS validation
-                                            loginField.dispatchEvent(new Event('input', { bubbles: true }));
-                                            passwordField.dispatchEvent(new Event('input', { bubbles: true }));
-
-                                            // Submit the form
-                                            setTimeout(function() {
-                                                var submitBtn = document.querySelector('button[type="submit"]') ||
-                                                               document.querySelector('input[type="submit"]') ||
-                                                               form.querySelector('button');
-                                                if (submitBtn) {
-                                                    submitBtn.click();
-                                                } else if (form) {
-                                                    form.submit();
-                                                }
-                                            }, 300);
-
-                                            return true;
-                                        }
-                                        return false;
+                                // Trigger multiple resize events to wake up OWL
+                                window.dispatchEvent(new Event('resize'));
+                                setTimeout(function() {
+                                    window.dispatchEvent(new Event('resize'));
+                                    // Force reflow
+                                    document.body.offsetHeight;
+                                }, 100);
+                                setTimeout(function() {
+                                    window.dispatchEvent(new Event('resize'));
+                                }, 500);
+                                setTimeout(function() {
+                                    window.dispatchEvent(new Event('resize'));
+                                    var am2 = document.querySelector('.o_action_manager');
+                                    if (am2) {
+                                        console.log('[WoowTech] After 1s - ActionManager size: ' + am2.offsetWidth + 'x' + am2.offsetHeight);
+                                        console.log('[WoowTech] After 1s - innerHTML: ' + am2.innerHTML.length + ' chars');
                                     }
-
-                                    // Try immediately, then retry a few times
-                                    if (!tryLogin()) {
-                                        var retries = 0;
-                                        var interval = setInterval(function() {
-                                            if (tryLogin() || retries > 10) {
-                                                clearInterval(interval);
-                                            }
-                                            retries++;
-                                        }, 500);
-                                    }
-                                })();
-                            """.trimIndent()
-
-                            view?.evaluateJavascript(jsCode) { result ->
-                                Log.d("OdooWebView", "Auto-login script executed: $result")
-                            }
-                        }
-
+                                }, 1000);
+                            })();
+                            """.trimIndent(),
+                            null
+                        )
                         onLoadingChanged(false)
                     }
 
@@ -239,25 +231,101 @@ fun OdooWebView(
                         request: WebResourceRequest?
                     ): Boolean {
                         val url = request?.url?.toString() ?: return false
+                        Log.d("WoowTechOdoo", "shouldOverrideUrlLoading: $url")
 
-                        // Allow navigation within the same Odoo instance
-                        if (url.startsWith(credentials.serverUrl)) {
-                            return false
-                        }
-
-                        // Block non-HTTPS
-                        if (!url.startsWith("https://")) {
+                        // Detect session expiry - if redirected to login page
+                        if (url.contains("/web/login")) {
+                            Log.d("WoowTechOdoo", "Session expired, redirecting to login")
+                            onSessionExpired()
                             return true
                         }
 
-                        return false
+                        // v1.0.13: Allow all URLs from the same host (not just same prefix)
+                        // This handles /odoo/ redirects in Odoo 17/18
+                        val serverHost = java.net.URI(serverUrl).host
+                        val urlHost = try { java.net.URI(url).host } catch (e: Exception) { null }
+                        if (urlHost == serverHost) {
+                            Log.d("WoowTechOdoo", "Same host, allowing: $url")
+                            return false
+                        }
+
+                        // v1.0.13: Allow blob: and data: URLs (used by OWL framework)
+                        if (url.startsWith("blob:") || url.startsWith("data:")) {
+                            Log.d("WoowTechOdoo", "Allowing blob/data URL")
+                            return false
+                        }
+
+                        // Allow HTTPS URLs
+                        if (url.startsWith("https://")) {
+                            Log.d("WoowTechOdoo", "Allowing HTTPS URL: $url")
+                            return false
+                        }
+
+                        Log.d("WoowTechOdoo", "Blocking URL: $url")
+                        return true
+                    }
+
+                    // v1.0.13: Monitor all resource requests for debugging
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): WebResourceResponse? {
+                        val url = request?.url?.toString() ?: return null
+                        // Log failed or important requests
+                        if (url.contains(".js") || url.contains(".css") || url.contains("/web/")) {
+                            Log.d("WoowTechOdoo", "Resource request: $url")
+                        }
+                        return null // Don't intercept, let WebView handle it
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: android.webkit.WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        Log.e("WoowTechOdoo", "Resource error: ${request?.url} - ${error?.description}")
                     }
                 }
 
-                webChromeClient = WebChromeClient()
+                // v1.0.10: Enhanced WebChromeClient with window handling and console logging
+                webChromeClient = object : WebChromeClient() {
+                    override fun onCreateWindow(
+                        view: WebView?,
+                        isDialog: Boolean,
+                        isUserGesture: Boolean,
+                        resultMsg: Message?
+                    ): Boolean {
+                        // Handle window creation requests from OWL framework
+                        Log.d("WoowTechOdoo", "onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
+                        // Create a new WebView for the popup and pass it back
+                        val newWebView = WebView(view?.context ?: return false)
+                        newWebView.settings.javaScriptEnabled = true
+                        val transport = resultMsg?.obj as? WebView.WebViewTransport
+                        transport?.webView = newWebView
+                        resultMsg?.sendToTarget()
+                        return true
+                    }
 
-                // Load the Odoo web interface
-                loadUrl("${credentials.serverUrl}/web/login")
+                    override fun onCloseWindow(window: WebView?) {
+                        Log.d("WoowTechOdoo", "onCloseWindow called")
+                        window?.destroy()
+                    }
+
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        consoleMessage?.let {
+                            Log.d(
+                                "WoowTechOdoo",
+                                "[${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})"
+                            )
+                        }
+                        return true
+                    }
+                }
+
+                // v1.0.12: Load Odoo with standard URL (no debug parameter)
+                // Debug parameter can cause slower loading and is not needed
+                loadUrl("$serverUrl/web?db=$database")
             }
         },
         modifier = Modifier.fillMaxSize(),
