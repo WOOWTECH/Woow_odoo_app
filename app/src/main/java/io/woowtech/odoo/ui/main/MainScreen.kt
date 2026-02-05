@@ -132,24 +132,24 @@ fun OdooWebView(
                     builtInZoomControls = true
                     displayZoomControls = false
 
-                    // Enable wide viewport for Odoo OWL framework rendering
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
+                    // v1.0.12: CRITICAL FIX - Disable wide viewport settings
+                    // These settings cause Odoo OWL to miscalculate layout dimensions
+                    // Playwright tests work WITHOUT these settings
+                    loadWithOverviewMode = false
+                    useWideViewPort = false
 
                     allowFileAccess = true
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
                     // v1.0.10: Additional settings for OWL framework compatibility
-                    // OWL may need to open windows/popups for certain operations
                     javaScriptCanOpenWindowsAutomatically = true
-                    // Disable media gesture requirement for smoother loading
                     mediaPlaybackRequiresUserGesture = false
-                    // Support multiple windows (OWL may create child windows)
                     setSupportMultipleWindows(true)
 
-                    // Mobile User-Agent so Odoo serves mobile-friendly content
-                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 WoowTechOdoo/1.0"
+                    // v1.0.12: Use standard Chrome Mobile User-Agent (no custom suffix)
+                    // Some sites check for exact UA match
+                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                 }
 
                 // Enable cookies and sync session cookie from OkHttp to WebView
@@ -316,9 +316,9 @@ fun OdooWebView(
                     }
                 }
 
-                // Load the Odoo web interface with database parameter
-                // v1.0.10: Use debug=assets to force Odoo to regenerate assets bundle
-                loadUrl("$serverUrl/web?db=$database&debug=assets")
+                // v1.0.12: Load Odoo with standard URL (no debug parameter)
+                // Debug parameter can cause slower loading and is not needed
+                loadUrl("$serverUrl/web?db=$database")
             }
         },
         modifier = Modifier.fillMaxSize(),
