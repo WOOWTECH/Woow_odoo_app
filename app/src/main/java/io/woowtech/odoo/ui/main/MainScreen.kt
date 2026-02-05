@@ -129,9 +129,9 @@ fun OdooWebView(
                     builtInZoomControls = true
                     displayZoomControls = false
 
-                    // Mobile viewport settings for proper mobile layout
-                    loadWithOverviewMode = false
-                    useWideViewPort = false
+                    // Enable wide viewport for Odoo OWL framework rendering
+                    loadWithOverviewMode = true
+                    useWideViewPort = true
 
                     allowFileAccess = true
                     allowContentAccess = true
