@@ -13,4 +13,8 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount
+
+    fun getSessionId(serverUrl: String): String? {
+        return accountRepository.getSessionId(serverUrl)
+    }
 }

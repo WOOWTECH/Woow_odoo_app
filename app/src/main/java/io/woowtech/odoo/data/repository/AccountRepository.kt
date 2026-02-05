@@ -129,10 +129,14 @@ class AccountRepository @Inject constructor(
         )
     }
 
-    fun getSessionCookies(): List<okhttp3.Cookie> {
-        val account = accountDao.getActiveAccount()
-        // This is sync for WebView cookie sync
-        return emptyList() // Will be handled by WebView
+    fun getSessionId(serverUrl: String): String? {
+        val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
+        return odooClient.getSessionId(host)
+    }
+
+    fun getSessionCookies(serverUrl: String): List<okhttp3.Cookie> {
+        val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
+        return odooClient.getSessionCookies(host)
     }
 
     suspend fun getAccountCount(): Int = accountDao.getAccountCount()
