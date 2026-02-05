@@ -2,13 +2,8 @@ package io.woowtech.odoo.ui.main
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
-import android.os.Build
-import android.util.Log
-import android.view.View
-import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -16,6 +11,8 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,8 +36,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
-
-private const val TAG = "OdooWebView"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,11 +80,16 @@ fun MainScreen(
         // WebView
         Box(modifier = Modifier.fillMaxSize()) {
             account?.let { acc ->
+                // Get session ID and sync to WebView's CookieManager
+                val sessionId = viewModel.getSessionId(acc.fullServerUrl)
+
                 OdooWebView(
                     serverUrl = acc.fullServerUrl,
                     database = acc.database,
+                    sessionId = sessionId,
                     onWebViewCreated = { webView = it },
-                    onLoadingChanged = { isLoading = it }
+                    onLoadingChanged = { isLoading = it },
+                    onSessionExpired = onMenuClick // Navigate to menu/login on session expiry
                 )
             }
 
@@ -110,80 +110,57 @@ fun MainScreen(
 fun OdooWebView(
     serverUrl: String,
     database: String,
+    sessionId: String?,
     onWebViewCreated: (WebView) -> Unit,
-    onLoadingChanged: (Boolean) -> Unit
+    onLoadingChanged: (Boolean) -> Unit,
+    onSessionExpired: () -> Unit
 ) {
     AndroidView(
         factory = { context ->
             WebView(context).apply {
                 onWebViewCreated(this)
 
-                // Enable hardware acceleration
-                setLayerType(View.LAYER_TYPE_HARDWARE, null)
-
                 settings.apply {
-                    // Essential JavaScript settings for Odoo OWL framework
                     javaScriptEnabled = true
-                    javaScriptCanOpenWindowsAutomatically = true
-
-                    // DOM Storage is critical for modern web apps
                     domStorageEnabled = true
                     databaseEnabled = true
-
-                    // Cache settings
                     cacheMode = WebSettings.LOAD_DEFAULT
-
-                    // Zoom settings
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
 
-                    // Viewport settings - use wide viewport for proper rendering
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
+                    // Mobile viewport settings for proper mobile layout
+                    loadWithOverviewMode = false
+                    useWideViewPort = false
 
-                    // File access
                     allowFileAccess = true
                     allowContentAccess = true
-
-                    // Security - allow HTTPS only
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-                    // Media settings
-                    mediaPlaybackRequiresUserGesture = false
-
-                    // Default text encoding
-                    defaultTextEncodingName = "UTF-8"
-
-                    // Use default User-Agent (don't override to mobile)
-                    // Let Odoo detect the device naturally
+                    // Mobile User-Agent so Odoo serves mobile-friendly content
+                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 WoowTechOdoo/1.0"
                 }
 
-                // Enable cookies
+                // Enable cookies and sync session cookie from OkHttp to WebView
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
                 cookieManager.setAcceptThirdPartyCookies(this, true)
 
+                // Sync session cookie from native authentication to WebView
+                if (sessionId != null) {
+                    cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure")
+                    cookieManager.flush()
+                }
+
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        Log.d(TAG, "Page started: $url")
                         onLoadingChanged(true)
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        Log.d(TAG, "Page finished: $url")
                         onLoadingChanged(false)
-                    }
-
-                    override fun onReceivedError(
-                        view: WebView?,
-                        request: WebResourceRequest?,
-                        error: WebResourceError?
-                    ) {
-                        super.onReceivedError(view, request, error)
-                        Log.e(TAG, "WebView error: ${error?.description} for ${request?.url}")
                     }
 
                     override fun shouldOverrideUrlLoading(
@@ -191,9 +168,14 @@ fun OdooWebView(
                         request: WebResourceRequest?
                     ): Boolean {
                         val url = request?.url?.toString() ?: return false
-                        Log.d(TAG, "URL loading: $url")
 
-                        // Allow all URLs from the same server (including /web/login)
+                        // Detect session expiry - if redirected to login page
+                        if (url.contains("/web/login")) {
+                            onSessionExpired()
+                            return true
+                        }
+
+                        // Allow navigation within the same Odoo instance
                         if (url.startsWith(serverUrl)) {
                             return false
                         }
@@ -207,19 +189,15 @@ fun OdooWebView(
                     }
                 }
 
-                webChromeClient = object : WebChromeClient() {
-                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                        Log.d(TAG, "Console: ${consoleMessage?.message()} at ${consoleMessage?.sourceId()}:${consoleMessage?.lineNumber()}")
-                        return true
-                    }
-                }
+                webChromeClient = WebChromeClient()
 
-                // Load the Odoo web interface
-                Log.d(TAG, "Loading URL: $serverUrl/web?db=$database")
+                // Load the Odoo web interface with database parameter
                 loadUrl("$serverUrl/web?db=$database")
             }
         },
         modifier = Modifier.fillMaxSize(),
-        update = { }
+        update = { webView ->
+            // Handle updates if needed
+        }
     )
 }
