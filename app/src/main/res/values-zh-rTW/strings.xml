@@ -2,7 +2,7 @@
 <resources>
     <!-- App Info -->
     <string name="app_name">WoowTech Odoo</string>
-    <string name="app_version">1.0.0</string>
+    <string name="app_version">1.0.3</string>
     <string name="copyright">© 2026 WoowTech</string>
 
     <!-- Login Screen -->
@@ -60,6 +60,10 @@
     <string name="appearance">外觀</string>
     <string name="theme_color">主題顏色</string>
     <string name="theme_color_subtitle">自訂應用程式主題顏色</string>
+    <string name="theme_mode">主題模式</string>
+    <string name="theme_mode_system">跟隨系統</string>
+    <string name="theme_mode_light">淺色模式</string>
+    <string name="theme_mode_dark">深色模式</string>
     <string name="reduce_motion">減少動畫</string>
     <string name="reduce_motion_subtitle">減少動畫效果</string>
 

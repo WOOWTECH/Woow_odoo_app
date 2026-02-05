@@ -2,7 +2,7 @@
 <resources>
     <!-- App Info -->
     <string name="app_name">WoowTech Odoo</string>
-    <string name="app_version">1.0.0</string>
+    <string name="app_version">1.0.3</string>
     <string name="copyright">© 2026 WoowTech</string>
 
     <!-- Login Screen -->
@@ -60,6 +60,10 @@
     <string name="appearance">Appearance</string>
     <string name="theme_color">Theme Color</string>
     <string name="theme_color_subtitle">Customize app theme color</string>
+    <string name="theme_mode">Theme Mode</string>
+    <string name="theme_mode_system">Follow System</string>
+    <string name="theme_mode_light">Light</string>
+    <string name="theme_mode_dark">Dark</string>
     <string name="reduce_motion">Reduce Motion</string>
     <string name="reduce_motion_subtitle">Minimize animations</string>
 

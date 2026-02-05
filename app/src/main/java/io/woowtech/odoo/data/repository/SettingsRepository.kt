@@ -3,6 +3,7 @@ package io.woowtech.odoo.data.repository
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
+import io.woowtech.odoo.domain.model.ThemeMode
 import io.woowtech.odoo.ui.theme.ThemeManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,8 +20,9 @@ class SettingsRepository @Inject constructor(
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     init {
-        // Apply saved theme color on init
+        // Apply saved theme color and mode on init
         ThemeManager.setPrimaryColorFromHex(_settings.value.themeColor)
+        ThemeManager.setThemeMode(_settings.value.themeMode)
     }
 
     fun updateThemeColor(color: String) {
@@ -116,6 +118,12 @@ class SettingsRepository @Inject constructor(
     fun updateLanguage(language: AppLanguage) {
         encryptedPrefs.updateLanguage(language)
         _settings.value = _settings.value.copy(language = language)
+    }
+
+    fun updateThemeMode(mode: ThemeMode) {
+        encryptedPrefs.updateThemeMode(mode)
+        ThemeManager.setThemeMode(mode)
+        _settings.value = _settings.value.copy(themeMode = mode)
     }
 
     private fun hashPin(pin: String): String {

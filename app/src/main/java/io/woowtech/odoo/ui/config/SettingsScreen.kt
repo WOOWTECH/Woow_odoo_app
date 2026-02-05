@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpCenter
+import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -86,6 +87,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     var showColorPicker by remember { mutableStateOf(false) }
+    var showThemeModePicker by remember { mutableStateOf(false) }
     var showPinSetup by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
 
@@ -138,6 +140,21 @@ fun SettingsScreen(
                                 .background(Color(android.graphics.Color.parseColor(settings.themeColor)))
                         )
                     }
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+
+                SettingsItem(
+                    icon = Icons.Default.BrightnessAuto,
+                    title = stringResource(R.string.theme_mode),
+                    subtitle = stringResource(
+                        when (settings.themeMode) {
+                            io.woowtech.odoo.domain.model.ThemeMode.SYSTEM -> R.string.theme_mode_system
+                            io.woowtech.odoo.domain.model.ThemeMode.LIGHT -> R.string.theme_mode_light
+                            io.woowtech.odoo.domain.model.ThemeMode.DARK -> R.string.theme_mode_dark
+                        }
+                    ),
+                    onClick = { showThemeModePicker = true }
                 )
             }
 
@@ -310,6 +327,18 @@ fun SettingsScreen(
                 showLanguagePicker = false
             },
             onDismiss = { showLanguagePicker = false }
+        )
+    }
+
+    // Theme Mode Picker Dialog
+    if (showThemeModePicker) {
+        ThemeModePickerDialog(
+            currentThemeMode = settings.themeMode,
+            onThemeModeSelected = {
+                viewModel.updateThemeMode(it)
+                showThemeModePicker = false
+            },
+            onDismiss = { showThemeModePicker = false }
         )
     }
 }
@@ -553,6 +582,62 @@ private fun LanguagePickerDialog(
                         )
 
                         if (language == currentLanguage) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ThemeModePickerDialog(
+    currentThemeMode: io.woowtech.odoo.domain.model.ThemeMode,
+    onThemeModeSelected: (io.woowtech.odoo.domain.model.ThemeMode) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.theme_mode)) },
+        text = {
+            Column {
+                io.woowtech.odoo.domain.model.ThemeMode.entries.forEach { mode ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onThemeModeSelected(mode) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(
+                                when (mode) {
+                                    io.woowtech.odoo.domain.model.ThemeMode.SYSTEM -> R.string.theme_mode_system
+                                    io.woowtech.odoo.domain.model.ThemeMode.LIGHT -> R.string.theme_mode_light
+                                    io.woowtech.odoo.domain.model.ThemeMode.DARK -> R.string.theme_mode_dark
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (mode == currentThemeMode) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        if (mode == currentThemeMode) {
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = null,

@@ -2,5 +2,4 @@
 <full-backup-content>
     <include domain="sharedpref" path="." />
     <exclude domain="sharedpref" path="encrypted_prefs.xml" />
-    <exclude domain="database" path="." />
 </full-backup-content>

@@ -119,19 +119,23 @@ fun OdooWebView(
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
-                    loadWithOverviewMode = true
-                    useWideViewPort = true
+
+                    // Mobile viewport settings for proper mobile layout
+                    loadWithOverviewMode = false
+                    useWideViewPort = false
+
                     allowFileAccess = true
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                    userAgentString = settings.userAgentString + " WoowTechOdoo/1.0"
+
+                    // Mobile User-Agent so Odoo serves mobile-friendly content
+                    userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 WoowTechOdoo/1.0"
                 }
 
                 // Enable cookies
-                CookieManager.getInstance().apply {
-                    setAcceptCookie(true)
-                    setAcceptThirdPartyCookies(this@apply, true)
-                }
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.setAcceptCookie(true)
+                cookieManager.setAcceptThirdPartyCookies(this, true)
 
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
