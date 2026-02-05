@@ -10,6 +10,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebResourceResponse
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -260,24 +261,60 @@ fun OdooWebView(
                         request: WebResourceRequest?
                     ): Boolean {
                         val url = request?.url?.toString() ?: return false
+                        Log.d("WoowTechOdoo", "shouldOverrideUrlLoading: $url")
 
                         // Detect session expiry - if redirected to login page
                         if (url.contains("/web/login")) {
+                            Log.d("WoowTechOdoo", "Session expired, redirecting to login")
                             onSessionExpired()
                             return true
                         }
 
-                        // Allow navigation within the same Odoo instance
-                        if (url.startsWith(serverUrl)) {
+                        // v1.0.13: Allow all URLs from the same host (not just same prefix)
+                        // This handles /odoo/ redirects in Odoo 17/18
+                        val serverHost = java.net.URI(serverUrl).host
+                        val urlHost = try { java.net.URI(url).host } catch (e: Exception) { null }
+                        if (urlHost == serverHost) {
+                            Log.d("WoowTechOdoo", "Same host, allowing: $url")
                             return false
                         }
 
-                        // Block non-HTTPS
-                        if (!url.startsWith("https://")) {
-                            return true
+                        // v1.0.13: Allow blob: and data: URLs (used by OWL framework)
+                        if (url.startsWith("blob:") || url.startsWith("data:")) {
+                            Log.d("WoowTechOdoo", "Allowing blob/data URL")
+                            return false
                         }
 
-                        return false
+                        // Allow HTTPS URLs
+                        if (url.startsWith("https://")) {
+                            Log.d("WoowTechOdoo", "Allowing HTTPS URL: $url")
+                            return false
+                        }
+
+                        Log.d("WoowTechOdoo", "Blocking URL: $url")
+                        return true
+                    }
+
+                    // v1.0.13: Monitor all resource requests for debugging
+                    override fun shouldInterceptRequest(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): WebResourceResponse? {
+                        val url = request?.url?.toString() ?: return null
+                        // Log failed or important requests
+                        if (url.contains(".js") || url.contains(".css") || url.contains("/web/")) {
+                            Log.d("WoowTechOdoo", "Resource request: $url")
+                        }
+                        return null // Don't intercept, let WebView handle it
+                    }
+
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: WebResourceRequest?,
+                        error: android.webkit.WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        Log.e("WoowTechOdoo", "Resource error: ${request?.url} - ${error?.description}")
                     }
                 }
 
