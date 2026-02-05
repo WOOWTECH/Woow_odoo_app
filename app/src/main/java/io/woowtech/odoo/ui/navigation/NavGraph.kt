@@ -80,6 +80,13 @@ fun WoowOdooNavHost(
                 },
                 onUsePinClick = {
                     navController.navigate(Screen.Pin.route)
+                },
+                onSkip = {
+                    // Skip authentication and go to main screen
+                    authViewModel.setAuthenticated(true)
+                    navController.navigate(Screen.Main.route) {
+                        popUpTo(Screen.Auth.route) { inclusive = true }
+                    }
                 }
             )
         }

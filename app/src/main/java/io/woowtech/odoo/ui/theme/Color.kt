@@ -44,3 +44,15 @@ val OutlineLight = Color(0xFF79747E)
 val OutlineDark = Color(0xFF938F99)
 val OutlineVariantLight = Color(0xFFCAC4D0)
 val OutlineVariantDark = Color(0xFF49454F)
+
+// High contrast colors for PIN and input elements
+val PinDotEmptyLight = Color(0xFFB0B0B0)
+val PinDotEmptyDark = Color(0xFF6B6B6B)
+val PinDotFilledLight = Color(0xFF6183FC)
+val PinDotFilledDark = Color(0xFF8BA3FF)
+
+// Number pad colors
+val NumberPadBorderLight = Color(0xFF9E9E9E)
+val NumberPadBorderDark = Color(0xFF757575)
+val NumberPadBackgroundLight = Color(0xFFF5F5F5)
+val NumberPadBackgroundDark = Color(0xFF2A2A2A)
