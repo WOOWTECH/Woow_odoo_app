@@ -2,6 +2,9 @@ package io.woowtech.odoo.ui.main
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.os.Message
+import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -137,6 +140,14 @@ fun OdooWebView(
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
+                    // v1.0.10: Additional settings for OWL framework compatibility
+                    // OWL may need to open windows/popups for certain operations
+                    javaScriptCanOpenWindowsAutomatically = true
+                    // Disable media gesture requirement for smoother loading
+                    mediaPlaybackRequiresUserGesture = false
+                    // Support multiple windows (OWL may create child windows)
+                    setSupportMultipleWindows(true)
+
                     // Mobile User-Agent so Odoo serves mobile-friendly content
                     userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 WoowTechOdoo/1.0"
                 }
@@ -160,6 +171,27 @@ fun OdooWebView(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        // v1.0.10: Inject JavaScript to trigger OWL framework rendering
+                        // Dispatch resize event to help OWL recalculate layouts
+                        view?.evaluateJavascript(
+                            """
+                            (function() {
+                                // Trigger resize event for OWL framework
+                                window.dispatchEvent(new Event('resize'));
+
+                                // Try to make action manager visible if hidden
+                                var actionManager = document.querySelector('.o_action_manager');
+                                if (actionManager) {
+                                    actionManager.style.display = '';
+                                    actionManager.style.visibility = 'visible';
+                                }
+
+                                // Log for debugging
+                                console.log('[WoowTech] Page loaded, resize dispatched');
+                            })();
+                            """.trimIndent(),
+                            null
+                        )
                         onLoadingChanged(false)
                     }
 
@@ -189,10 +221,44 @@ fun OdooWebView(
                     }
                 }
 
-                webChromeClient = WebChromeClient()
+                // v1.0.10: Enhanced WebChromeClient with window handling and console logging
+                webChromeClient = object : WebChromeClient() {
+                    override fun onCreateWindow(
+                        view: WebView?,
+                        isDialog: Boolean,
+                        isUserGesture: Boolean,
+                        resultMsg: Message?
+                    ): Boolean {
+                        // Handle window creation requests from OWL framework
+                        Log.d("WoowTechOdoo", "onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
+                        // Create a new WebView for the popup and pass it back
+                        val newWebView = WebView(view?.context ?: return false)
+                        newWebView.settings.javaScriptEnabled = true
+                        val transport = resultMsg?.obj as? WebView.WebViewTransport
+                        transport?.webView = newWebView
+                        resultMsg?.sendToTarget()
+                        return true
+                    }
+
+                    override fun onCloseWindow(window: WebView?) {
+                        Log.d("WoowTechOdoo", "onCloseWindow called")
+                        window?.destroy()
+                    }
+
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        consoleMessage?.let {
+                            Log.d(
+                                "WoowTechOdoo",
+                                "[${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})"
+                            )
+                        }
+                        return true
+                    }
+                }
 
                 // Load the Odoo web interface with database parameter
-                loadUrl("$serverUrl/web?db=$database")
+                // v1.0.10: Use debug=assets to force Odoo to regenerate assets bundle
+                loadUrl("$serverUrl/web?db=$database&debug=assets")
             }
         },
         modifier = Modifier.fillMaxSize(),
