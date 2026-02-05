@@ -2,6 +2,7 @@ package io.woowtech.odoo.ui.main
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -11,8 +12,6 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +43,7 @@ fun MainScreen(
     onMenuClick: () -> Unit
 ) {
     val account by viewModel.activeAccount.collectAsState(initial = null)
+    val credentials by viewModel.credentials.collectAsState()
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
@@ -79,9 +79,9 @@ fun MainScreen(
 
         // WebView
         Box(modifier = Modifier.fillMaxSize()) {
-            account?.let { acc ->
+            credentials?.let { creds ->
                 OdooWebView(
-                    serverUrl = acc.fullServerUrl,
+                    credentials = creds,
                     onWebViewCreated = { webView = it },
                     onLoadingChanged = { isLoading = it }
                 )
@@ -102,10 +102,12 @@ fun MainScreen(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun OdooWebView(
-    serverUrl: String,
+    credentials: WebViewCredentials,
     onWebViewCreated: (WebView) -> Unit,
     onLoadingChanged: (Boolean) -> Unit
 ) {
+    var hasAutoLoggedIn by remember { mutableStateOf(false) }
+
     AndroidView(
         factory = { context ->
             WebView(context).apply {
@@ -140,6 +142,95 @@ fun OdooWebView(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+
+                        // Auto-login when on login page
+                        if (url != null && (url.contains("/web/login") || url.endsWith("/web")) && !hasAutoLoggedIn) {
+                            hasAutoLoggedIn = true
+
+                            // Escape special characters in password for JavaScript
+                            val escapedPassword = credentials.password
+                                .replace("\\", "\\\\")
+                                .replace("'", "\\'")
+                                .replace("\"", "\\\"")
+                                .replace("\n", "\\n")
+                                .replace("\r", "\\r")
+
+                            val escapedUsername = credentials.username
+                                .replace("\\", "\\\\")
+                                .replace("'", "\\'")
+
+                            val escapedDatabase = credentials.database
+                                .replace("\\", "\\\\")
+                                .replace("'", "\\'")
+
+                            // Inject JavaScript to auto-fill and submit the login form
+                            val jsCode = """
+                                (function() {
+                                    // Wait for page to be ready
+                                    function tryLogin() {
+                                        var loginField = document.querySelector('input[name="login"]');
+                                        var passwordField = document.querySelector('input[name="password"]');
+                                        var dbField = document.querySelector('input[name="db"]') || document.querySelector('select[name="db"]');
+                                        var form = document.querySelector('form.oe_login_form') || document.querySelector('form');
+
+                                        if (loginField && passwordField) {
+                                            // Fill in credentials
+                                            loginField.value = '${escapedUsername}';
+                                            passwordField.value = '${escapedPassword}';
+
+                                            // Set database if field exists
+                                            if (dbField) {
+                                                if (dbField.tagName === 'SELECT') {
+                                                    for (var i = 0; i < dbField.options.length; i++) {
+                                                        if (dbField.options[i].value === '${escapedDatabase}') {
+                                                            dbField.selectedIndex = i;
+                                                            break;
+                                                        }
+                                                    }
+                                                } else {
+                                                    dbField.value = '${escapedDatabase}';
+                                                }
+                                            }
+
+                                            // Trigger input events for any JS validation
+                                            loginField.dispatchEvent(new Event('input', { bubbles: true }));
+                                            passwordField.dispatchEvent(new Event('input', { bubbles: true }));
+
+                                            // Submit the form
+                                            setTimeout(function() {
+                                                var submitBtn = document.querySelector('button[type="submit"]') ||
+                                                               document.querySelector('input[type="submit"]') ||
+                                                               form.querySelector('button');
+                                                if (submitBtn) {
+                                                    submitBtn.click();
+                                                } else if (form) {
+                                                    form.submit();
+                                                }
+                                            }, 300);
+
+                                            return true;
+                                        }
+                                        return false;
+                                    }
+
+                                    // Try immediately, then retry a few times
+                                    if (!tryLogin()) {
+                                        var retries = 0;
+                                        var interval = setInterval(function() {
+                                            if (tryLogin() || retries > 10) {
+                                                clearInterval(interval);
+                                            }
+                                            retries++;
+                                        }, 500);
+                                    }
+                                })();
+                            """.trimIndent()
+
+                            view?.evaluateJavascript(jsCode) { result ->
+                                Log.d("OdooWebView", "Auto-login script executed: $result")
+                            }
+                        }
+
                         onLoadingChanged(false)
                     }
 
@@ -150,7 +241,7 @@ fun OdooWebView(
                         val url = request?.url?.toString() ?: return false
 
                         // Allow navigation within the same Odoo instance
-                        if (url.startsWith(serverUrl)) {
+                        if (url.startsWith(credentials.serverUrl)) {
                             return false
                         }
 
@@ -166,7 +257,7 @@ fun OdooWebView(
                 webChromeClient = WebChromeClient()
 
                 // Load the Odoo web interface
-                loadUrl("$serverUrl/web")
+                loadUrl("${credentials.serverUrl}/web/login")
             }
         },
         modifier = Modifier.fillMaxSize(),

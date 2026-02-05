@@ -4,7 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,20 +17,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,15 +52,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
 
@@ -61,9 +75,18 @@ fun LoginScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.primary
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                    )
+                )
+            )
     ) {
         Column(
             modifier = Modifier
@@ -84,7 +107,7 @@ fun LoginScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.back_button),
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = Color.White
                         )
                     }
                 }
@@ -93,36 +116,48 @@ fun LoginScreen(
             }
 
             // Logo
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // App Logo placeholder (use actual logo resource)
+            // App Logo
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .padding(8.dp),
+                    .size(88.dp)
+                    .background(
+                        color = Color.White.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                    .padding(16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Replace with actual logo
                 Text(
                     text = "W",
-                    style = MaterialTheme.typography.displayMedium,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    style = MaterialTheme.typography.displayMedium.copy(
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = Color.White
                 )
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
                 text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onPrimary
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp
+                ),
+                color = Color.White
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
             // Title
             Text(
                 text = stringResource(R.string.login_title),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onPrimary
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold
+                ),
+                color = Color.White
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -130,58 +165,81 @@ fun LoginScreen(
             Text(
                 text = stringResource(R.string.login_subtitle),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                color = Color.White.copy(alpha = 0.85f)
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Form content
-            AnimatedContent(
-                targetState = uiState.step,
-                transitionSpec = {
-                    if (targetState == LoginStep.CREDENTIALS) {
-                        slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
-                    } else {
-                        slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+            // Form Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.White
+                ),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = 8.dp
+                )
+            ) {
+                AnimatedContent(
+                    targetState = uiState.step,
+                    transitionSpec = {
+                        if (targetState == LoginStep.CREDENTIALS) {
+                            slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+                        } else {
+                            slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+                        }
+                    },
+                    label = "login_step"
+                ) { step ->
+                    when (step) {
+                        LoginStep.SERVER_INFO -> ServerInfoForm(
+                            serverUrl = uiState.serverUrl,
+                            database = uiState.database,
+                            serverUrlError = uiState.serverUrlError,
+                            databaseError = uiState.databaseError,
+                            onServerUrlChange = viewModel::updateServerUrl,
+                            onDatabaseChange = viewModel::updateDatabase,
+                            onNextClick = viewModel::goToNextStep
+                        )
+                        LoginStep.CREDENTIALS -> CredentialsForm(
+                            username = uiState.username,
+                            password = uiState.password,
+                            rememberMe = uiState.rememberMe,
+                            usernameError = uiState.usernameError,
+                            passwordError = uiState.passwordError,
+                            isLoading = uiState.isLoading,
+                            onUsernameChange = viewModel::updateUsername,
+                            onPasswordChange = viewModel::updatePassword,
+                            onRememberMeChange = viewModel::updateRememberMe,
+                            onLoginClick = { viewModel.login(onLoginSuccess) }
+                        )
                     }
-                },
-                label = "login_step"
-            ) { step ->
-                when (step) {
-                    LoginStep.SERVER_INFO -> ServerInfoForm(
-                        serverUrl = uiState.serverUrl,
-                        database = uiState.database,
-                        serverUrlError = uiState.serverUrlError,
-                        databaseError = uiState.databaseError,
-                        onServerUrlChange = viewModel::updateServerUrl,
-                        onDatabaseChange = viewModel::updateDatabase,
-                        onNextClick = viewModel::goToNextStep
-                    )
-                    LoginStep.CREDENTIALS -> CredentialsForm(
-                        username = uiState.username,
-                        password = uiState.password,
-                        rememberMe = uiState.rememberMe,
-                        usernameError = uiState.usernameError,
-                        passwordError = uiState.passwordError,
-                        isLoading = uiState.isLoading,
-                        onUsernameChange = viewModel::updateUsername,
-                        onPasswordChange = viewModel::updatePassword,
-                        onRememberMeChange = viewModel::updateRememberMe,
-                        onLoginClick = { viewModel.login(onLoginSuccess) }
-                    )
                 }
             }
 
             // Error message
             uiState.error?.let { error ->
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = error,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 32.dp)
-                )
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.weight(1f))
@@ -205,40 +263,39 @@ private fun ServerInfoForm(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Server URL
-        OutlinedTextField(
+        StyledTextField(
             value = serverUrl,
             onValueChange = onServerUrlChange,
-            label = { Text(stringResource(R.string.server_url)) },
-            placeholder = { Text(stringResource(R.string.server_url_hint)) },
-            prefix = { Text(stringResource(R.string.https_prefix)) },
+            label = stringResource(R.string.server_url),
+            placeholder = stringResource(R.string.server_url_hint),
+            leadingIcon = Icons.Default.Cloud,
+            prefix = stringResource(R.string.https_prefix),
             isError = serverUrlError != null,
-            supportingText = serverUrlError?.let { { Text(it) } },
-            singleLine = true,
+            errorMessage = serverUrlError,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Next
             ),
             keyboardActions = KeyboardActions(
                 onNext = { focusManager.moveFocus(FocusDirection.Down) }
-            ),
-            modifier = Modifier.fillMaxWidth()
+            )
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Database
-        OutlinedTextField(
+        StyledTextField(
             value = database,
             onValueChange = onDatabaseChange,
-            label = { Text(stringResource(R.string.database_name)) },
-            placeholder = { Text(stringResource(R.string.database_name_hint)) },
+            label = stringResource(R.string.database_name),
+            placeholder = stringResource(R.string.database_name_hint),
+            leadingIcon = Icons.Default.Storage,
             isError = databaseError != null,
-            supportingText = databaseError?.let { { Text(it) } },
-            singleLine = true,
+            errorMessage = databaseError,
             keyboardOptions = KeyboardOptions(
                 imeAction = ImeAction.Done
             ),
@@ -247,19 +304,27 @@ private fun ServerInfoForm(
                     focusManager.clearFocus()
                     onNextClick()
                 }
-            ),
-            modifier = Modifier.fillMaxWidth()
+            )
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
         Button(
             onClick = onNextClick,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(56.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
         ) {
-            Text(stringResource(R.string.next_button))
+            Text(
+                text = stringResource(R.string.next_button),
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
         }
     }
 }
@@ -283,55 +348,45 @@ private fun CredentialsForm(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Username
-        OutlinedTextField(
+        StyledTextField(
             value = username,
             onValueChange = onUsernameChange,
-            label = { Text(stringResource(R.string.username)) },
-            placeholder = { Text(stringResource(R.string.username_hint)) },
+            label = stringResource(R.string.username),
+            placeholder = stringResource(R.string.username_hint),
+            leadingIcon = Icons.Default.Person,
             isError = usernameError != null,
-            supportingText = usernameError?.let { { Text(it) } },
-            singleLine = true,
+            errorMessage = usernameError,
+            enabled = !isLoading,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next
             ),
             keyboardActions = KeyboardActions(
                 onNext = { focusManager.moveFocus(FocusDirection.Down) }
-            ),
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading
+            )
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Password
-        OutlinedTextField(
+        StyledTextField(
             value = password,
             onValueChange = onPasswordChange,
-            label = { Text(stringResource(R.string.password)) },
-            placeholder = { Text(stringResource(R.string.password_hint)) },
+            label = stringResource(R.string.password),
+            placeholder = stringResource(R.string.password_hint),
+            leadingIcon = Icons.Default.Lock,
             isError = passwordError != null,
-            supportingText = passwordError?.let { { Text(it) } },
-            singleLine = true,
+            errorMessage = passwordError,
+            enabled = !isLoading,
             visualTransformation = if (passwordVisible) {
                 VisualTransformation.None
             } else {
                 PasswordVisualTransformation()
             },
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    focusManager.clearFocus()
-                    onLoginClick()
-                }
-            ),
             trailingIcon = {
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(
@@ -344,15 +399,24 @@ private fun CredentialsForm(
                             stringResource(R.string.content_description_visibility_off)
                         } else {
                             stringResource(R.string.content_description_visibility_on)
-                        }
+                        },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = {
+                    focusManager.clearFocus()
+                    onLoginClick()
+                }
+            )
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Remember me
         Row(
@@ -362,13 +426,17 @@ private fun CredentialsForm(
             Checkbox(
                 checked = rememberMe,
                 onCheckedChange = onRememberMeChange,
-                enabled = !isLoading
+                enabled = !isLoading,
+                colors = CheckboxDefaults.colors(
+                    checkedColor = MaterialTheme.colorScheme.primary,
+                    uncheckedColor = MaterialTheme.colorScheme.outline
+                )
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = stringResource(R.string.remember_me),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
 
@@ -379,16 +447,121 @@ private fun CredentialsForm(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            enabled = !isLoading
+            shape = RoundedCornerShape(14.dp),
+            enabled = !isLoading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
                 )
             } else {
-                Text(stringResource(R.string.login_button))
+                Text(
+                    text = stringResource(R.string.login_button),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold
+                    )
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun StyledTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    leadingIcon: ImageVector,
+    isError: Boolean = false,
+    errorMessage: String? = null,
+    enabled: Boolean = true,
+    prefix: String? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            placeholder = {
+                Text(
+                    text = placeholder,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = if (isError) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                )
+            },
+            prefix = prefix?.let {
+                {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
+            },
+            trailingIcon = trailingIcon,
+            isError = isError,
+            singleLine = true,
+            enabled = enabled,
+            visualTransformation = visualTransformation,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                // Text colors
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                disabledTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                // Container colors
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                errorContainerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f),
+                // Border colors - HIGH VISIBILITY
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                // Label colors
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                errorLabelColor = MaterialTheme.colorScheme.error
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Error message
+        if (isError && errorMessage != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = errorMessage,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 16.dp)
+            )
         }
     }
 }

@@ -12,6 +12,7 @@ data class OdooAccount(
     val database: String,
     val username: String,
     val displayName: String,
+    val encryptedPassword: String? = null,
     val avatarBase64: String? = null,
     val userId: Int? = null,
     val lastLogin: Long = System.currentTimeMillis(),
