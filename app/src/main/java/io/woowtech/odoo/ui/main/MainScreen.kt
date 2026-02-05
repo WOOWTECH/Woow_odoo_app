@@ -12,6 +12,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebResourceResponse
 import android.webkit.WebViewClient
+import android.view.ViewGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -122,6 +123,12 @@ fun OdooWebView(
     AndroidView(
         factory = { context ->
             WebView(context).apply {
+                // v1.0.14: Ensure WebView has proper layout params
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+
                 onWebViewCreated(this)
 
                 settings.apply {
@@ -172,83 +179,46 @@ fun OdooWebView(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        // v1.0.11: Enhanced diagnostics to find OWL rendering issue
+                        // v1.0.14: Force layout recalculation for OWL framework
                         view?.evaluateJavascript(
                             """
                             (function() {
-                                // Diagnostic: Check OWL and Odoo state
-                                console.log('[WoowTech] === DIAGNOSTIC START ===');
-                                console.log('[WoowTech] URL: ' + window.location.href);
+                                console.log('[WoowTech] Page loaded: ' + window.location.href);
+                                console.log('[WoowTech] Viewport: ' + window.innerWidth + 'x' + window.innerHeight);
 
-                                // Check if OWL is loaded
-                                console.log('[WoowTech] owl exists: ' + (typeof owl !== 'undefined'));
-                                console.log('[WoowTech] odoo exists: ' + (typeof odoo !== 'undefined'));
+                                // Force body to have correct dimensions
+                                document.body.style.minHeight = '100vh';
+                                document.body.style.height = '100%';
+                                document.documentElement.style.height = '100%';
 
-                                // Check action manager element
+                                // Force action_manager to have correct dimensions
                                 var am = document.querySelector('.o_action_manager');
-                                console.log('[WoowTech] .o_action_manager exists: ' + (am !== null));
                                 if (am) {
-                                    console.log('[WoowTech] .o_action_manager innerHTML length: ' + am.innerHTML.length);
-                                    console.log('[WoowTech] .o_action_manager children: ' + am.children.length);
-                                    console.log('[WoowTech] .o_action_manager style.display: ' + getComputedStyle(am).display);
-                                    console.log('[WoowTech] .o_action_manager style.visibility: ' + getComputedStyle(am).visibility);
-                                    console.log('[WoowTech] .o_action_manager offsetHeight: ' + am.offsetHeight);
+                                    am.style.minHeight = 'calc(100vh - 46px)';
+                                    am.style.height = 'auto';
+                                    am.style.overflow = 'auto';
+                                    console.log('[WoowTech] ActionManager found, innerHTML: ' + am.innerHTML.length + ' chars');
+                                    console.log('[WoowTech] ActionManager size: ' + am.offsetWidth + 'x' + am.offsetHeight);
                                 }
 
-                                // Check for any OWL errors
-                                if (typeof odoo !== 'undefined' && odoo.define) {
-                                    console.log('[WoowTech] odoo.define exists');
-                                }
-
-                                // Check action service
-                                if (typeof odoo !== 'undefined' && odoo.__DEBUG__) {
-                                    console.log('[WoowTech] odoo.__DEBUG__ exists');
-                                    try {
-                                        var services = odoo.__DEBUG__.services;
-                                        console.log('[WoowTech] services: ' + Object.keys(services || {}).join(', '));
-                                    } catch(e) {
-                                        console.log('[WoowTech] services error: ' + e.message);
-                                    }
-                                }
-
-                                // Check for JavaScript errors in window.onerror
-                                var originalOnError = window.onerror;
-                                window.onerror = function(msg, url, line, col, error) {
-                                    console.log('[WoowTech] JS ERROR: ' + msg + ' at ' + url + ':' + line);
-                                    if (originalOnError) return originalOnError.apply(this, arguments);
-                                    return false;
-                                };
-
-                                // Check for unhandled promise rejections
-                                window.addEventListener('unhandledrejection', function(event) {
-                                    console.log('[WoowTech] PROMISE REJECT: ' + event.reason);
-                                });
-
-                                // Trigger resize event
+                                // Trigger multiple resize events to wake up OWL
                                 window.dispatchEvent(new Event('resize'));
-                                console.log('[WoowTech] resize event dispatched');
-
-                                // Delayed check after 2 seconds
                                 setTimeout(function() {
-                                    console.log('[WoowTech] === DELAYED CHECK (2s) ===');
+                                    window.dispatchEvent(new Event('resize'));
+                                    // Force reflow
+                                    document.body.offsetHeight;
+                                }, 100);
+                                setTimeout(function() {
+                                    window.dispatchEvent(new Event('resize'));
+                                }, 500);
+                                setTimeout(function() {
+                                    window.dispatchEvent(new Event('resize'));
                                     var am2 = document.querySelector('.o_action_manager');
                                     if (am2) {
-                                        console.log('[WoowTech] .o_action_manager children after 2s: ' + am2.children.length);
-                                        console.log('[WoowTech] .o_action_manager first 200 chars: ' + am2.innerHTML.substring(0, 200));
+                                        console.log('[WoowTech] After 1s - ActionManager size: ' + am2.offsetWidth + 'x' + am2.offsetHeight);
+                                        console.log('[WoowTech] After 1s - innerHTML: ' + am2.innerHTML.length + ' chars');
                                     }
-
-                                    // Check for any action container content
-                                    var actionContent = document.querySelector('.o_action');
-                                    console.log('[WoowTech] .o_action exists: ' + (actionContent !== null));
-
-                                    var kanban = document.querySelector('.o_kanban_view');
-                                    console.log('[WoowTech] .o_kanban_view exists: ' + (kanban !== null));
-
-                                    var listView = document.querySelector('.o_list_view');
-                                    console.log('[WoowTech] .o_list_view exists: ' + (listView !== null));
-                                }, 2000);
-
-                                console.log('[WoowTech] === DIAGNOSTIC END ===');
+                                }, 1000);
                             })();
                             """.trimIndent(),
                             null
