@@ -5,7 +5,6 @@ import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
-import io.woowtech.odoo.domain.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -102,37 +101,14 @@ class AccountRepository @Inject constructor(
         accountDao.deleteAccountById(accountId)
     }
 
-    suspend fun getUserProfile(): UserProfile? {
-        val account = accountDao.getActiveAccountOnce() ?: return null
-        val password = encryptedPrefs.getPassword(account.id) ?: return null
-        val userId = account.userId ?: return null
-
-        return odooClient.getUserProfile(
-            account.fullServerUrl,
-            account.database,
-            userId,
-            password
-        )
+    fun getSessionId(serverUrl: String): String? {
+        val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
+        return odooClient.getSessionId(host)
     }
 
-    suspend fun updateUserProfile(updates: Map<String, Any>): Boolean {
-        val account = accountDao.getActiveAccountOnce() ?: return false
-        val password = encryptedPrefs.getPassword(account.id) ?: return false
-        val userId = account.userId ?: return false
-
-        return odooClient.updateUserProfile(
-            account.fullServerUrl,
-            account.database,
-            userId,
-            password,
-            updates
-        )
-    }
-
-    fun getSessionCookies(): List<okhttp3.Cookie> {
-        val account = accountDao.getActiveAccount()
-        // This is sync for WebView cookie sync
-        return emptyList() // Will be handled by WebView
+    fun getSessionCookies(serverUrl: String): List<okhttp3.Cookie> {
+        val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
+        return odooClient.getSessionCookies(host)
     }
 
     suspend fun getAccountCount(): Int = accountDao.getAccountCount()

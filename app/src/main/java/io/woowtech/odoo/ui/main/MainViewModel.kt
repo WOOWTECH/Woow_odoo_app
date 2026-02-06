@@ -55,4 +55,8 @@ class MainViewModel @Inject constructor(
     fun refreshCredentials() {
         loadCredentials()
     }
+
+    fun getSessionId(serverUrl: String): String? {
+        return accountRepository.getSessionId(serverUrl)
+    }
 }

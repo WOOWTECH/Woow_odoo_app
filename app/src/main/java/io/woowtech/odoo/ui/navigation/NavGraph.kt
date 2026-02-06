@@ -13,7 +13,6 @@ import io.woowtech.odoo.ui.auth.AuthViewModel
 import io.woowtech.odoo.ui.auth.BiometricScreen
 import io.woowtech.odoo.ui.auth.PinScreen
 import io.woowtech.odoo.ui.config.ConfigScreen
-import io.woowtech.odoo.ui.config.ProfileScreen
 import io.woowtech.odoo.ui.config.SettingsScreen
 import io.woowtech.odoo.ui.login.LoginScreen
 import io.woowtech.odoo.ui.main.MainScreen
@@ -25,7 +24,6 @@ sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Main : Screen("main")
     object Config : Screen("config")
-    object Profile : Screen("profile")
     object Settings : Screen("settings")
 }
 
@@ -124,7 +122,6 @@ fun WoowOdooNavHost(
         composable(Screen.Config.route) {
             ConfigScreen(
                 onBackClick = { navController.popBackStack() },
-                onProfileClick = { navController.navigate(Screen.Profile.route) },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
                 onAddAccountClick = {
                     navController.navigate(Screen.Login.route)
@@ -134,12 +131,6 @@ fun WoowOdooNavHost(
                         popUpTo(Screen.Main.route) { inclusive = true }
                     }
                 }
-            )
-        }
-
-        composable(Screen.Profile.route) {
-            ProfileScreen(
-                onBackClick = { navController.popBackStack() }
             )
         }
 

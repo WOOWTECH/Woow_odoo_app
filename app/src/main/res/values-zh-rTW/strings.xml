@@ -2,7 +2,7 @@
 <resources>
     <!-- App Info -->
     <string name="app_name">WoowTech Odoo</string>
-    <string name="app_version">1.0.0</string>
+    <string name="app_version">1.0.3</string>
     <string name="copyright">© 2026 WoowTech</string>
 
     <!-- Login Screen -->
@@ -60,6 +60,10 @@
     <string name="appearance">外觀</string>
     <string name="theme_color">主題顏色</string>
     <string name="theme_color_subtitle">自訂應用程式主題顏色</string>
+    <string name="theme_mode">主題模式</string>
+    <string name="theme_mode_system">跟隨系統</string>
+    <string name="theme_mode_light">淺色模式</string>
+    <string name="theme_mode_dark">深色模式</string>
     <string name="reduce_motion">減少動畫</string>
     <string name="reduce_motion_subtitle">減少動畫效果</string>
 
@@ -78,6 +82,23 @@
     <string name="language_english">English</string>
     <string name="language_chinese">繁體中文</string>
     <string name="timezone">時區</string>
+
+    <!-- v1.0.16: Odoo Preferences -->
+    <string name="preferences">基本設定</string>
+    <string name="personalization">個人設定</string>
+    <string name="notification">通知</string>
+    <string name="email_signature">電子郵件簽章</string>
+    <string name="select_language">選擇語言</string>
+    <string name="select_timezone">選擇時區</string>
+    <string name="select_notification">通知處理方式</string>
+    <string name="notification_email">透過郵件處理</string>
+    <string name="notification_inbox">在 Odoo 處理</string>
+    <string name="signature_set">已設定</string>
+    <string name="signature_not_set">尚未設定</string>
+    <string name="signature_hint">您的電子郵件簽章將顯示在從 Odoo 發送的郵件底部。</string>
+    <string name="signature_label">簽章內容</string>
+    <string name="signature_placeholder">在此輸入您的電子郵件簽章…\n\n範例：\n順頌商祺，\n您的姓名\n公司名稱</string>
+    <string name="signature_html_note">注意：您可以使用基本的 HTML 標籤來設定格式。</string>
 
     <string name="data_storage">資料與儲存</string>
     <string name="clear_cache">清除快取</string>

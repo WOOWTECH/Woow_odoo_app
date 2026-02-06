@@ -4,7 +4,6 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
 import io.woowtech.odoo.domain.model.AuthResult
-import io.woowtech.odoo.domain.model.UserProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
@@ -134,92 +133,6 @@ class OdooJsonRpcClient @Inject constructor() {
             AuthResult.Error("Network error: ${e.message}", AuthResult.ErrorType.NETWORK_ERROR)
         } catch (e: Exception) {
             AuthResult.Error("Error: ${e.message}", AuthResult.ErrorType.UNKNOWN)
-        }
-    }
-
-    suspend fun getUserProfile(
-        serverUrl: String,
-        database: String,
-        userId: Int,
-        password: String
-    ): UserProfile? = withContext(Dispatchers.IO) {
-        try {
-            val url = "$serverUrl/jsonrpc"
-            val requestBody = JsonRpcRequest(
-                jsonrpc = "2.0",
-                method = "call",
-                params = mapOf(
-                    "service" to "object",
-                    "method" to "execute_kw",
-                    "args" to listOf(
-                        database,
-                        userId,
-                        password,
-                        "res.users",
-                        "read",
-                        listOf(listOf(userId)),
-                        mapOf(
-                            "fields" to listOf(
-                                "name", "login", "email", "phone",
-                                "mobile", "website", "function", "image_1920"
-                            )
-                        )
-                    )
-                ),
-                id = 2
-            )
-
-            val response = executeRequest(url, requestBody)
-            val result = response.result?.asJsonArray?.firstOrNull()?.asJsonObject
-                ?: return@withContext null
-
-            UserProfile(
-                id = userId,
-                name = result.get("name")?.asString ?: "",
-                login = result.get("login")?.asString ?: "",
-                email = result.get("email")?.takeIf { !it.isJsonNull }?.asString,
-                phone = result.get("phone")?.takeIf { !it.isJsonNull }?.asString,
-                mobile = result.get("mobile")?.takeIf { !it.isJsonNull }?.asString,
-                website = result.get("website")?.takeIf { !it.isJsonNull }?.asString,
-                function = result.get("function")?.takeIf { !it.isJsonNull }?.asString,
-                imageBase64 = result.get("image_1920")?.takeIf { !it.isJsonNull }?.asString
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    suspend fun updateUserProfile(
-        serverUrl: String,
-        database: String,
-        userId: Int,
-        password: String,
-        updates: Map<String, Any>
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val url = "$serverUrl/jsonrpc"
-            val requestBody = JsonRpcRequest(
-                jsonrpc = "2.0",
-                method = "call",
-                params = mapOf(
-                    "service" to "object",
-                    "method" to "execute_kw",
-                    "args" to listOf(
-                        database,
-                        userId,
-                        password,
-                        "res.users",
-                        "write",
-                        listOf(listOf(userId), updates)
-                    )
-                ),
-                id = 3
-            )
-
-            val response = executeRequest(url, requestBody)
-            response.error == null
-        } catch (e: Exception) {
-            false
         }
     }
 
