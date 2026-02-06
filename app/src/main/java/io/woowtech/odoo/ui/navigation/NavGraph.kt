@@ -132,7 +132,7 @@ fun WoowOdooNavHost(
             )
         }
 
-        composable(Screen.Profile.route) {
+        composable(Screen.Profile.route) { backStackEntry ->
             ProfileScreen(
                 onBackClick = { navController.popBackStack() },
                 onEditSignature = { navController.navigate(Screen.SignatureEdit.route) }
@@ -140,8 +140,11 @@ fun WoowOdooNavHost(
         }
 
         // v1.0.16: Signature Edit Screen
-        composable(Screen.SignatureEdit.route) {
+        // Share ViewModel with ProfileScreen by getting it from parent back stack entry
+        composable(Screen.SignatureEdit.route) { backStackEntry ->
+            val parentEntry = navController.getBackStackEntry(Screen.Profile.route)
             SignatureEditScreen(
+                viewModel = hiltViewModel(parentEntry),
                 onBackClick = { navController.popBackStack() },
                 onSave = { navController.popBackStack() }
             )
