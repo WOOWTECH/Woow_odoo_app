@@ -135,7 +135,7 @@ fun SettingsScreen(
                     trailing = {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .background(Color(android.graphics.Color.parseColor(settings.themeColor)))
                         )
@@ -389,7 +389,7 @@ private fun SettingsItem(
             tint = if (enabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             }
         )
 
@@ -402,7 +402,7 @@ private fun SettingsItem(
                 color = if (enabled) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 }
             )
             Text(
@@ -411,7 +411,7 @@ private fun SettingsItem(
                 color = if (enabled) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 }
             )
         }
@@ -446,7 +446,7 @@ private fun SettingsToggleItem(
             tint = if (enabled) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             } else {
-                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             }
         )
 
@@ -459,7 +459,7 @@ private fun SettingsToggleItem(
                 color = if (enabled) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 }
             )
             Text(
@@ -468,7 +468,7 @@ private fun SettingsToggleItem(
                 color = if (enabled) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 }
             )
         }
@@ -514,13 +514,13 @@ private fun ColorPickerDialog(
                 )
 
                 // Color grid
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     presetColors.chunked(5).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             row.forEach { color ->
                                 Box(
                                     modifier = Modifier
-                                        .size(40.dp)
+                                        .size(48.dp)
                                         .clip(CircleShape)
                                         .background(Color(android.graphics.Color.parseColor(color)))
                                         .clickable { selectedColor = color }

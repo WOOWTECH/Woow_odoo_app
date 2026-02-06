@@ -139,6 +139,10 @@
     <string name="biometric_negative">使用 PIN 碼</string>
     <string name="biometric_not_available">生物辨識驗證無法使用</string>
     <string name="biometric_not_enrolled">尚未設定生物辨識資料</string>
+    <string name="biometric_too_many_attempts">嘗試次數過多，請使用 PIN 碼</string>
+    <string name="biometric_failed">驗證失敗，請再試一次</string>
+    <string name="skip">跳過</string>
+    <string name="skip_for_now">稍後再說</string>
 
     <!-- Error Messages -->
     <string name="error_network">無法連接到伺服器</string>

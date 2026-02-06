@@ -1,0 +1,61 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug --stacktrace
+      env:
+        GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=512m"
+
+    - name: List APK directory
+      run: |
+        echo "Listing APK output directory:"
+        ls -la app/build/outputs/apk/debug/ || echo "Directory not found"
+        echo "Finding all APK files:"
+        find app/build -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: woowtech-odoo-debug
+        path: app/build/outputs/apk/debug/*.apk
+        retention-days: 90
+        if-no-files-found: error
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v1.0.0-build${{ github.run_number }}
+        name: WoowTech Odoo v1.0.0 (Build ${{ github.run_number }})
+        files: app/build/outputs/apk/debug/*.apk
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

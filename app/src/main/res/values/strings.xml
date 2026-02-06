@@ -139,6 +139,10 @@
     <string name="biometric_negative">Use PIN</string>
     <string name="biometric_not_available">Biometric authentication not available</string>
     <string name="biometric_not_enrolled">No biometric data enrolled</string>
+    <string name="biometric_too_many_attempts">Too many failed attempts. Please use PIN.</string>
+    <string name="biometric_failed">Authentication failed. Please try again.</string>
+    <string name="skip">Skip</string>
+    <string name="skip_for_now">Skip for now</string>
 
     <!-- Error Messages -->
     <string name="error_network">Unable to connect to server</string>
