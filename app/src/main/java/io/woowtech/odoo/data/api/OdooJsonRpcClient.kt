@@ -176,6 +176,20 @@ class OdooJsonRpcClient @Inject constructor() {
             val result = response.result?.asJsonArray?.firstOrNull()?.asJsonObject
                 ?: return@withContext null
 
+            // v1.0.16: Parse lang field - it's a string in res.users, not a Many2one
+            // But handle both cases for compatibility
+            val langValue = result.get("lang")?.let { langElement ->
+                when {
+                    langElement.isJsonNull -> null
+                    langElement.isJsonPrimitive -> langElement.asString
+                    langElement.isJsonArray && langElement.asJsonArray.size() > 0 -> {
+                        // Handle if it returns as [code, name] tuple
+                        langElement.asJsonArray[0].asString
+                    }
+                    else -> null
+                }
+            }
+
             UserProfile(
                 id = userId,
                 name = result.get("name")?.asString ?: "",
@@ -187,12 +201,13 @@ class OdooJsonRpcClient @Inject constructor() {
                 function = result.get("function")?.takeIf { !it.isJsonNull }?.asString,
                 imageBase64 = result.get("image_1920")?.takeIf { !it.isJsonNull }?.asString,
                 // v1.0.16: Odoo preferences
-                lang = result.get("lang")?.takeIf { !it.isJsonNull }?.asString,
+                lang = langValue,
                 tz = result.get("tz")?.takeIf { !it.isJsonNull }?.asString,
                 notificationType = result.get("notification_type")?.takeIf { !it.isJsonNull }?.asString,
                 signature = result.get("signature")?.takeIf { !it.isJsonNull }?.asString
             )
         } catch (e: Exception) {
+            android.util.Log.e("OdooJsonRpcClient", "getUserProfile error: ${e.message}", e)
             null
         }
     }
@@ -243,6 +258,7 @@ class OdooJsonRpcClient @Inject constructor() {
                 }
             }
         } catch (e: Exception) {
+            android.util.Log.e("OdooJsonRpcClient", "getAvailableLanguages error: ${e.message}", e)
             emptyList()
         }
     }
@@ -277,6 +293,7 @@ class OdooJsonRpcClient @Inject constructor() {
             val response = executeRequest(url, requestBody)
             response.error == null
         } catch (e: Exception) {
+            android.util.Log.e("OdooJsonRpcClient", "updateUserProfile error: ${e.message}", e)
             false
         }
     }
