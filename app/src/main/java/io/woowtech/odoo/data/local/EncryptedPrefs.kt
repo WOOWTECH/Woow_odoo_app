@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
+import io.woowtech.odoo.domain.model.ThemeMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,6 +44,7 @@ class EncryptedPrefs @Inject constructor(
     fun saveAppSettings(settings: AppSettings) {
         prefs.edit().apply {
             putString(KEY_THEME_COLOR, settings.themeColor)
+            putString(KEY_THEME_MODE, settings.themeMode.code)
             putBoolean(KEY_REDUCE_MOTION, settings.reduceMotion)
             putBoolean(KEY_APP_LOCK_ENABLED, settings.appLockEnabled)
             putBoolean(KEY_BIOMETRIC_ENABLED, settings.biometricEnabled)
@@ -58,6 +60,9 @@ class EncryptedPrefs @Inject constructor(
     fun getAppSettings(): AppSettings {
         return AppSettings(
             themeColor = prefs.getString(KEY_THEME_COLOR, "#6183FC") ?: "#6183FC",
+            themeMode = ThemeMode.entries.find {
+                it.code == prefs.getString(KEY_THEME_MODE, "system")
+            } ?: ThemeMode.SYSTEM,
             reduceMotion = prefs.getBoolean(KEY_REDUCE_MOTION, false),
             appLockEnabled = prefs.getBoolean(KEY_APP_LOCK_ENABLED, false),
             biometricEnabled = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false),
@@ -118,8 +123,13 @@ class EncryptedPrefs @Inject constructor(
         prefs.edit().putString(KEY_LANGUAGE, language.code).apply()
     }
 
+    fun updateThemeMode(mode: ThemeMode) {
+        prefs.edit().putString(KEY_THEME_MODE, mode.code).apply()
+    }
+
     companion object {
         private const val KEY_THEME_COLOR = "theme_color"
+        private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_REDUCE_MOTION = "reduce_motion"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"

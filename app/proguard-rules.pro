@@ -36,3 +36,6 @@
 -keep class javax.inject.** { *; }
 -keep class * extends dagger.hilt.android.internal.managers.ComponentSupplier { *; }
 -keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
+
+# Error-prone annotations (missing at runtime)
+-dontwarn com.google.errorprone.annotations.**

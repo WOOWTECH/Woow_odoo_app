@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
+import io.woowtech.odoo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 import javax.inject.Inject
@@ -43,6 +44,10 @@ class SettingsViewModel @Inject constructor(
 
     fun updateLanguage(language: AppLanguage) {
         settingsRepository.updateLanguage(language)
+    }
+
+    fun updateThemeMode(mode: ThemeMode) {
+        settingsRepository.updateThemeMode(mode)
     }
 
     fun clearCache(context: Context) {

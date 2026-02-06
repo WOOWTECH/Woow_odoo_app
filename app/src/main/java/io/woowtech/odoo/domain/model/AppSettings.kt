@@ -2,6 +2,7 @@ package io.woowtech.odoo.domain.model
 
 data class AppSettings(
     val themeColor: String = "#6183FC",
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val reduceMotion: Boolean = false,
     val appLockEnabled: Boolean = false,
     val biometricEnabled: Boolean = false,
@@ -11,6 +12,12 @@ data class AppSettings(
     val failedPinAttempts: Int = 0,
     val pinLockoutUntil: Long? = null
 )
+
+enum class ThemeMode(val code: String) {
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark")
+}
 
 enum class AppLanguage(val code: String, val displayName: String) {
     SYSTEM("system", "System Default"),

@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import io.woowtech.odoo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,9 @@ import kotlinx.coroutines.flow.asStateFlow
 object ThemeManager {
     private val _primaryColor = MutableStateFlow(WoowTechBlue)
     val primaryColor: StateFlow<Color> = _primaryColor.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     fun setPrimaryColor(color: Color) {
         _primaryColor.value = color
@@ -32,6 +36,10 @@ object ThemeManager {
         } catch (e: Exception) {
             // Keep default color if parsing fails
         }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        _themeMode.value = mode
     }
 }
 
@@ -79,10 +87,17 @@ private fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
 
 @Composable
 fun WoowTechOdooTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     val primaryColor by ThemeManager.primaryColor.collectAsState()
+    val themeMode by ThemeManager.themeMode.collectAsState()
+    val systemDarkTheme = isSystemInDarkTheme()
+
+    val darkTheme = when (themeMode) {
+        ThemeMode.SYSTEM -> systemDarkTheme
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
 
     val colorScheme = if (darkTheme) {
         createDarkColorScheme(primaryColor)

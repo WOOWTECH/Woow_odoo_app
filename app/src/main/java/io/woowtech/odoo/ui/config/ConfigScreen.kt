@@ -59,7 +59,6 @@ import io.woowtech.odoo.R
 fun ConfigScreen(
     viewModel: ConfigViewModel = hiltViewModel(),
     onBackClick: () -> Unit,
-    onProfileClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onAddAccountClick: () -> Unit,
     onLogout: () -> Unit
@@ -96,12 +95,10 @@ fun ConfigScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // Profile Card
+            // Profile Card (v1.0.20: Display only, not clickable)
             activeAccount?.let { account ->
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onProfileClick() },
+                    modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
                     )
@@ -140,12 +137,7 @@ fun ConfigScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        // v1.0.20: Removed ChevronRight icon - profile card is no longer clickable
                     }
                 }
             }
