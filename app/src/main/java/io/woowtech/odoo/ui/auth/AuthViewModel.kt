@@ -24,9 +24,9 @@ class AuthViewModel @Inject constructor(
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val requiresAuth: StateFlow<Boolean> = settingsRepository.settings
-        .map { it.appLockEnabled }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    // v1.0.21: Biometric auth temporarily disabled - always skip auth screen
+    // Keep the field but always return false
+    val requiresAuth: StateFlow<Boolean> = MutableStateFlow(false)
 
     private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
