@@ -83,6 +83,23 @@
     <string name="language_chinese">繁體中文</string>
     <string name="timezone">Timezone</string>
 
+    <!-- v1.0.16: Odoo Preferences -->
+    <string name="preferences">Preferences</string>
+    <string name="personalization">Personalization</string>
+    <string name="notification">Notification</string>
+    <string name="email_signature">Email Signature</string>
+    <string name="select_language">Select Language</string>
+    <string name="select_timezone">Select Timezone</string>
+    <string name="select_notification">Notification Handling</string>
+    <string name="notification_email">Handle by Emails</string>
+    <string name="notification_inbox">Handle in Odoo</string>
+    <string name="signature_set">Configured</string>
+    <string name="signature_not_set">Not configured</string>
+    <string name="signature_hint">Your email signature will appear at the bottom of outgoing emails sent from Odoo.</string>
+    <string name="signature_label">Signature Content</string>
+    <string name="signature_placeholder">Enter your email signature here…\n\nExample:\nBest regards,\nYour Name\nCompany Name</string>
+    <string name="signature_html_note">Note: You can use basic HTML tags for formatting.</string>
+
     <string name="data_storage">Data &amp; Storage</string>
     <string name="clear_cache">Clear Cache</string>
     <string name="clear_cache_subtitle">Free up storage space</string>

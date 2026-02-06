@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
 import io.woowtech.odoo.domain.model.AuthResult
+import io.woowtech.odoo.domain.model.OdooLanguage
 import io.woowtech.odoo.domain.model.UserProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -161,7 +162,9 @@ class OdooJsonRpcClient @Inject constructor() {
                         mapOf(
                             "fields" to listOf(
                                 "name", "login", "email", "phone",
-                                "mobile", "website", "function", "image_1920"
+                                "mobile", "website", "function", "image_1920",
+                                // v1.0.16: Odoo preferences
+                                "lang", "tz", "notification_type", "signature"
                             )
                         )
                     )
@@ -182,10 +185,65 @@ class OdooJsonRpcClient @Inject constructor() {
                 mobile = result.get("mobile")?.takeIf { !it.isJsonNull }?.asString,
                 website = result.get("website")?.takeIf { !it.isJsonNull }?.asString,
                 function = result.get("function")?.takeIf { !it.isJsonNull }?.asString,
-                imageBase64 = result.get("image_1920")?.takeIf { !it.isJsonNull }?.asString
+                imageBase64 = result.get("image_1920")?.takeIf { !it.isJsonNull }?.asString,
+                // v1.0.16: Odoo preferences
+                lang = result.get("lang")?.takeIf { !it.isJsonNull }?.asString,
+                tz = result.get("tz")?.takeIf { !it.isJsonNull }?.asString,
+                notificationType = result.get("notification_type")?.takeIf { !it.isJsonNull }?.asString,
+                signature = result.get("signature")?.takeIf { !it.isJsonNull }?.asString
             )
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /**
+     * v1.0.16: Get available languages from Odoo
+     */
+    suspend fun getAvailableLanguages(
+        serverUrl: String,
+        database: String,
+        userId: Int,
+        password: String
+    ): List<OdooLanguage> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$serverUrl/jsonrpc"
+            val requestBody = JsonRpcRequest(
+                jsonrpc = "2.0",
+                method = "call",
+                params = mapOf(
+                    "service" to "object",
+                    "method" to "execute_kw",
+                    "args" to listOf(
+                        database,
+                        userId,
+                        password,
+                        "res.lang",
+                        "search_read",
+                        listOf(listOf(listOf("active", "=", true))),
+                        mapOf(
+                            "fields" to listOf("code", "name")
+                        )
+                    )
+                ),
+                id = 4
+            )
+
+            val response = executeRequest(url, requestBody)
+            val result = response.result?.asJsonArray ?: return@withContext emptyList()
+
+            result.mapNotNull { item ->
+                val obj = item.asJsonObject
+                val code = obj.get("code")?.takeIf { !it.isJsonNull }?.asString
+                val name = obj.get("name")?.takeIf { !it.isJsonNull }?.asString
+                if (code != null && name != null) {
+                    OdooLanguage(code = code, name = name)
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 

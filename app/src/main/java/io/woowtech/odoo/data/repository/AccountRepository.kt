@@ -5,6 +5,7 @@ import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
+import io.woowtech.odoo.domain.model.OdooLanguage
 import io.woowtech.odoo.domain.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
@@ -140,4 +141,20 @@ class AccountRepository @Inject constructor(
     }
 
     suspend fun getAccountCount(): Int = accountDao.getAccountCount()
+
+    /**
+     * v1.0.16: Get available languages from Odoo
+     */
+    suspend fun getAvailableLanguages(): List<OdooLanguage> {
+        val account = accountDao.getActiveAccountOnce() ?: return emptyList()
+        val password = encryptedPrefs.getPassword(account.id) ?: return emptyList()
+        val userId = account.userId ?: return emptyList()
+
+        return odooClient.getAvailableLanguages(
+            account.fullServerUrl,
+            account.database,
+            userId,
+            password
+        )
+    }
 }
