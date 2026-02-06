@@ -146,6 +146,8 @@ class OdooJsonRpcClient @Inject constructor() {
     ): UserProfile? = withContext(Dispatchers.IO) {
         try {
             val url = "$serverUrl/jsonrpc"
+            // v1.0.18: Only request fields that exist on res.users
+            // Removed notification_type as it may not exist on all Odoo versions
             val requestBody = JsonRpcRequest(
                 jsonrpc = "2.0",
                 method = "call",
@@ -163,8 +165,8 @@ class OdooJsonRpcClient @Inject constructor() {
                             "fields" to listOf(
                                 "name", "login", "email", "phone",
                                 "mobile", "website", "function", "image_1920",
-                                // v1.0.16: Odoo preferences
-                                "lang", "tz", "notification_type", "signature"
+                                // v1.0.18: Safe Odoo preferences (these exist on res.users)
+                                "lang", "tz", "signature"
                             )
                         )
                     )
@@ -173,42 +175,63 @@ class OdooJsonRpcClient @Inject constructor() {
             )
 
             val response = executeRequest(url, requestBody)
-            val result = response.result?.asJsonArray?.firstOrNull()?.asJsonObject
-                ?: return@withContext null
 
-            // v1.0.16: Parse lang field - it's a string in res.users, not a Many2one
-            // But handle both cases for compatibility
-            val langValue = result.get("lang")?.let { langElement ->
-                when {
-                    langElement.isJsonNull -> null
-                    langElement.isJsonPrimitive -> langElement.asString
-                    langElement.isJsonArray && langElement.asJsonArray.size() > 0 -> {
-                        // Handle if it returns as [code, name] tuple
-                        langElement.asJsonArray[0].asString
-                    }
-                    else -> null
-                }
+            // Check for API error
+            if (response.error != null) {
+                android.util.Log.e("OdooJsonRpcClient", "getUserProfile API error: ${response.error.message}")
+                return@withContext null
+            }
+
+            val result = response.result?.asJsonArray?.firstOrNull()?.asJsonObject
+            if (result == null) {
+                android.util.Log.e("OdooJsonRpcClient", "getUserProfile: empty result")
+                return@withContext null
             }
 
             UserProfile(
                 id = userId,
-                name = result.get("name")?.asString ?: "",
-                login = result.get("login")?.asString ?: "",
-                email = result.get("email")?.takeIf { !it.isJsonNull }?.asString,
-                phone = result.get("phone")?.takeIf { !it.isJsonNull }?.asString,
-                mobile = result.get("mobile")?.takeIf { !it.isJsonNull }?.asString,
-                website = result.get("website")?.takeIf { !it.isJsonNull }?.asString,
-                function = result.get("function")?.takeIf { !it.isJsonNull }?.asString,
-                imageBase64 = result.get("image_1920")?.takeIf { !it.isJsonNull }?.asString,
-                // v1.0.16: Odoo preferences
-                lang = langValue,
-                tz = result.get("tz")?.takeIf { !it.isJsonNull }?.asString,
-                notificationType = result.get("notification_type")?.takeIf { !it.isJsonNull }?.asString,
-                signature = result.get("signature")?.takeIf { !it.isJsonNull }?.asString
+                name = result.getStringOrNull("name") ?: "",
+                login = result.getStringOrNull("login") ?: "",
+                email = result.getStringOrNull("email"),
+                phone = result.getStringOrNull("phone"),
+                mobile = result.getStringOrNull("mobile"),
+                website = result.getStringOrNull("website"),
+                function = result.getStringOrNull("function"),
+                imageBase64 = result.getStringOrNull("image_1920"),
+                // v1.0.18: Safe Odoo preferences
+                lang = result.getStringOrNull("lang"),
+                tz = result.getStringOrNull("tz"),
+                notificationType = "email", // Default value, will fetch from res.partner if needed
+                signature = result.getStringOrNull("signature")
             )
         } catch (e: Exception) {
             android.util.Log.e("OdooJsonRpcClient", "getUserProfile error: ${e.message}", e)
             null
+        }
+    }
+
+    /**
+     * v1.0.18: Safe string extraction from JsonObject
+     * Handles Odoo's quirk of returning `false` for empty/null fields
+     */
+    private fun JsonObject.getStringOrNull(key: String): String? {
+        val element = this.get(key) ?: return null
+        return when {
+            element.isJsonNull -> null
+            element.isJsonPrimitive -> {
+                val primitive = element.asJsonPrimitive
+                when {
+                    primitive.isBoolean -> null // Odoo returns false for empty fields
+                    primitive.isString -> primitive.asString.takeIf { it.isNotBlank() }
+                    else -> primitive.asString
+                }
+            }
+            element.isJsonArray && element.asJsonArray.size() > 0 -> {
+                // Handle Many2one fields that return [id, name] or just the first element
+                val first = element.asJsonArray[0]
+                if (first.isJsonPrimitive) first.asString else null
+            }
+            else -> null
         }
     }
 
