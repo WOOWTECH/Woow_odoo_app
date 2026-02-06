@@ -103,10 +103,49 @@ class AccountRepository @Inject constructor(
         accountDao.deleteAccountById(accountId)
     }
 
+    /**
+     * v1.0.19: Ensure session is valid before API calls
+     * Cookie store is in-memory, so after app restart we need to re-authenticate
+     */
+    private suspend fun ensureSession(account: OdooAccount, password: String): Boolean {
+        val host = account.fullServerUrl.removePrefix("https://").split("/").first()
+        val hasSession = odooClient.getSessionId(host) != null
+
+        if (hasSession) {
+            return true
+        }
+
+        // Re-authenticate to establish session
+        android.util.Log.d("AccountRepository", "Re-authenticating to establish session...")
+        val result = odooClient.authenticate(
+            account.fullServerUrl,
+            account.database,
+            account.username,
+            password
+        )
+
+        return result is AuthResult.Success
+    }
+
     suspend fun getUserProfile(): UserProfile? {
-        val account = accountDao.getActiveAccountOnce() ?: return null
-        val password = encryptedPrefs.getPassword(account.id) ?: return null
-        val userId = account.userId ?: return null
+        val account = accountDao.getActiveAccountOnce() ?: run {
+            android.util.Log.e("AccountRepository", "getUserProfile: no active account")
+            return null
+        }
+        val password = encryptedPrefs.getPassword(account.id) ?: run {
+            android.util.Log.e("AccountRepository", "getUserProfile: no password for account")
+            return null
+        }
+        val userId = account.userId ?: run {
+            android.util.Log.e("AccountRepository", "getUserProfile: no userId")
+            return null
+        }
+
+        // v1.0.19: Ensure session is valid before API call
+        if (!ensureSession(account, password)) {
+            android.util.Log.e("AccountRepository", "getUserProfile: failed to establish session")
+            return null
+        }
 
         return odooClient.getUserProfile(
             account.fullServerUrl,
@@ -120,6 +159,12 @@ class AccountRepository @Inject constructor(
         val account = accountDao.getActiveAccountOnce() ?: return false
         val password = encryptedPrefs.getPassword(account.id) ?: return false
         val userId = account.userId ?: return false
+
+        // v1.0.19: Ensure session is valid before API call
+        if (!ensureSession(account, password)) {
+            android.util.Log.e("AccountRepository", "updateUserProfile: failed to establish session")
+            return false
+        }
 
         return odooClient.updateUserProfile(
             account.fullServerUrl,
@@ -149,6 +194,12 @@ class AccountRepository @Inject constructor(
         val account = accountDao.getActiveAccountOnce() ?: return emptyList()
         val password = encryptedPrefs.getPassword(account.id) ?: return emptyList()
         val userId = account.userId ?: return emptyList()
+
+        // v1.0.19: Ensure session is valid before API call
+        if (!ensureSession(account, password)) {
+            android.util.Log.e("AccountRepository", "getAvailableLanguages: failed to establish session")
+            return emptyList()
+        }
 
         return odooClient.getAvailableLanguages(
             account.fullServerUrl,
