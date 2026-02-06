@@ -1,11 +1,16 @@
 package io.woowtech.odoo.ui.main
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Environment
 import android.os.Message
+import android.provider.MediaStore
 import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -13,6 +18,8 @@ import android.webkit.WebView
 import android.webkit.WebResourceResponse
 import android.webkit.WebViewClient
 import android.view.ViewGroup
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,10 +44,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +133,75 @@ fun OdooWebView(
     onLoadingChanged: (Boolean) -> Unit,
     onSessionExpired: () -> Unit
 ) {
+    val context = LocalContext.current
+
+    // v1.0.15: File upload support - state for file chooser callback
+    var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // v1.0.15: Create temp file for camera photo
+    fun createImageFile(): File {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        return File.createTempFile("JPEG_${timeStamp}_", ".jpg", storageDir)
+    }
+
+    // v1.0.15: File chooser launcher - handles result from file picker/camera
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Log.d("WoowTechOdoo", "File chooser result: ${result.resultCode}")
+
+        val uris = mutableListOf<Uri>()
+
+        // Check if camera photo was taken
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            // Check for camera result first
+            cameraPhotoUri?.let { cameraUri ->
+                // Verify file exists and has content
+                try {
+                    context.contentResolver.openInputStream(cameraUri)?.use { stream ->
+                        if (stream.available() > 0) {
+                            uris.add(cameraUri)
+                            Log.d("WoowTechOdoo", "Camera photo captured: $cameraUri")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("WoowTechOdoo", "Error reading camera photo: ${e.message}")
+                }
+            }
+
+            // Check for file/gallery result
+            result.data?.let { intent ->
+                // Single selection
+                intent.data?.let { uri ->
+                    if (!uris.contains(uri)) {
+                        uris.add(uri)
+                        Log.d("WoowTechOdoo", "Single file selected: $uri")
+                    }
+                }
+
+                // Multiple selection
+                intent.clipData?.let { clipData ->
+                    for (i in 0 until clipData.itemCount) {
+                        val uri = clipData.getItemAt(i).uri
+                        if (!uris.contains(uri)) {
+                            uris.add(uri)
+                            Log.d("WoowTechOdoo", "Multiple file selected [$i]: $uri")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Send result to WebView (must always call, even with empty/null result)
+        val resultUris = if (uris.isNotEmpty()) uris.toTypedArray() else null
+        Log.d("WoowTechOdoo", "Sending ${uris.size} URIs to WebView")
+        filePathCallback?.onReceiveValue(resultUris)
+        filePathCallback = null
+        cameraPhotoUri = null
+    }
+
     AndroidView(
         factory = { context ->
             WebView(context).apply {
@@ -288,8 +370,70 @@ fun OdooWebView(
                     }
                 }
 
-                // v1.0.10: Enhanced WebChromeClient with window handling and console logging
+                // v1.0.15: Enhanced WebChromeClient with file upload, window handling and console logging
                 webChromeClient = object : WebChromeClient() {
+                    // v1.0.15: File upload support
+                    override fun onShowFileChooser(
+                        webView: WebView?,
+                        callback: ValueCallback<Array<Uri>>?,
+                        fileChooserParams: FileChooserParams?
+                    ): Boolean {
+                        Log.d("WoowTechOdoo", "onShowFileChooser called")
+                        Log.d("WoowTechOdoo", "Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
+                        Log.d("WoowTechOdoo", "Mode: ${fileChooserParams?.mode}")
+
+                        // Cancel any pending callback
+                        filePathCallback?.onReceiveValue(null)
+                        filePathCallback = callback
+
+                        try {
+                            // Create camera intent
+                            val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                            val photoFile = createImageFile()
+                            val photoUri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                photoFile
+                            )
+                            cameraPhotoUri = photoUri
+                            takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                            Log.d("WoowTechOdoo", "Camera URI: $photoUri")
+
+                            // Create gallery/file intent
+                            val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+
+                                // Set MIME type based on accept types
+                                val acceptTypes = fileChooserParams?.acceptTypes
+                                type = if (acceptTypes.isNullOrEmpty() || acceptTypes[0].isNullOrBlank()) {
+                                    "*/*"
+                                } else {
+                                    acceptTypes[0]
+                                }
+
+                                // Allow multiple selection if supported
+                                if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                                }
+                            }
+
+                            // Create chooser with camera as extra option
+                            val chooserIntent = Intent.createChooser(contentIntent, "選擇檔案").apply {
+                                putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(takePictureIntent))
+                            }
+
+                            fileChooserLauncher.launch(chooserIntent)
+                            return true
+
+                        } catch (e: Exception) {
+                            Log.e("WoowTechOdoo", "Error launching file chooser: ${e.message}")
+                            filePathCallback?.onReceiveValue(null)
+                            filePathCallback = null
+                            cameraPhotoUri = null
+                            return false
+                        }
+                    }
+
                     override fun onCreateWindow(
                         view: WebView?,
                         isDialog: Boolean,
