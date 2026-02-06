@@ -5,8 +5,6 @@ import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
-import io.woowtech.odoo.domain.model.OdooLanguage
-import io.woowtech.odoo.domain.model.UserProfile
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -103,78 +101,6 @@ class AccountRepository @Inject constructor(
         accountDao.deleteAccountById(accountId)
     }
 
-    /**
-     * v1.0.19: Ensure session is valid before API calls
-     * Cookie store is in-memory, so after app restart we need to re-authenticate
-     */
-    private suspend fun ensureSession(account: OdooAccount, password: String): Boolean {
-        val host = account.fullServerUrl.removePrefix("https://").split("/").first()
-        val hasSession = odooClient.getSessionId(host) != null
-
-        if (hasSession) {
-            return true
-        }
-
-        // Re-authenticate to establish session
-        android.util.Log.d("AccountRepository", "Re-authenticating to establish session...")
-        val result = odooClient.authenticate(
-            account.fullServerUrl,
-            account.database,
-            account.username,
-            password
-        )
-
-        return result is AuthResult.Success
-    }
-
-    suspend fun getUserProfile(): UserProfile? {
-        val account = accountDao.getActiveAccountOnce() ?: run {
-            android.util.Log.e("AccountRepository", "getUserProfile: no active account")
-            return null
-        }
-        val password = encryptedPrefs.getPassword(account.id) ?: run {
-            android.util.Log.e("AccountRepository", "getUserProfile: no password for account")
-            return null
-        }
-        val userId = account.userId ?: run {
-            android.util.Log.e("AccountRepository", "getUserProfile: no userId")
-            return null
-        }
-
-        // v1.0.19: Ensure session is valid before API call
-        if (!ensureSession(account, password)) {
-            android.util.Log.e("AccountRepository", "getUserProfile: failed to establish session")
-            return null
-        }
-
-        return odooClient.getUserProfile(
-            account.fullServerUrl,
-            account.database,
-            userId,
-            password
-        )
-    }
-
-    suspend fun updateUserProfile(updates: Map<String, Any>): Boolean {
-        val account = accountDao.getActiveAccountOnce() ?: return false
-        val password = encryptedPrefs.getPassword(account.id) ?: return false
-        val userId = account.userId ?: return false
-
-        // v1.0.19: Ensure session is valid before API call
-        if (!ensureSession(account, password)) {
-            android.util.Log.e("AccountRepository", "updateUserProfile: failed to establish session")
-            return false
-        }
-
-        return odooClient.updateUserProfile(
-            account.fullServerUrl,
-            account.database,
-            userId,
-            password,
-            updates
-        )
-    }
-
     fun getSessionId(serverUrl: String): String? {
         val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
         return odooClient.getSessionId(host)
@@ -186,26 +112,4 @@ class AccountRepository @Inject constructor(
     }
 
     suspend fun getAccountCount(): Int = accountDao.getAccountCount()
-
-    /**
-     * v1.0.16: Get available languages from Odoo
-     */
-    suspend fun getAvailableLanguages(): List<OdooLanguage> {
-        val account = accountDao.getActiveAccountOnce() ?: return emptyList()
-        val password = encryptedPrefs.getPassword(account.id) ?: return emptyList()
-        val userId = account.userId ?: return emptyList()
-
-        // v1.0.19: Ensure session is valid before API call
-        if (!ensureSession(account, password)) {
-            android.util.Log.e("AccountRepository", "getAvailableLanguages: failed to establish session")
-            return emptyList()
-        }
-
-        return odooClient.getAvailableLanguages(
-            account.fullServerUrl,
-            account.database,
-            userId,
-            password
-        )
-    }
 }
