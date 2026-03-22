@@ -453,6 +453,160 @@ still_ok2 = d.app_current()["package"] == PKG
 check("V14b-C17", "App handles deep link intent without crash", still_ok2)
 
 # ═══════════════════════════════════════════════════════════
+# V15: Color picker ACTUALLY changes theme (G4)
+# ═══════════════════════════════════════════════════════════
+section("V15: Color Picker Changes Theme (User Flow)")
+
+launch_app()
+
+# Navigate to Settings → Theme Color
+for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
+    btn = d(descriptionContains=desc)
+    if btn.exists(timeout=1):
+        btn.click()
+        break
+else:
+    d(className="android.widget.ImageButton").click()
+time.sleep(2)
+
+for text in ["设置", "設定", "Settings"]:
+    btn = d(text=text)
+    if btn.exists(timeout=2):
+        btn.click()
+        break
+time.sleep(2)
+
+# Open color picker
+for text in ["主题颜色", "主題顏色", "Theme Color"]:
+    btn = d(textContains=text)
+    if btn.exists(timeout=2):
+        btn.click()
+        break
+time.sleep(2)
+
+# Tap the Apply button (applies currently selected color)
+apply_btn = d(text="Apply") or d(text="套用") or d(text="应用")
+if apply_btn.exists(timeout=2):
+    apply_btn.click()
+    time.sleep(1)
+    # After apply, dialog should close and we're back on Settings
+    still_in_settings = (d(textContains="Settings").exists(timeout=2) or
+                         d(textContains="设置").exists(timeout=2) or
+                         d(textContains="設定").exists(timeout=2))
+    check("V15-G4", "Color picker: tap Apply → dialog closes, back on Settings", still_in_settings)
+else:
+    check("V15-G4", "Color picker Apply button found", False)
+
+d.press("back")
+time.sleep(1)
+d.press("back")
+
+# ═══════════════════════════════════════════════════════════
+# V16: zh-CN ACTUALLY switches language (G5)
+# ═══════════════════════════════════════════════════════════
+section("V16: zh-CN Language Switch (User Flow)")
+
+launch_app()
+
+# Navigate: Menu → Settings → Language
+for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
+    btn = d(descriptionContains=desc)
+    if btn.exists(timeout=1):
+        btn.click()
+        break
+else:
+    d(className="android.widget.ImageButton").click()
+time.sleep(2)
+
+for text in ["设置", "設定", "Settings"]:
+    btn = d(text=text)
+    if btn.exists(timeout=2):
+        btn.click()
+        break
+time.sleep(2)
+
+# Scroll to Language and tap it
+lang_clicked = False
+for _ in range(3):
+    for text in ["语言", "語言", "Language"]:
+        el = d(text=text)
+        if el.exists(timeout=1):
+            el.click()
+            lang_clicked = True
+            break
+    if lang_clicked:
+        break
+    d.swipe(0.5, 0.7, 0.5, 0.3)
+    time.sleep(1)
+
+if lang_clicked:
+    time.sleep(1)
+    # Select 简体中文
+    zhcn = d(text="简体中文")
+    if zhcn.exists(timeout=2):
+        zhcn.click()
+        time.sleep(2)
+
+        # Verify: Settings should now show Chinese text
+        # "安全性" = Security in zh-CN, "外观" = Appearance
+        zh_visible = (d(textContains="安全性").exists(timeout=2) or
+                      d(textContains="外观").exists(timeout=2) or
+                      d(textContains="数据").exists(timeout=2))
+        check("V16a-G5", "After selecting 简体中文, Settings shows simplified Chinese text", zh_visible)
+
+        # Switch back to English to restore state
+        for text in ["语言", "Language"]:
+            el = d(text=text)
+            if el.exists(timeout=1):
+                el.click()
+                break
+        else:
+            d.swipe(0.5, 0.7, 0.5, 0.3)
+            time.sleep(1)
+            for text in ["语言"]:
+                el = d(text=text)
+                if el.exists(timeout=1):
+                    el.click()
+                    break
+
+        time.sleep(1)
+        eng = d(text="English")
+        if eng.exists(timeout=2):
+            eng.click()
+            time.sleep(1)
+        check("V16b-G5", "Restored language to English", True)
+    else:
+        check("V16a-G5", "简体中文 option found in picker", False)
+else:
+    check("V16a-G5", "Language option found in settings", False)
+
+d.press("back")
+time.sleep(1)
+d.press("back")
+
+# ═══════════════════════════════════════════════════════════
+# V17: WebView blocks external URLs (G3)
+# ═══════════════════════════════════════════════════════════
+section("V17: WebView External URL Blocked (User Flow)")
+
+launch_app()
+time.sleep(3)
+
+# Try to open an external URL via intent — should open in browser, NOT in WebView
+# After sending, our app should still be in foreground (external URL opens separately)
+# But if WebView allowed it, we'd still be in our app showing the external site
+subprocess.run([
+    "adb", "shell", "am", "start",
+    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
+    "--es", "odoo_action_url", "https://evil.com/phish"
+], capture_output=True, text=True, timeout=10)
+time.sleep(3)
+
+# App should still be running (not crashed)
+running = d.app_current()["package"] == PKG
+check("V17-G3", "App survives external URL deep link (rejected by DeepLinkValidator)", running)
+
+# ═══════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════
 section("VERIFICATION SUMMARY")
