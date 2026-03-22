@@ -45,6 +45,15 @@
             </intent-filter>
         </activity>
 
+        <!-- FCM Push Notification Service -->
+        <service
+            android:name=".data.push.WoowFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- FileProvider for file uploads/downloads -->
         <provider
             android:name="androidx.core.content.FileProvider"
