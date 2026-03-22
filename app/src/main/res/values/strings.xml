@@ -168,4 +168,8 @@
     <string name="content_description_avatar">User avatar</string>
     <string name="content_description_visibility_on">Show password</string>
     <string name="content_description_visibility_off">Hide password</string>
+
+    <!-- Notification Channels -->
+    <string name="notification_channel_messages">Odoo Messages</string>
+    <string name="notification_channel_messages_desc">Notifications for Odoo messages, mentions, and activities</string>
 </resources>
