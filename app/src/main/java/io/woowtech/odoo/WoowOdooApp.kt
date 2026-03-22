@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.google.firebase.messaging.FirebaseMessaging
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
 
@@ -16,12 +17,9 @@ class WoowOdooApp : Application() {
             Timber.plant(Timber.DebugTree())
         }
         createNotificationChannels()
+        logFcmToken()
     }
 
-    /**
-     * Creates notification channels required by FCM push notifications.
-     * Channels must exist before the first notification is displayed.
-     */
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -34,6 +32,20 @@ class WoowOdooApp : Application() {
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
             Timber.d("Notification channel created: %s", CHANNEL_ID_MESSAGES)
+        }
+    }
+
+    /**
+     * Retrieves and logs the FCM device token for debugging.
+     * In production, the token is sent to Odoo via FcmTokenRepository.
+     */
+    private fun logFcmToken() {
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                Timber.d("FCM_TOKEN: %s", task.result)
+            } else {
+                Timber.e(task.exception, "Failed to get FCM token")
+            }
         }
     }
 
