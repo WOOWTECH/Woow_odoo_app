@@ -936,20 +936,45 @@ fun clearCache() {
 
 ---
 
-## Success Criteria
+## Success Criteria (Updated 2026-03-22)
 
-- [ ] All 16 B0 security/Android fixes verified
-- [ ] Push notifications received on device for all Odoo event types
-- [ ] Tapping notification opens correct Odoo record in WebView (via DeepLinkManager)
-- [ ] Deep link survives auth flow (background → auth → deep link restored)
-- [ ] Color picker shows brand-defined palette + HEX input
-- [ ] App fully functional in Simplified Chinese
-- [ ] Biometric prompt reliably triggers on background→foreground
-- [ ] Cache clearing works without logging out user (via WebStorage API)
-- [ ] Unit tests for AuthViewModel, CacheRepository, FcmTokenRepository
-- [ ] Compose UI tests for BiometricScreen
-- [ ] POST_NOTIFICATIONS permission requested on Android 13+
-- [ ] Notifications use VISIBILITY_PRIVATE + FLAG_IMMUTABLE
+- [x] All 16 B0 security/Android fixes verified — **C01-C06, tag v0.B0-security-hardened**
+- [ ] Push notifications received on device for all Odoo event types — **scaffolded (A1+A2), needs google-services.json debug + Odoo module deployment**
+- [x] Tapping notification opens correct Odoo record in WebView (via DeepLinkManager) — **C17, deep link handler + URL validation**
+- [ ] Deep link survives auth flow (background → auth → deep link restored) — **code in place, needs E2E test with app lock enabled**
+- [x] Color picker shows brand-defined palette + HEX input — **C08, V10 verified on device**
+- [x] App fully functional in Simplified Chinese — **C09, V09 verified on device (141 strings)**
+- [x] Biometric prompt reliably triggers on background→foreground — **C02 LifecycleEventEffect, C10 unit tests (8 tests)**
+- [x] Cache clearing works without logging out user (via WebStorage API) — **C13, V11 verified on device**
+- [x] Unit tests for AuthViewModel, CacheRepository — **29 tests total (8+5+13+3)**
+- [ ] Unit tests for FcmTokenRepository — **interface+impl created, tests pending (needs Odoo server mock)**
+- [ ] Compose UI tests for BiometricScreen — **deferred (needs instrumentation runner + Hilt test setup)**
+- [x] POST_NOTIFICATIONS permission requested on Android 13+ — **C06, V06 verified on device**
+- [x] Notifications use VISIBILITY_PRIVATE + FLAG_IMMUTABLE — **C15, V13 verified on device**
+
+### Implementation Status
+
+| Phase | Status | Commits | Tag | Tests |
+|-------|--------|---------|-----|-------|
+| B0 Security | **DONE** | C01-C06 (6) | `v0.B0-security-hardened` | 21 device checks |
+| B1 Brand Colors | **DONE** | C07-C08 (2) | `v0.B1-brand-colors` | 5 device checks |
+| B2 zh-CN | **DONE** | C09 (1) | `v0.B2-zhcn` | 1 device check |
+| B3 Biometric | **DONE** | C10 (1) | `v0.B3-biometric-fix` | 8 unit tests |
+| B4 Cache | **DONE** | C13 (1) | `v0.B4-cache-fix` | 3 unit + 2 device |
+| A1 Firebase SDK | **DONE** | C14-C17 (4) | `v0.A1-firebase-sdk` | 13+5 unit + 6 device |
+| A2 Odoo Module | **DONE** | C18-C20 (3 in odoo repo) | `v0.A2-odoo-module` | 31 static checks |
+| C1 CI/CD | **DEFERRED** | - | - | - |
+
+### Remaining Items (Not Blocking Release)
+
+| Item | Status | Blocker |
+|------|--------|---------|
+| B1.3 Brand fonts (.ttf) | System fallbacks in use | Need Gira Sans + Outfit .ttf files |
+| FCM end-to-end test | Scaffolded only | Need `io.woowtech.odoo.debug` in Firebase Console + Odoo module deployed |
+| FcmTokenRepository unit tests | Interface+impl done | Need Odoo server mock for HTTP POST |
+| BiometricScreenTest (Compose UI) | Deferred | Needs Hilt testing + instrumentation runner |
+| Odoo module deployment | Module created, docker-compose updated | Run `docker compose up -d` + install module |
+| Phase C1 CI/CD | Deferred as planned | After A+B complete |
 
 ---
 
