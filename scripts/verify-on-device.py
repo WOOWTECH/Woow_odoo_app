@@ -14,6 +14,7 @@ import time
 import subprocess
 import re
 import sys
+import requests
 
 PKG = "io.woowtech.odoo.debug"
 ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
@@ -682,6 +683,94 @@ odoo_loaded = (d(textContains="WoowTech").exists(timeout=2) or
                d(textContains="联系人").exists(timeout=2) or
                d(textContains="聯絡人").exists(timeout=2))
 check("V19-G7", "Deep link /web#action=contacts — app loaded Odoo content", running2 and odoo_loaded)
+
+# ═══════════════════════════════════════════════════════════
+# V20: FCM End-to-End Push Notification
+# ═══════════════════════════════════════════════════════════
+section("V20: FCM E2E Push Notification")
+
+import os
+SA_FILE = "/Users/alanlin/Woow_odoo_app/app/firebase-service-account.json"
+
+if os.path.exists(SA_FILE):
+    try:
+        import google.auth.transport.requests as gauth_requests
+        from google.oauth2 import service_account as gauth_sa
+
+        # 1. Get FCM token from logcat (needs ~15s for Firebase init)
+        subprocess.run(["adb", "logcat", "-c"], capture_output=True)
+        launch_app()
+        time.sleep(15)
+        logcat_out = subprocess.run(
+            ["adb", "logcat", "-d", "-t", "200"],
+            capture_output=True, text=True
+        ).stdout
+        fcm_token = None
+        for line in logcat_out.split("\n"):
+            if "FCM_TOKEN:" in line:
+                fcm_token = line.split("FCM_TOKEN:")[1].strip()
+                break
+
+        check("V20a", f"FCM token retrieved from device (len={len(fcm_token) if fcm_token else 0})",
+              fcm_token is not None and len(fcm_token) > 100)
+
+        if fcm_token:
+            # 2. Send push via FCM HTTP v1 API
+            credentials = gauth_sa.Credentials.from_service_account_file(
+                SA_FILE,
+                scopes=["https://www.googleapis.com/auth/firebase.messaging"]
+            )
+            credentials.refresh(gauth_requests.Request())
+
+            # Background the app first
+            d.press("home")
+            time.sleep(2)
+
+            resp = requests.post(
+                "https://fcm.googleapis.com/v1/projects/woow-odoo-de2cb/messages:send",
+                json={
+                    "message": {
+                        "token": fcm_token,
+                        "data": {
+                            "title": "E2E Test",
+                            "body": "Automated push verification",
+                            "odoo_model": "sale.order",
+                            "odoo_res_id": "1",
+                            "odoo_action_url": "/web#id=1&model=sale.order&view_type=form",
+                            "event_type": "chatter"
+                        }
+                    }
+                },
+                headers={
+                    "Authorization": f"Bearer {credentials.token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=10
+            )
+            check("V20b", f"FCM API returned {resp.status_code}", resp.status_code == 200)
+
+            # 3. Verify notification appeared in notification shade
+            time.sleep(5)
+            notif_dump = subprocess.run(
+                ["adb", "shell", "dumpsys", "notification", "--noredact"],
+                capture_output=True, text=True, timeout=10
+            ).stdout
+
+            has_notif = "E2E Test" in notif_dump or (
+                "io.woowtech.odoo.debug" in notif_dump and "woow_odoo_messages" in notif_dump
+                and "NotificationRecord" in notif_dump
+            )
+            check("V20c", "Push notification appeared in notification shade", has_notif)
+        else:
+            check("V20b", "FCM token needed to send push", False)
+            check("V20c", "Notification check skipped (no token)", False)
+
+    except ImportError:
+        check("V20a", "google-auth library needed (pip install google-auth)", False)
+    except Exception as e:
+        check("V20a", f"FCM test error: {e}", False)
+else:
+    print("  ⚠️  firebase-service-account.json not found — skipping FCM E2E test")
 
 # ═══════════════════════════════════════════════════════════
 # SUMMARY

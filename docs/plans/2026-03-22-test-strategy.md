@@ -786,18 +786,80 @@ Run after each phase to verify completion:
 
 ---
 
-## Test Count by Phase
+## Test Count (Actual — Updated 2026-03-23)
 
-| Phase | Layer 1 (Static) | Layer 3 (Unit) | Layer 4 (UI) | Layer 5 (ADB) | Total |
-|-------|------------------|----------------|--------------|---------------|-------|
-| B0 | 16 checks | 8 tests | 1 test | 0 | 25 |
-| B1 | 4 checks | 2 tests | 0 | 0 | 6 |
-| B2 | 4 checks | 2 tests | 0 | 0 | 6 |
-| B3 | 0 | 5 tests | 1 test | 1 check | 7 |
-| B4 | 0 | 2 tests | 0 | 0 | 2 |
-| A1 | 10 checks | 8 tests | 0 | 0 | 18 |
-| A2 | 9 checks | 4 tests | 0 | 3 checks | 16 |
-| **Total** | **43** | **31** | **2** | **4** | **80** |
+### Unit Tests (47 total — `./gradlew testDebugUnitTest`)
+
+| Test Class | Count | Covers |
+|------------|-------|--------|
+| `AuthViewModelTest` | 8 | Auth state, bg→fg, PIN verify, lockout |
+| `SettingsRepositoryPinTest` | 14 | PBKDF2 hash, salt, migration, exponential lockout |
+| `DeepLinkManagerTest` | 5 | Set/consume/clear/flow/overwrite |
+| `DeepLinkValidatorTest` | 13 | Malicious URLs, valid paths, external hosts |
+| `CacheRepositoryTest` | 3 | Clear, empty size, known size |
+| `FcmTokenRepositoryTest` | 4 | Multi-account register, store/get token |
+
+### Device Tests (30 total — `python3 scripts/verify-on-device.py`)
+
+| V-ID | Feature | What It Tests (User Perspective) |
+|------|---------|----------------------------------|
+| V01-C01 | Timber logging | No old `WoowTechOdoo` tag in logcat |
+| V02a-C02 | Skip removed | No Skip/跳過/稍后再说 button in UI tree |
+| V02b-C02 | Skip removed | No skip-related resource ID |
+| V03-C02 | Auth bg→fg | App survives background→foreground cycle |
+| V04-C04 | WebView host | WebView shows Odoo content (same-host) |
+| V05-C04 | No popups | Only 1 Activity instance (no popup windows) |
+| V06-C06 | Permission | POST_NOTIFICATIONS in package manifest |
+| V07a-C06 | Channel | `woow_odoo_messages` channel exists |
+| V07b-C06 | Channel | Channel importance=HIGH (4) |
+| V08a-C07 | Brand theme | App launches without crash |
+| V08b-C07 | Brand theme | App bar shows "WoowTech Odoo" |
+| V09-C09 | zh-CN | 简体中文 option in language picker |
+| V10a-C08 | Color picker | Preset colors label visible |
+| V10b-C08 | Color picker | Accent colors section visible |
+| V10c-C08 | Color picker | HEX input field (#RRGGBB) visible |
+| V11a-C13 | Cache clear | Clear Cache button found |
+| V11b-C13 | Cache clear | App stable after clear, login preserved |
+| V13a-C15 | FCM service | WoowFcmService in package manifest |
+| V13b-C15 | FCM service | MESSAGING_EVENT intent filter |
+| V14a-C17 | Deep link | App launches with deep link handler |
+| V14b-C17 | Deep link | App handles deep link intent (no crash) |
+| V15-G4 | Color picker | Tap Apply → dialog closes, Settings visible |
+| V16a-G5 | zh-CN switch | Select 简体中文 → UI shows Chinese text |
+| V16b-G5 | zh-CN switch | Restore to English |
+| V17-G3 | URL block | External URL rejected by validator |
+| V18-G6 | Cache clear | App stable after clear, settings visible |
+| V19-G7 | Deep link nav | /web#action=contacts → Odoo content loaded |
+| V20a | FCM token | FCM token retrieved from device (len>100) |
+| V20b | FCM send | FCM HTTP v1 API returns 200 OK |
+| V20c | FCM receive | Notification appears in notification shade |
+
+### How to Run All Tests
+
+```bash
+# 1. Unit tests (no device needed)
+cd /Users/alanlin/Woow_odoo_app
+./gradlew testDebugUnitTest
+
+# 2. Build + install
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# 3. Device tests (phone must be connected via USB)
+# Requires: pip3 install uiautomator2 google-auth requests
+# Requires: app/firebase-service-account.json for V20
+python3 scripts/verify-on-device.py
+
+# 4. Check results
+cat docs/plans/2026-03-22-device-verification-log.md
+```
+
+### Prerequisites for V20 (FCM E2E)
+
+1. `app/google-services.json` with both `io.woowtech.odoo` and `io.woowtech.odoo.debug`
+2. `app/firebase-service-account.json` (Firebase Console → Service Accounts → Generate Key)
+3. POST_NOTIFICATIONS permission granted: `adb shell pm grant io.woowtech.odoo.debug android.permission.POST_NOTIFICATIONS`
+4. Both files in `.gitignore` — never commit
 
 ---
 
