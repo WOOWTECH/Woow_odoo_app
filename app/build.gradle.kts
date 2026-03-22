@@ -7,14 +7,9 @@ plugins {
 }
 
 // Apply google-services plugin only when google-services.json exists
-// NOTE: Add io.woowtech.odoo.debug to Firebase Console for debug builds
 if (file("google-services.json").exists()) {
     apply(plugin = libs.plugins.google.services.get().pluginId)
 }
-
-// Allow missing client for debug variant (google-services.json only has release package)
-tasks.matching { it.name.contains("GoogleServices") && it.name.contains("Debug") }
-    .configureEach { enabled = false }
 
 android {
     namespace = "io.woowtech.odoo"
