@@ -231,7 +231,7 @@ fun SettingsScreen(
                     title = stringResource(R.string.clear_cache),
                     subtitle = stringResource(R.string.clear_cache_subtitle),
                     onClick = {
-                        viewModel.clearCache(context)
+                        viewModel.clearCache()
                         scope.launch {
                             snackbarHostState.showSnackbar(
                                 context.getString(R.string.cache_cleared)

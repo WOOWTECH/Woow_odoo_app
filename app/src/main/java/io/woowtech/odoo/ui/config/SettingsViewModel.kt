@@ -1,22 +1,35 @@
 package io.woowtech.odoo.ui.config
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.woowtech.odoo.data.repository.CacheRepository
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
 import io.woowtech.odoo.domain.model.ThemeMode
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.io.File
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val cacheRepository: CacheRepository
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
+
+    private val _cacheSizeText = MutableStateFlow("")
+    val cacheSizeText: StateFlow<String> = _cacheSizeText.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _cacheSizeText.value = formatSize(cacheRepository.calculateCacheSize())
+        }
+    }
 
     fun updateThemeColor(color: String) {
         settingsRepository.updateThemeColor(color)
@@ -50,25 +63,16 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateThemeMode(mode)
     }
 
-    fun clearCache(context: Context) {
-        context.cacheDir.deleteRecursively()
-    }
-
-    fun getCacheSize(context: Context): String {
-        val size = getFolderSize(context.cacheDir)
-        return formatSize(size)
-    }
-
-    private fun getFolderSize(folder: File): Long {
-        var length: Long = 0
-        folder.listFiles()?.forEach { file ->
-            length += if (file.isFile) {
-                file.length()
-            } else {
-                getFolderSize(file)
-            }
+    /**
+     * Clears app cache and WebView cache via CacheRepository.
+     * Does not clear login session or user settings.
+     */
+    fun clearCache() {
+        viewModelScope.launch {
+            cacheRepository.clearAppCache()
+            cacheRepository.clearWebViewCache()
+            _cacheSizeText.value = formatSize(cacheRepository.calculateCacheSize())
         }
-        return length
     }
 
     private fun formatSize(size: Long): String {
