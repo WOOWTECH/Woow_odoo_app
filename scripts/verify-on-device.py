@@ -307,6 +307,152 @@ time.sleep(1)
 d.press("back")
 
 # ═══════════════════════════════════════════════════════════
+# V10-C08: Color picker with brand colors + HEX input
+# ═══════════════════════════════════════════════════════════
+section("V10-C08: Color Picker (B1.2)")
+
+launch_app()
+
+# Navigate: Menu → Settings → Theme Color
+menu_ok = False
+for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
+    btn = d(descriptionContains=desc)
+    if btn.exists(timeout=1):
+        btn.click()
+        menu_ok = True
+        break
+if not menu_ok:
+    btn = d(className="android.widget.ImageButton")
+    if btn.exists(timeout=1):
+        btn.click()
+        menu_ok = True
+time.sleep(2)
+
+settings_ok = False
+for text in ["设置", "設定", "Settings"]:
+    btn = d(text=text)
+    if btn.exists(timeout=2):
+        btn.click()
+        settings_ok = True
+        break
+time.sleep(2)
+
+if settings_ok:
+    # Click theme color
+    for text in ["主题颜色", "主題顏色", "Theme Color"]:
+        btn = d(textContains=text)
+        if btn.exists(timeout=2):
+            btn.click()
+            break
+    time.sleep(2)
+
+    preset = (d(textContains="Preset").exists(timeout=2) or
+              d(textContains="预设").exists(timeout=2) or
+              d(textContains="預設").exists(timeout=2))
+    check("V10a-C08", "Preset colors label in color picker", preset)
+
+    accent = d(text="Accent").exists(timeout=2)
+    check("V10b-C08", "Accent colors section in color picker", accent)
+
+    hex_field = d(textContains="RRGGBB").exists(timeout=2)
+    check("V10c-C08", "HEX input field (#RRGGBB) in color picker", hex_field)
+
+    d.press("back")
+    time.sleep(1)
+    d.press("back")
+else:
+    check("V10a-C08", "Settings accessible for color picker test", False)
+
+time.sleep(1)
+d.press("back")
+
+# ═══════════════════════════════════════════════════════════
+# V11-C13: Cache clearing via CacheRepository
+# ═══════════════════════════════════════════════════════════
+section("V11-C13: Cache Clearing (B4.2)")
+
+launch_app()
+
+# Navigate to Settings
+menu_ok2 = False
+for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
+    btn = d(descriptionContains=desc)
+    if btn.exists(timeout=1):
+        btn.click()
+        menu_ok2 = True
+        break
+if not menu_ok2:
+    d(className="android.widget.ImageButton").click()
+time.sleep(2)
+
+for text in ["设置", "設定", "Settings"]:
+    btn = d(text=text)
+    if btn.exists(timeout=2):
+        btn.click()
+        break
+time.sleep(2)
+
+# Scroll to Clear Cache
+for _ in range(3):
+    cache_btn = (d(textContains="Clear Cache") or
+                 d(textContains="清除快取") or
+                 d(textContains="清除缓存"))
+    if cache_btn.exists(timeout=1):
+        break
+    d.swipe(0.5, 0.7, 0.5, 0.3)
+    time.sleep(1)
+
+cache_btn = (d(textContains="Clear Cache") or
+             d(textContains="清除快取") or
+             d(textContains="清除缓存"))
+if cache_btn.exists(timeout=2):
+    check("V11a-C13", "Clear Cache button found in Settings", True)
+    cache_btn.click()
+    time.sleep(2)
+    still_settings = (d(textContains="Settings").exists(timeout=2) or
+                      d(textContains="设置").exists(timeout=2) or
+                      d(textContains="設定").exists(timeout=2))
+    check("V11b-C13", "App stays on Settings after cache clear (login preserved)", still_settings)
+else:
+    check("V11a-C13", "Clear Cache button found", False)
+
+d.press("back")
+time.sleep(1)
+d.press("back")
+
+# ═══════════════════════════════════════════════════════════
+# V13-C15: WoowFcmService registered
+# ═══════════════════════════════════════════════════════════
+section("V13-C15: FCM Service (A1.2)")
+
+pkg_dump2 = adb_cmd(["dumpsys", "package", PKG])
+has_svc = "WoowFcmService" in pkg_dump2
+check("V13a-C15", "WoowFcmService registered in package manifest", has_svc)
+
+has_msg_event = "MESSAGING_EVENT" in pkg_dump2
+check("V13b-C15", "MESSAGING_EVENT intent filter registered", has_msg_event)
+
+# ═══════════════════════════════════════════════════════════
+# V14-C17: Deep link handling
+# ═══════════════════════════════════════════════════════════
+section("V14-C17: Deep Link Handling (A1.4)")
+
+launch_app()
+still_ok = d.app_current()["package"] == PKG
+check("V14a-C17", "App launches with deep link handler (no crash)", still_ok)
+
+# Send deep link intent
+subprocess.run([
+    "adb", "shell", "am", "start",
+    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
+    "--es", "odoo_action_url", "/web#id=42&model=sale.order&view_type=form"
+], capture_output=True, text=True, timeout=10)
+time.sleep(3)
+
+still_ok2 = d.app_current()["package"] == PKG
+check("V14b-C17", "App handles deep link intent without crash", still_ok2)
+
+# ═══════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════
 section("VERIFICATION SUMMARY")
