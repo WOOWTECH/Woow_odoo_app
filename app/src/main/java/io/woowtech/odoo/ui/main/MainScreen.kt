@@ -7,7 +7,7 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Message
 import android.provider.MediaStore
-import android.util.Log
+import timber.log.Timber
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -150,7 +150,7 @@ fun OdooWebView(
     val fileChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        Log.d("WoowTechOdoo", "File chooser result: ${result.resultCode}")
+        Timber.d("File chooser result: ${result.resultCode}")
 
         val uris = mutableListOf<Uri>()
 
@@ -163,11 +163,11 @@ fun OdooWebView(
                     context.contentResolver.openInputStream(cameraUri)?.use { stream ->
                         if (stream.available() > 0) {
                             uris.add(cameraUri)
-                            Log.d("WoowTechOdoo", "Camera photo captured: $cameraUri")
+                            Timber.d("Camera photo captured: $cameraUri")
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("WoowTechOdoo", "Error reading camera photo: ${e.message}")
+                    Timber.e("Error reading camera photo: ${e.message}")
                 }
             }
 
@@ -177,7 +177,7 @@ fun OdooWebView(
                 intent.data?.let { uri ->
                     if (!uris.contains(uri)) {
                         uris.add(uri)
-                        Log.d("WoowTechOdoo", "Single file selected: $uri")
+                        Timber.d("Single file selected: $uri")
                     }
                 }
 
@@ -187,7 +187,7 @@ fun OdooWebView(
                         val uri = clipData.getItemAt(i).uri
                         if (!uris.contains(uri)) {
                             uris.add(uri)
-                            Log.d("WoowTechOdoo", "Multiple file selected [$i]: $uri")
+                            Timber.d("Multiple file selected [$i]: $uri")
                         }
                     }
                 }
@@ -196,7 +196,7 @@ fun OdooWebView(
 
         // Send result to WebView (must always call, even with empty/null result)
         val resultUris = if (uris.isNotEmpty()) uris.toTypedArray() else null
-        Log.d("WoowTechOdoo", "Sending ${uris.size} URIs to WebView")
+        Timber.d("Sending ${uris.size} URIs to WebView")
         filePathCallback?.onReceiveValue(resultUris)
         filePathCallback = null
         cameraPhotoUri = null
@@ -313,11 +313,11 @@ fun OdooWebView(
                         request: WebResourceRequest?
                     ): Boolean {
                         val url = request?.url?.toString() ?: return false
-                        Log.d("WoowTechOdoo", "shouldOverrideUrlLoading: $url")
+                        Timber.d("shouldOverrideUrlLoading: $url")
 
                         // Detect session expiry - if redirected to login page
                         if (url.contains("/web/login")) {
-                            Log.d("WoowTechOdoo", "Session expired, redirecting to login")
+                            Timber.d("Session expired, redirecting to login")
                             onSessionExpired()
                             return true
                         }
@@ -327,23 +327,23 @@ fun OdooWebView(
                         val serverHost = java.net.URI(serverUrl).host
                         val urlHost = try { java.net.URI(url).host } catch (e: Exception) { null }
                         if (urlHost == serverHost) {
-                            Log.d("WoowTechOdoo", "Same host, allowing: $url")
+                            Timber.d("Same host, allowing: $url")
                             return false
                         }
 
                         // v1.0.13: Allow blob: and data: URLs (used by OWL framework)
                         if (url.startsWith("blob:") || url.startsWith("data:")) {
-                            Log.d("WoowTechOdoo", "Allowing blob/data URL")
+                            Timber.d("Allowing blob/data URL")
                             return false
                         }
 
                         // Allow HTTPS URLs
                         if (url.startsWith("https://")) {
-                            Log.d("WoowTechOdoo", "Allowing HTTPS URL: $url")
+                            Timber.d("Allowing HTTPS URL: $url")
                             return false
                         }
 
-                        Log.d("WoowTechOdoo", "Blocking URL: $url")
+                        Timber.d("Blocking URL: $url")
                         return true
                     }
 
@@ -355,7 +355,7 @@ fun OdooWebView(
                         val url = request?.url?.toString() ?: return null
                         // Log failed or important requests
                         if (url.contains(".js") || url.contains(".css") || url.contains("/web/")) {
-                            Log.d("WoowTechOdoo", "Resource request: $url")
+                            Timber.d("Resource request: $url")
                         }
                         return null // Don't intercept, let WebView handle it
                     }
@@ -366,7 +366,7 @@ fun OdooWebView(
                         error: android.webkit.WebResourceError?
                     ) {
                         super.onReceivedError(view, request, error)
-                        Log.e("WoowTechOdoo", "Resource error: ${request?.url} - ${error?.description}")
+                        Timber.e("Resource error: ${request?.url} - ${error?.description}")
                     }
                 }
 
@@ -378,9 +378,9 @@ fun OdooWebView(
                         callback: ValueCallback<Array<Uri>>?,
                         fileChooserParams: FileChooserParams?
                     ): Boolean {
-                        Log.d("WoowTechOdoo", "onShowFileChooser called")
-                        Log.d("WoowTechOdoo", "Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
-                        Log.d("WoowTechOdoo", "Mode: ${fileChooserParams?.mode}")
+                        Timber.d("onShowFileChooser called")
+                        Timber.d("Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
+                        Timber.d("Mode: ${fileChooserParams?.mode}")
 
                         // Cancel any pending callback
                         filePathCallback?.onReceiveValue(null)
@@ -397,7 +397,7 @@ fun OdooWebView(
                             )
                             cameraPhotoUri = photoUri
                             takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-                            Log.d("WoowTechOdoo", "Camera URI: $photoUri")
+                            Timber.d("Camera URI: $photoUri")
 
                             // Create gallery/file intent
                             val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
@@ -426,7 +426,7 @@ fun OdooWebView(
                             return true
 
                         } catch (e: Exception) {
-                            Log.e("WoowTechOdoo", "Error launching file chooser: ${e.message}")
+                            Timber.e("Error launching file chooser: ${e.message}")
                             filePathCallback?.onReceiveValue(null)
                             filePathCallback = null
                             cameraPhotoUri = null
@@ -441,7 +441,7 @@ fun OdooWebView(
                         resultMsg: Message?
                     ): Boolean {
                         // Handle window creation requests from OWL framework
-                        Log.d("WoowTechOdoo", "onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
+                        Timber.d("onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
                         // Create a new WebView for the popup and pass it back
                         val newWebView = WebView(view?.context ?: return false)
                         newWebView.settings.javaScriptEnabled = true
@@ -452,15 +452,18 @@ fun OdooWebView(
                     }
 
                     override fun onCloseWindow(window: WebView?) {
-                        Log.d("WoowTechOdoo", "onCloseWindow called")
+                        Timber.d("onCloseWindow called")
                         window?.destroy()
                     }
 
                     override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                         consoleMessage?.let {
-                            Log.d(
-                                "WoowTechOdoo",
-                                "[${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})"
+                            Timber.d(
+                                "[%s] %s (%s:%d)",
+                                it.messageLevel(),
+                                it.message(),
+                                it.sourceId(),
+                                it.lineNumber()
                             )
                         }
                         return true
