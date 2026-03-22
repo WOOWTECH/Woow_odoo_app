@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -51,6 +55,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -487,52 +492,126 @@ private fun ColorPickerDialog(
     onColorSelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val presetColors = listOf(
-        "#6183FC", // WoowTech Blue
-        "#E91E63", // Pink
-        "#9C27B0", // Purple
-        "#3F51B5", // Indigo
-        "#03A9F4", // Light Blue
-        "#009688", // Teal
-        "#4CAF50", // Green
-        "#FF9800", // Orange
-        "#795548", // Brown
-        "#607D8B"  // Blue Grey
+    // Brand colors (from brand guide)
+    val brandColors = listOf(
+        "#6183FC", // Primary Blue
+        "#FFFFFF", // White
+        "#EFF1F5", // Light Gray
+        "#646262", // Gray
+        "#212121"  // Deep Gray
+    )
+
+    // Brand accent colors (10 from brand guide)
+    val accentColors = listOf(
+        "#7BDBE0", // Cyan
+        "#F8D158", // Yellow
+        "#65C2E0", // Sky Blue
+        "#6791DE", // Royal Blue
+        "#8CD37F", // Green
+        "#B17148", // Brown
+        "#F1C692", // Sand
+        "#E66D3E", // Orange
+        "#F45D6D", // Coral
+        "#C09FE0"  // Lavender
     )
 
     var selectedColor by remember { mutableStateOf(currentColor) }
+    var customHex by remember { mutableStateOf("") }
+    var hexError by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.select_color)) },
         text = {
             Column {
+                // Brand Colors section
                 Text(
                     text = stringResource(R.string.preset_colors),
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Color grid
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    presetColors.chunked(5).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            row.forEach { color ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(android.graphics.Color.parseColor(color)))
-                                        .clickable { selectedColor = color }
-                                        .then(
-                                            if (selectedColor == color) {
-                                                Modifier.padding(4.dp)
-                                            } else {
-                                                Modifier
-                                            }
-                                        )
-                                )
-                            }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(5),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.height(56.dp)
+                ) {
+                    items(brandColors) { color ->
+                        ColorSwatch(
+                            colorHex = color,
+                            isSelected = selectedColor.equals(color, ignoreCase = true),
+                            onClick = { selectedColor = color }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Accent Colors section
+                Text(
+                    text = "Accent",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(5),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.height(112.dp)
+                ) {
+                    items(accentColors) { color ->
+                        ColorSwatch(
+                            colorHex = color,
+                            isSelected = selectedColor.equals(color, ignoreCase = true),
+                            onClick = { selectedColor = color }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Custom HEX input
+                Text(
+                    text = stringResource(R.string.custom_color),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customHex,
+                        onValueChange = { input ->
+                            customHex = input.uppercase().filter { it in "0123456789ABCDEF#" }
+                            hexError = false
+                        },
+                        label = { Text("#RRGGBB") },
+                        singleLine = true,
+                        isError = hexError,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // Preview swatch of custom color
+                    if (customHex.length >= 7) {
+                        val previewHex = if (customHex.startsWith("#")) customHex else "#$customHex"
+                        val parsedColor = runCatching {
+                            Color(android.graphics.Color.parseColor(previewHex))
+                        }.getOrNull()
+
+                        if (parsedColor != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(parsedColor)
+                                    .clickable {
+                                        selectedColor = previewHex
+                                    }
+                            )
                         }
                     }
                 }
@@ -548,6 +627,36 @@ private fun ColorPickerDialog(
                 Text(stringResource(R.string.cancel))
             }
         }
+    )
+}
+
+@Composable
+private fun ColorSwatch(
+    colorHex: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(Color(android.graphics.Color.parseColor(colorHex)))
+            .then(
+                if (isSelected) {
+                    Modifier.border(
+                        width = 3.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        shape = CircleShape
+                    )
+                } else {
+                    Modifier.border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        shape = CircleShape
+                    )
+                }
+            )
+            .clickable { onClick() }
     )
 }
 
