@@ -60,6 +60,10 @@ android {
     }
 }
 
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
+
 dependencies {
     // Core Android
     implementation(libs.androidx.core.ktx)
@@ -110,7 +114,13 @@ dependencies {
     // Logging
     implementation(libs.timber)
 
-    // Testing
+    // Testing — JUnit 5 + MockK
+    testImplementation(libs.junit5.api)
+    testRuntimeOnly(libs.junit5.engine)
+    testImplementation(libs.junit5.params)
+    testImplementation(libs.mockk)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.turbine)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
