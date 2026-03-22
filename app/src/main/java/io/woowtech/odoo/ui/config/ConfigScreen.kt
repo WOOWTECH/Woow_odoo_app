@@ -40,7 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,8 +63,8 @@ fun ConfigScreen(
     onAddAccountClick: () -> Unit,
     onLogout: () -> Unit
 ) {
-    val activeAccount by viewModel.activeAccount.collectAsState(initial = null)
-    val allAccounts by viewModel.allAccounts.collectAsState(initial = emptyList())
+    val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
+    val allAccounts by viewModel.allAccounts.collectAsStateWithLifecycle(initialValue = emptyList())
     var showLogoutDialog by remember { mutableStateOf(false) }
     var accountsExpanded by remember { mutableStateOf(false) }
 

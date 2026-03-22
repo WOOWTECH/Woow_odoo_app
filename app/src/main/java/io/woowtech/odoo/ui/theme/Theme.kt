@@ -7,7 +7,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -89,8 +89,8 @@ private fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
 fun WoowTechOdooTheme(
     content: @Composable () -> Unit
 ) {
-    val primaryColor by ThemeManager.primaryColor.collectAsState()
-    val themeMode by ThemeManager.themeMode.collectAsState()
+    val primaryColor by ThemeManager.primaryColor.collectAsStateWithLifecycle()
+    val themeMode by ThemeManager.themeMode.collectAsStateWithLifecycle()
     val systemDarkTheme = isSystemInDarkTheme()
 
     val darkTheme = when (themeMode) {

@@ -37,7 +37,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,7 +61,7 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
     onMenuClick: () -> Unit
 ) {
-    val account by viewModel.activeAccount.collectAsState(initial = null)
+    val account by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 

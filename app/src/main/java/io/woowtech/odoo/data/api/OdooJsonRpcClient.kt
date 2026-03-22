@@ -26,7 +26,7 @@ import javax.inject.Singleton
 class OdooJsonRpcClient @Inject constructor() {
 
     private val gson = Gson()
-    private val cookieStore = mutableMapOf<String, MutableList<Cookie>>()
+    private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<Cookie>>()
 
     private val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {

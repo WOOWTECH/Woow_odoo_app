@@ -2,7 +2,7 @@ package io.woowtech.odoo.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -34,9 +34,9 @@ fun WoowOdooNavHost(
     navController: NavHostController = rememberNavController(),
     authViewModel: AuthViewModel = hiltViewModel()
 ) {
-    val hasActiveAccount by authViewModel.hasActiveAccount.collectAsState()
-    val requiresAuth by authViewModel.requiresAuth.collectAsState()
-    val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
+    val hasActiveAccount by authViewModel.hasActiveAccount.collectAsStateWithLifecycle()
+    val requiresAuth by authViewModel.requiresAuth.collectAsStateWithLifecycle()
+    val isAuthenticated by authViewModel.isAuthenticated.collectAsStateWithLifecycle()
 
     // B0.3: Reset auth state when app goes to background
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
