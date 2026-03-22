@@ -237,8 +237,9 @@ fun OdooWebView(
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-                    // B0.7: Disable multiple windows for security
-                    javaScriptCanOpenWindowsAutomatically = false
+                    // B0.7: Disable popup windows for security, but allow JS window calls
+                    // OWL framework requires javaScriptCanOpenWindowsAutomatically for proper rendering
+                    javaScriptCanOpenWindowsAutomatically = true
                     mediaPlaybackRequiresUserGesture = false
                     setSupportMultipleWindows(false)
 
