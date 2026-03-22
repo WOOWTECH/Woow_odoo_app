@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.os.SystemClock
-import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -78,8 +80,8 @@ class SettingsRepository @Inject constructor(
             }
         }
 
-        val inputHash = hashPin(pin)
-        return if (inputHash == currentHash) {
+        val matches = verifyPbkdf2(pin, currentHash)
+        return if (matches) {
             encryptedPrefs.resetFailedPinAttempts()
             _settings.value = _settings.value.copy(
                 failedPinAttempts = 0,
@@ -127,13 +129,59 @@ class SettingsRepository @Inject constructor(
         _settings.value = _settings.value.copy(themeMode = mode)
     }
 
+    /**
+     * Hashes a PIN using PBKDF2WithHmacSHA256 with a random 16-byte salt.
+     * Returns the salt and hash encoded as "salt:hash" in hex.
+     */
     private fun hashPin(pin: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray())
-        return bytes.joinToString("") { "%02x".format(it) }
+        val salt = ByteArray(SALT_LENGTH_BYTES)
+        SecureRandom().nextBytes(salt)
+        val hash = pbkdf2Hash(pin, salt)
+        val saltHex = salt.joinToString("") { "%02x".format(it) }
+        val hashHex = hash.joinToString("") { "%02x".format(it) }
+        return "$saltHex:$hashHex"
+    }
+
+    /**
+     * Verifies a PIN against a stored "salt:hash" string.
+     * Also supports legacy unsalted SHA-256 hashes for migration.
+     */
+    private fun verifyPbkdf2(pin: String, stored: String): Boolean {
+        if (!stored.contains(":")) {
+            // Legacy SHA-256 hash — migrate on successful verify
+            val legacyHash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(pin.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            if (legacyHash == stored) {
+                // Re-hash with PBKDF2 for future verifications
+                val newHash = hashPin(pin)
+                encryptedPrefs.updatePinHash(newHash)
+                _settings.value = _settings.value.copy(pinHash = newHash)
+                return true
+            }
+            return false
+        }
+
+        val parts = stored.split(":")
+        if (parts.size != 2) return false
+
+        val salt = parts[0].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val expectedHash = parts[1].chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val actualHash = pbkdf2Hash(pin, salt)
+        return actualHash.contentEquals(expectedHash)
+    }
+
+    private fun pbkdf2Hash(pin: String, salt: ByteArray): ByteArray {
+        val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, HASH_LENGTH_BITS)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        return factory.generateSecret(spec).encoded
     }
 
     companion object {
         private const val MAX_PIN_ATTEMPTS = 5
         private const val LOCKOUT_DURATION_MS = 30_000L // 30 seconds
+        private const val SALT_LENGTH_BYTES = 16
+        private const val PBKDF2_ITERATIONS = 600_000
+        private const val HASH_LENGTH_BITS = 256
     }
 }
