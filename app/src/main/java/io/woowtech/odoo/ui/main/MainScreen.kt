@@ -228,14 +228,15 @@ fun OdooWebView(
                     loadWithOverviewMode = false
                     useWideViewPort = false
 
-                    allowFileAccess = true
+                    // B0.8: Disable file access for security
+                    allowFileAccess = false
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-                    // v1.0.10: Additional settings for OWL framework compatibility
-                    javaScriptCanOpenWindowsAutomatically = true
+                    // B0.7: Disable multiple windows for security
+                    javaScriptCanOpenWindowsAutomatically = false
                     mediaPlaybackRequiresUserGesture = false
-                    setSupportMultipleWindows(true)
+                    setSupportMultipleWindows(false)
 
                     // v1.0.12: Use standard Chrome Mobile User-Agent (no custom suffix)
                     // Some sites check for exact UA match
@@ -245,7 +246,8 @@ fun OdooWebView(
                 // Enable cookies and sync session cookie from OkHttp to WebView
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
-                cookieManager.setAcceptThirdPartyCookies(this, true)
+                // B0.6: Disable third-party cookies for security
+                cookieManager.setAcceptThirdPartyCookies(this, false)
 
                 // Sync session cookie from native authentication to WebView
                 if (sessionId != null) {
@@ -331,19 +333,20 @@ fun OdooWebView(
                             return false
                         }
 
-                        // v1.0.13: Allow blob: and data: URLs (used by OWL framework)
-                        if (url.startsWith("blob:") || url.startsWith("data:")) {
-                            Timber.d("Allowing blob/data URL")
+                        // Allow blob: URLs (used by OWL framework for downloads)
+                        if (url.startsWith("blob:")) {
+                            Timber.d("Allowing blob URL")
                             return false
                         }
 
-                        // Allow HTTPS URLs
-                        if (url.startsWith("https://")) {
-                            Timber.d("Allowing HTTPS URL: $url")
-                            return false
+                        // B0.5: Block all other URLs — open external URLs in system browser
+                        Timber.d("External URL, opening in browser: $url")
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            view?.context?.startActivity(intent)
+                        } catch (e: android.content.ActivityNotFoundException) {
+                            Timber.e("No browser found to open: $url")
                         }
-
-                        Timber.d("Blocking URL: $url")
                         return true
                     }
 
