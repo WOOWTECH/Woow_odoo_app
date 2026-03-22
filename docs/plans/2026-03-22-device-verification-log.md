@@ -514,3 +514,43 @@ Key terms verified: 服务器, 数据库, 设置, 账号, 生物识别, 清除�
 | V16b-G5 | PASS | Restored language to English |
 | V17-G3 | PASS | App survives external URL deep link (rejected by DeepLinkValidator) |
 
+
+
+## uiautomator2 Verification Run — 2026-03-22 23:58:45
+
+| Field | Value |
+|-------|-------|
+| Device | dew_p_global (SDK 35) |
+| Package | io.woowtech.odoo.debug |
+| Result | **26 passed, 1 failed** |
+
+| V-ID | Result | Description |
+|------|--------|-------------|
+| V01-C01 | PASS | No 'WoowTechOdoo' log tag in logcat (found 0) |
+| V02a-C02 | PASS | No 'Skip'/'跳過'/'稍后再说' button in UI |
+| V02b-C02 | PASS | No skip-related resource ID in UI tree |
+| V03-C02 | PASS | App survives background→foreground (app lock not enabled, auth re-prompt requires enabling App Lock in Settings) |
+| V04-C04 | PASS | WebView shows Odoo content (same-host, no external redirect) |
+| V05-C04 | PASS | Only 1 unique Activity instance (found 1) |
+| V06-C06 | PASS | POST_NOTIFICATIONS permission declared in package manifest |
+| V07a-C06 | PASS | Notification channel 'woow_odoo_messages' exists on device |
+| V07b-C06 | PASS | Channel importance is HIGH (4), got 4 |
+| V08a-C07 | PASS | App launches without crash (brand colors compiled) |
+| V08b-C07 | PASS | App bar with 'WoowTech Odoo' title visible (themed) |
+| V09-C09 | PASS | '简体中文' option available in language picker |
+| V10a-C08 | PASS | Preset colors label in color picker |
+| V10b-C08 | PASS | Accent colors section in color picker |
+| V10c-C08 | PASS | HEX input field (#RRGGBB) in color picker |
+| V11a-C13 | PASS | Clear Cache button found in Settings |
+| V11b-C13 | PASS | App stays on Settings after cache clear (login preserved) |
+| V13a-C15 | PASS | WoowFcmService registered in package manifest |
+| V13b-C15 | PASS | MESSAGING_EVENT intent filter registered |
+| V14a-C17 | PASS | App launches with deep link handler (no crash) |
+| V14b-C17 | PASS | App handles deep link intent without crash |
+| V15-G4 | PASS | Color picker: tap Apply → dialog closes, back on Settings |
+| V16a-G5 | PASS | After selecting 简体中文, Settings shows simplified Chinese text |
+| V16b-G5 | PASS | Restored language to English |
+| V17-G3 | PASS | App survives external URL deep link (rejected by DeepLinkValidator) |
+| V18-G6 | FAIL | Cache cleared — size indicator present in Settings |
+| V19-G7 | PASS | Deep link /web#action=contacts — app loaded Odoo content |
+

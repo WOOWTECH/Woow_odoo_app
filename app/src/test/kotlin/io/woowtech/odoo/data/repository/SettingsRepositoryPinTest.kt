@@ -135,4 +135,36 @@ class SettingsRepositoryPinTest {
         val repo2 = SettingsRepository(encryptedPrefs)
         assertFalse(repo2.verifyPin("1234"))
     }
+
+    // ─── G2: Exponential Lockout Tests ───
+
+    @Test
+    fun `Given 5 failed attempts then lockout is 30 seconds`() {
+        val duration = SettingsRepository.getLockoutDuration(failedAttempts = 5)
+        assertTrue(duration == 30_000L, "First lockout should be 30s, got ${duration}ms")
+    }
+
+    @Test
+    fun `Given 10 failed attempts then lockout is 5 minutes`() {
+        val duration = SettingsRepository.getLockoutDuration(failedAttempts = 10)
+        assertTrue(duration == 300_000L, "Second lockout should be 5min, got ${duration}ms")
+    }
+
+    @Test
+    fun `Given 15 failed attempts then lockout is 30 minutes`() {
+        val duration = SettingsRepository.getLockoutDuration(failedAttempts = 15)
+        assertTrue(duration == 1_800_000L, "Third lockout should be 30min, got ${duration}ms")
+    }
+
+    @Test
+    fun `Given 20 failed attempts then lockout is 1 hour`() {
+        val duration = SettingsRepository.getLockoutDuration(failedAttempts = 20)
+        assertTrue(duration == 3_600_000L, "Fourth lockout should be 1hr, got ${duration}ms")
+    }
+
+    @Test
+    fun `Given 100 failed attempts then lockout caps at 1 hour`() {
+        val duration = SettingsRepository.getLockoutDuration(failedAttempts = 100)
+        assertTrue(duration == 3_600_000L, "Lockout should cap at 1hr, got ${duration}ms")
+    }
 }

@@ -91,7 +91,8 @@ class SettingsRepository @Inject constructor(
         } else {
             val attempts = encryptedPrefs.incrementFailedPinAttempts()
             if (attempts >= MAX_PIN_ATTEMPTS) {
-                val lockoutUntil = SystemClock.elapsedRealtime() + LOCKOUT_DURATION_MS
+                val lockoutDuration = getLockoutDuration(attempts)
+                val lockoutUntil = SystemClock.elapsedRealtime() + lockoutDuration
                 encryptedPrefs.setPinLockout(lockoutUntil)
                 _settings.value = _settings.value.copy(
                     failedPinAttempts = attempts,
@@ -179,9 +180,25 @@ class SettingsRepository @Inject constructor(
 
     companion object {
         private const val MAX_PIN_ATTEMPTS = 5
-        private const val LOCKOUT_DURATION_MS = 30_000L // 30 seconds
         private const val SALT_LENGTH_BYTES = 16
         private const val PBKDF2_ITERATIONS = 600_000
         private const val HASH_LENGTH_BITS = 256
+
+        // Exponential lockout durations: 30s → 5min → 30min → 1hr
+        private val LOCKOUT_DURATIONS_MS = longArrayOf(
+            30_000L,       // 30 seconds (5 failures)
+            300_000L,      // 5 minutes (10 failures)
+            1_800_000L,    // 30 minutes (15 failures)
+            3_600_000L,    // 1 hour (20+ failures)
+        )
+
+        /**
+         * Returns lockout duration based on cumulative failed attempts.
+         * Escalates: 30s → 5min → 30min → 1hr (caps at 1hr).
+         */
+        fun getLockoutDuration(failedAttempts: Int): Long {
+            val lockoutIndex = (failedAttempts / MAX_PIN_ATTEMPTS) - 1
+            return LOCKOUT_DURATIONS_MS[lockoutIndex.coerceIn(0, LOCKOUT_DURATIONS_MS.lastIndex)]
+        }
     }
 }
