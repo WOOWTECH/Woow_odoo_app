@@ -18,16 +18,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -57,8 +54,7 @@ import io.woowtech.odoo.R
 fun BiometricScreen(
     viewModel: AuthViewModel = hiltViewModel(),
     onAuthSuccess: () -> Unit,
-    onUsePinClick: () -> Unit,
-    onSkip: () -> Unit = {}
+    onUsePinClick: () -> Unit
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
@@ -165,26 +161,6 @@ fun BiometricScreen(
                 )
             )
     ) {
-        // Skip button in top-right corner
-        IconButton(
-            onClick = {
-                if (settings.pinEnabled) {
-                    onUsePinClick()
-                } else {
-                    onSkip()
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.skip),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -303,24 +279,6 @@ fun BiometricScreen(
                 }
             }
 
-            // Skip option at the bottom
-            Spacer(modifier = Modifier.height(24.dp))
-
-            TextButton(
-                onClick = {
-                    if (settings.pinEnabled) {
-                        onUsePinClick()
-                    } else {
-                        onSkip()
-                    }
-                }
-            ) {
-                Text(
-                    text = stringResource(R.string.skip_for_now),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
         }
     }
 }

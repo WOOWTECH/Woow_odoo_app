@@ -37,6 +37,16 @@ class AuthViewModel @Inject constructor(
         _isAuthenticated.value = authenticated
     }
 
+    /**
+     * Resets authentication state when the app goes to background.
+     * Only resets if app lock is enabled, so users without lock are not affected.
+     */
+    fun onAppBackgrounded() {
+        if (requiresAuth.value) {
+            _isAuthenticated.value = false
+        }
+    }
+
     fun verifyPin(pin: String): Boolean {
         return settingsRepository.verifyPin(pin)
     }

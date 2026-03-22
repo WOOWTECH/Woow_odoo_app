@@ -8,6 +8,7 @@ import io.woowtech.odoo.ui.theme.ThemeManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.os.SystemClock
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -72,7 +73,7 @@ class SettingsRepository @Inject constructor(
 
         // Check if locked out
         _settings.value.pinLockoutUntil?.let { lockoutUntil ->
-            if (System.currentTimeMillis() < lockoutUntil) {
+            if (SystemClock.elapsedRealtime() < lockoutUntil) {
                 return false
             }
         }
@@ -88,7 +89,7 @@ class SettingsRepository @Inject constructor(
         } else {
             val attempts = encryptedPrefs.incrementFailedPinAttempts()
             if (attempts >= MAX_PIN_ATTEMPTS) {
-                val lockoutUntil = System.currentTimeMillis() + LOCKOUT_DURATION_MS
+                val lockoutUntil = SystemClock.elapsedRealtime() + LOCKOUT_DURATION_MS
                 encryptedPrefs.setPinLockout(lockoutUntil)
                 _settings.value = _settings.value.copy(
                     failedPinAttempts = attempts,
@@ -107,12 +108,12 @@ class SettingsRepository @Inject constructor(
 
     fun isLockedOut(): Boolean {
         val lockoutUntil = _settings.value.pinLockoutUntil ?: return false
-        return System.currentTimeMillis() < lockoutUntil
+        return SystemClock.elapsedRealtime() < lockoutUntil
     }
 
     fun getLockoutRemainingMs(): Long {
         val lockoutUntil = _settings.value.pinLockoutUntil ?: return 0
-        return maxOf(0, lockoutUntil - System.currentTimeMillis())
+        return maxOf(0, lockoutUntil - SystemClock.elapsedRealtime())
     }
 
     fun updateLanguage(language: AppLanguage) {

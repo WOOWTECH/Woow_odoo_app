@@ -5,6 +5,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,6 +37,11 @@ fun WoowOdooNavHost(
     val hasActiveAccount by authViewModel.hasActiveAccount.collectAsState()
     val requiresAuth by authViewModel.requiresAuth.collectAsState()
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
+
+    // B0.3: Reset auth state when app goes to background
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        authViewModel.onAppBackgrounded()
+    }
 
     val startDestination = when {
         hasActiveAccount == null -> Screen.Splash.route
@@ -78,13 +85,6 @@ fun WoowOdooNavHost(
                 },
                 onUsePinClick = {
                     navController.navigate(Screen.Pin.route)
-                },
-                onSkip = {
-                    // Skip authentication and go to main screen
-                    authViewModel.setAuthenticated(true)
-                    navController.navigate(Screen.Main.route) {
-                        popUpTo(Screen.Auth.route) { inclusive = true }
-                    }
                 }
             )
         }
