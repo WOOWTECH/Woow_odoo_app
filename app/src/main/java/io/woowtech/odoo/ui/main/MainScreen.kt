@@ -100,11 +100,14 @@ fun MainScreen(
             account?.let { acc ->
                 // Get session ID and sync to WebView's CookieManager
                 val sessionId = viewModel.getSessionId(acc.fullServerUrl)
+                // Consume pending deep link from notification tap
+                val pendingDeepLink = remember { viewModel.consumePendingDeepLink() }
 
                 OdooWebView(
                     serverUrl = acc.fullServerUrl,
                     database = acc.database,
                     sessionId = sessionId,
+                    deepLinkUrl = pendingDeepLink,
                     onWebViewCreated = { webView = it },
                     onLoadingChanged = { isLoading = it },
                     onSessionExpired = onMenuClick // Navigate to menu/login on session expiry
@@ -129,6 +132,7 @@ fun OdooWebView(
     serverUrl: String,
     database: String,
     sessionId: String?,
+    deepLinkUrl: String? = null,
     onWebViewCreated: (WebView) -> Unit,
     onLoadingChanged: (Boolean) -> Unit,
     onSessionExpired: () -> Unit
@@ -473,9 +477,19 @@ fun OdooWebView(
                     }
                 }
 
-                // v1.0.12: Load Odoo with standard URL (no debug parameter)
-                // Debug parameter can cause slower loading and is not needed
-                loadUrl("$serverUrl/web?db=$database")
+                // Load deep link URL if present, otherwise default Odoo page
+                val initialUrl = if (deepLinkUrl != null) {
+                    val safeUrl = Uri.parse(serverUrl).buildUpon()
+                        .encodedPath(deepLinkUrl.substringBefore("?").substringBefore("#"))
+                        .encodedFragment(Uri.parse(deepLinkUrl).encodedFragment)
+                        .build()
+                        .toString()
+                    Timber.d("Loading deep link URL: %s", safeUrl)
+                    safeUrl
+                } else {
+                    "$serverUrl/web?db=$database"
+                }
+                loadUrl(initialUrl)
             }
         },
         modifier = Modifier.fillMaxSize(),

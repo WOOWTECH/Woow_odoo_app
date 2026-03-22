@@ -43,21 +43,22 @@ object ThemeManager {
     }
 }
 
+// Brand color ratio: White 50%, Gray 20%, Deep Gray 10%, Blue 10%, Accent 5%, Black 5%
 private fun createLightColorScheme(primaryColor: Color) = lightColorScheme(
-    primary = primaryColor,
+    primary = primaryColor,                          // Blue 10%
     onPrimary = OnPrimaryLight,
     primaryContainer = PrimaryContainerLight,
     onPrimaryContainer = OnPrimaryContainerLight,
-    secondary = primaryColor.copy(alpha = 0.7f),
+    secondary = AccentSkyBlue,                       // Accent 5%
     onSecondary = OnPrimaryLight,
-    tertiary = primaryColor.copy(alpha = 0.5f),
+    tertiary = AccentCoral,                          // Accent 5%
     onTertiary = OnPrimaryLight,
-    background = BackgroundLight,
-    onBackground = OnBackgroundLight,
-    surface = SurfaceLight,
-    onSurface = OnSurfaceLight,
-    surfaceVariant = BackgroundLight,
-    onSurfaceVariant = TextSecondaryLight,
+    background = BrandWhite,                         // White 50%
+    onBackground = BrandDeepGray,                    // Deep Gray 10%
+    surface = BrandWhite,                            // White 50%
+    onSurface = BrandDeepGray,                       // Deep Gray 10%
+    surfaceVariant = BrandLightGray,                 // Gray 20%
+    onSurfaceVariant = BrandGray,
     outline = OutlineLight,
     outlineVariant = OutlineVariantLight,
     error = ErrorColor,
@@ -69,9 +70,9 @@ private fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
     onPrimary = OnPrimaryDark,
     primaryContainer = PrimaryContainerDark,
     onPrimaryContainer = OnPrimaryContainerDark,
-    secondary = primaryColor.copy(alpha = 0.7f),
+    secondary = AccentSkyBlue,
     onSecondary = OnPrimaryDark,
-    tertiary = primaryColor.copy(alpha = 0.5f),
+    tertiary = AccentCoral,
     onTertiary = OnPrimaryDark,
     background = BackgroundDark,
     onBackground = OnBackgroundDark,
