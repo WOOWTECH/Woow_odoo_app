@@ -697,18 +697,24 @@ if os.path.exists(SA_FILE):
         import google.auth.transport.requests as gauth_requests
         from google.oauth2 import service_account as gauth_sa
 
-        # 1. Get FCM token from logcat (needs ~15s for Firebase init)
+        # 1. Get FCM token from logcat (retry up to 30s for Firebase init)
         subprocess.run(["adb", "logcat", "-c"], capture_output=True)
-        launch_app()
-        time.sleep(15)
-        logcat_out = subprocess.run(
-            ["adb", "logcat", "-d", "-t", "200"],
-            capture_output=True, text=True
-        ).stdout
+        d.app_stop(PKG)
+        time.sleep(2)
+        d.app_start(PKG, ACTIVITY)
+
         fcm_token = None
-        for line in logcat_out.split("\n"):
-            if "FCM_TOKEN:" in line:
-                fcm_token = line.split("FCM_TOKEN:")[1].strip()
+        for attempt in range(6):
+            time.sleep(5)
+            logcat_out = subprocess.run(
+                ["adb", "logcat", "-d"],
+                capture_output=True, text=True
+            ).stdout
+            for line in logcat_out.split("\n"):
+                if "FCM_TOKEN:" in line:
+                    fcm_token = line.split("FCM_TOKEN:")[1].strip()
+                    break
+            if fcm_token:
                 break
 
         check("V20a", f"FCM token retrieved from device (len={len(fcm_token) if fcm_token else 0})",
