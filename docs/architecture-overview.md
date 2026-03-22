@@ -369,7 +369,7 @@ sequenceDiagram
 
     AccountRepo->>RPC: authenticate(url, db, user, pass)
     RPC->>RPC: Validate HTTPS
-    RPC->>Odoo: POST /web/session/authenticate<br/>(JSON-RPC 2.0)
+    RPC->>Odoo: POST /web/session/authenticate
 
     alt Success
         Odoo-->>RPC: {uid, session_id, name}
@@ -480,19 +480,19 @@ sequenceDiagram
     participant OkHttp as OkHttp Client
     participant Odoo as Odoo Server
 
-    App->>App: Build JsonRpcRequest<br/>{jsonrpc: "2.0", method: "call",<br/>params: {db, login, password}}
+    App->>App: Build JsonRpcRequest
 
-    App->>OkHttp: POST request<br/>Content-Type: application/json
+    App->>OkHttp: POST request (application/json)
 
-    Note over OkHttp: Configured with:<br/>- 30s timeouts<br/>- CookieJar (session)<br/>- HTTP Logging (debug)
+    Note over OkHttp: 30s timeouts, CookieJar, HTTP Logging
 
     OkHttp->>Odoo: HTTPS POST /web/session/authenticate
 
-    Odoo-->>OkHttp: JsonRpcResponse<br/>{result: {uid, session_id, ...}}
+    Odoo-->>OkHttp: JsonRpcResponse with uid, session_id
 
     OkHttp-->>App: Response + Set-Cookie: session_id
 
-    App->>App: Store cookies per host<br/>Extract session_id
+    App->>App: Store cookies per host, extract session_id
 ```
 
 ### OdooJsonRpcClient Class
@@ -648,7 +648,7 @@ sequenceDiagram
     WV->>WV: loadUrl(serverUrl + "/web")
 
     Note over WV: Post-load JS injection:
-    WV->>WV: evaluateJavascript(<br/>"document.body.style.height='100vh';<br/>window.dispatchEvent(new Event('resize'))")
+    WV->>WV: JS injection (height fix + resize events)
 
     alt Session Expired
         WV->>WV: Redirect detected → /web/login
@@ -719,8 +719,8 @@ graph TB
 ```mermaid
 graph LR
     subgraph "ThemeManager (Singleton)"
-        PC["primaryColor<br/>StateFlow&lt;Color&gt;"]
-        TM["themeMode<br/>StateFlow&lt;ThemeMode&gt;"]
+        PC["primaryColor<br/>StateFlow of Color"]
+        TM["themeMode<br/>StateFlow of ThemeMode"]
     end
 
     subgraph "WoowTechOdooTheme"
@@ -923,7 +923,7 @@ sequenceDiagram
     AccRepo-->>ConfigVM: true
     ConfigVM-->>ConfigScreen: Account switched
 
-    Note over ConfigScreen: NavGraph detects<br/>activeAccount change<br/>→ MainScreen reloads
+    Note over ConfigScreen: NavGraph detects activeAccount change and reloads MainScreen
 ```
 
 ### Theme Change Flow
