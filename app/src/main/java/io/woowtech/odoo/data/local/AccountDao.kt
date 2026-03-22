@@ -21,6 +21,9 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE isActive = 1 LIMIT 1")
     suspend fun getActiveAccountOnce(): OdooAccount?
 
+    @Query("SELECT * FROM accounts ORDER BY lastLogin DESC")
+    suspend fun getAllAccountsList(): List<OdooAccount>
+
     @Query("SELECT * FROM accounts WHERE id = :id")
     suspend fun getAccountById(id: String): OdooAccount?
 

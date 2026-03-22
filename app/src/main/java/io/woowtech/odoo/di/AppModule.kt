@@ -12,6 +12,8 @@ import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.AppDatabase
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.data.repository.AccountRepository
+import io.woowtech.odoo.data.repository.FcmTokenRepository
+import io.woowtech.odoo.data.repository.FcmTokenRepositoryImpl
 import io.woowtech.odoo.data.repository.SettingsRepository
 import javax.inject.Singleton
 
@@ -67,5 +69,15 @@ object AppModule {
         encryptedPrefs: EncryptedPrefs
     ): SettingsRepository {
         return SettingsRepository(encryptedPrefs)
+    }
+
+    @Provides
+    @Singleton
+    fun provideFcmTokenRepository(
+        apiClient: OdooJsonRpcClient,
+        encryptedPrefs: EncryptedPrefs,
+        accountDao: AccountDao
+    ): FcmTokenRepository {
+        return FcmTokenRepositoryImpl(apiClient, encryptedPrefs, accountDao)
     }
 }

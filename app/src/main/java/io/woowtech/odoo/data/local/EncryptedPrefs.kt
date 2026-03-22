@@ -127,6 +127,14 @@ class EncryptedPrefs @Inject constructor(
         prefs.edit().putString(KEY_THEME_MODE, mode.code).apply()
     }
 
+    fun saveFcmToken(token: String) {
+        prefs.edit().putString(KEY_FCM_TOKEN, token).apply()
+    }
+
+    fun getFcmToken(): String? {
+        return prefs.getString(KEY_FCM_TOKEN, null)
+    }
+
     companion object {
         private const val KEY_THEME_COLOR = "theme_color"
         private const val KEY_THEME_MODE = "theme_mode"
@@ -138,5 +146,6 @@ class EncryptedPrefs @Inject constructor(
         private const val KEY_LANGUAGE = "language"
         private const val KEY_FAILED_PIN_ATTEMPTS = "failed_pin_attempts"
         private const val KEY_PIN_LOCKOUT_UNTIL = "pin_lockout_until"
+        private const val KEY_FCM_TOKEN = "fcm_token"
     }
 }
