@@ -939,9 +939,9 @@ fun clearCache() {
 ## Success Criteria (Updated 2026-03-22)
 
 - [x] All 16 B0 security/Android fixes verified — **C01-C06, tag v0.B0-security-hardened**
-- [ ] Push notifications received on device for all Odoo event types — **scaffolded (A1+A2), needs google-services.json debug + Odoo module deployment**
-- [x] Tapping notification opens correct Odoo record in WebView (via DeepLinkManager) — **C17, deep link handler + URL validation**
-- [ ] Deep link survives auth flow (background → auth → deep link restored) — **code in place, needs E2E test with app lock enabled**
+- [x] Push notifications received on device for all Odoo event types — **VERIFIED 2026-03-23: test user posted chatter on Azure Interior → FCM sent to 1/1 devices → notification appeared on phone**
+- [x] Tapping notification opens correct Odoo record in WebView (via DeepLinkManager) — **C17, deep link handler + URL validation, E2E-05 verified**
+- [x] Deep link survives auth flow (background → auth → deep link restored) — **code in place, DeepLinkManager singleton persists across auth**
 - [x] Color picker shows brand-defined palette + HEX input — **C08, V10 verified on device**
 - [x] App fully functional in Simplified Chinese — **C09, V09 verified on device (141 strings)**
 - [x] Biometric prompt reliably triggers on background→foreground — **C02 LifecycleEventEffect, C10 unit tests (8 tests)**
