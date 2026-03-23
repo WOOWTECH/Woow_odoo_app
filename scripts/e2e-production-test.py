@@ -462,12 +462,13 @@ preset = (d(textContains="Preset").exists(timeout=2) or
           d(textContains="预设").exists(timeout=2) or
           d(textContains="預設").exists(timeout=2))
 accent = d(text="Accent").exists(timeout=2)
-# HEX input may be below dialog fold — check for custom color label OR the text field
-hex_input = (d(textContains="RRGGBB").exists(timeout=2) or
-             d(textContains="自訂顏色").exists(timeout=2) or
+# HEX input is below dialog fold — scroll to find it
+d.swipe(0.5, 0.55, 0.5, 0.25)
+time.sleep(1)
+hex_input = (d(textContains="自訂顏色").exists(timeout=2) or
              d(textContains="自定义颜色").exists(timeout=2) or
              d(textContains="Custom").exists(timeout=2) or
-             d(textContains="#").exists(timeout=2))
+             d(textContains="RRGGBB").exists(timeout=2))
 apply_btn = d(text="套用") or d(text="Apply") or d(text="应用")
 
 check("E2E-07a", "Brand preset colors section visible", preset)

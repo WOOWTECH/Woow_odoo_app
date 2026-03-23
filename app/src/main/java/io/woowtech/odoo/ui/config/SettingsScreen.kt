@@ -523,7 +523,7 @@ private fun ColorPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.select_color)) },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 // Brand Colors section
                 Text(
                     text = stringResource(R.string.preset_colors),
@@ -533,9 +533,9 @@ private fun ColorPickerDialog(
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(5),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.height(56.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.height(44.dp)
                 ) {
                     items(brandColors) { color ->
                         ColorSwatch(
@@ -546,20 +546,20 @@ private fun ColorPickerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Accent Colors section
                 Text(
                     text = "Accent",
                     style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 6.dp)
                 )
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(5),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.height(112.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.height(88.dp)
                 ) {
                     items(accentColors) { color ->
                         ColorSwatch(
@@ -638,7 +638,7 @@ private fun ColorSwatch(
 ) {
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(36.dp)
             .clip(CircleShape)
             .background(Color(android.graphics.Color.parseColor(colorHex)))
             .then(
