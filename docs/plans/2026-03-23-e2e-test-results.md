@@ -1,8 +1,8 @@
 # E2E Production Test Results
 
-> **Date:** 2026-03-23 10:52:35
+> **Date:** 2026-03-23 20:01:18
 > **Device:** dew_p_global (SDK 35)
-> **Result:** **21 passed, 3 failed** out of 24
+> **Result:** **22 passed, 2 failed** out of 24
 
 | # | Result | Test |
 |---|--------|------|
@@ -21,7 +21,7 @@
 | | PASS | E2E-06b: LifecycleEventEffect code present (verified in unit tests) |
 | | PASS | E2E-07a: Brand preset colors section visible |
 | | PASS | E2E-07b: 10 accent colors section visible |
-| | FAIL | E2E-07c: HEX input field (#RRGGBB) available |
+| | PASS | E2E-07c: HEX input field (#RRGGBB) available |
 | | PASS | E2E-07d: Apply color → dialog closes, returns to Settings |
 | | FAIL | E2E-08a: 简体中文 option found in language picker |
 | | FAIL | E2E-09a: Clear Cache button found |
