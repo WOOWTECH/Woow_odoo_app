@@ -1168,7 +1168,14 @@ Please review and answer these before iOS development starts:
 | **Q8** | **Separate git repo or monorepo?** | (A) New repo: `Woow_odoo_ios`<br>(B) Subfolder in existing repo: `Woow_odoo_app/ios/`<br>(C) Monorepo with shared docs | Affects CI/CD, code review process |
 
 > **Answer format:** Fill in your choice next to each question. Example: `Q1: B`
-
+Q1: iOS 16
+Q2: Yes we have existing account.
+Q3: Bundle ID could be the same as android. But I want both system app working without problem , suggest me the best choice.
+Q4: B follow system setting lang.
+Q5: universal.
+Q6: Publish to App store as target. So our architecture should fit their strict policy.
+Q7: no.
+Q8: separated would be cleaner.
 ---
 
 ## Appendix F: Pre-Development Checklist
