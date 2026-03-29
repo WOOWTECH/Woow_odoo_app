@@ -49,7 +49,7 @@ App data was cleared before this test. User has never logged in.
 
 ### Step 6: Tap Login → Odoo loads
 
-- ❌ Odoo WebView loaded
+- ✅ Odoo WebView loaded (Inbox page visible)
 - Activity: `ACTIVITY io.woowtech.odoo.debug/io.woowtech.odoo.ui.MainActivity 309d6d0 pid=27379 userId=0 uid=10197 displayId=0(type=INTERNAL)`
 
 ![Odoo Loaded](screenshots/ch1_06_odoo_loaded.png)
