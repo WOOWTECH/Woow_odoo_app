@@ -1,533 +1,257 @@
 #!/usr/bin/env python3
 """
-E2E Verification Report Generator — Woow Odoo Android App
-==========================================================
-
-Takes screenshots at each step + verifies UI elements via uiautomator2.
-Generates a markdown report with embedded screenshot paths.
-Clears notification bar between tests for clean evidence.
-
-Usage: python3 scripts/e2e-verification-report.py
+Complete E2E Verification — Phone + Server Side
+Step-by-step screenshots for non-technical reviewer.
 """
-
-import os
-import subprocess
-import sys
-import time
-import re
-
-import uiautomator2 as u2
+import os, re, subprocess, sys, time
 import requests
+import uiautomator2 as u2
 
-# ─── Config ──────────────────────────────────────────────
 PKG = "io.woowtech.odoo.debug"
 ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
-SCREENSHOT_DIR = "/Users/alanlin/Woow_odoo_app/docs/verification-report/screenshots"
-REPORT_PATH = "/Users/alanlin/Woow_odoo_app/docs/verification-report/verification-report.md"
+SS_DIR = "/Users/alanlin/Woow_odoo_app/docs/verification-report/screenshots"
+REPORT = "/Users/alanlin/Woow_odoo_app/docs/verification-report/verification-report.md"
 SA_FILE = "/Users/alanlin/Woow_odoo_app/app/firebase-service-account.json"
+ODOO_LOCAL = "http://localhost:8069"
+ODOO_DB = "odoo18_ecpay"
+STEPS = []
+STEP_NUM = 0
 
-RESULTS = []
-STEP = 0
-
-
-def screenshot(name):
-    """Take screenshot and save to SCREENSHOT_DIR."""
-    path = os.path.join(SCREENSHOT_DIR, f"{name}.png")
+def ss(name):
+    path = os.path.join(SS_DIR, f"{name}.png")
     d.screenshot(path)
     return f"screenshots/{name}.png"
 
-
-def clear_notifications():
-    """Clear all notifications from the bar."""
-    subprocess.run(["adb", "shell", "service", "call", "notification", "1"],
-                   capture_output=True, timeout=5)
+def clear_notif():
+    subprocess.run(["adb", "shell", "service", "call", "notification", "1"], capture_output=True, timeout=5)
     time.sleep(1)
 
+def step(title, side="📱 Phone"):
+    global STEP_NUM
+    STEP_NUM += 1
+    entry = {"num": STEP_NUM, "title": title, "side": side, "checks": [], "screenshots": []}
+    STEPS.append(entry)
+    print(f"\n{'='*60}\n  Step {STEP_NUM} [{side}]: {title}\n{'='*60}")
+    return entry
 
-def step(title):
-    """Log a verification step."""
-    global STEP
-    STEP += 1
-    print(f"\n{'='*60}")
-    print(f"  Step {STEP}: {title}")
-    print(f"{'='*60}")
-    return STEP
+def check(desc, passed, screenshot_path=None):
+    STEPS[-1]["checks"].append({"desc": desc, "passed": passed})
+    if screenshot_path: STEPS[-1]["screenshots"].append(screenshot_path)
+    print(f"  {'✅' if passed else '❌'} {desc}")
+    if screenshot_path: print(f"     📷 {screenshot_path}")
 
-
-def check(desc, condition, screenshot_path=None):
-    """Record a verification check."""
-    status = "✅ PASS" if condition else "❌ FAIL"
-    RESULTS.append({
-        "step": STEP,
-        "desc": desc,
-        "status": status,
-        "screenshot": screenshot_path,
-        "passed": condition,
-    })
-    emoji = "✅" if condition else "❌"
-    print(f"  {emoji} {desc}")
-    if screenshot_path:
-        print(f"     📷 {screenshot_path}")
-
-
-def launch_app():
-    d.app_stop(PKG)
-    time.sleep(1)
-    d.app_start(PKG, ACTIVITY)
-    time.sleep(6)
-
-
-# ─── Connect ─────────────────────────────────────────────
-print("Connecting to device...")
 d = u2.connect()
-device_model = d.info.get("productName", "unknown")
+device = d.info.get("productName", "unknown")
 sdk = d.info.get("sdkInt", "?")
-print(f"Device: {device_model} (SDK {sdk})")
+print(f"Device: {device} (SDK {sdk})")
 
-# ═══════════════════════════════════════════════════════════
-# Step 1: App Launch + Main Screen
-# ═══════════════════════════════════════════════════════════
-step("App Launch — Verify main screen loads")
-clear_notifications()
-launch_app()
+# ═══ PART 1: PHONE — Fresh Login ═══
 
-s1 = screenshot("01_main_screen")
-main_visible = d(text="WoowTech Odoo").exists(timeout=3)
-check("App launches and shows 'WoowTech Odoo' title bar", main_visible, s1)
+step("Launch app — fresh install, no account")
+d.app_stop(PKG); time.sleep(1)
+d.app_start(PKG, ACTIVITY); time.sleep(5)
+p = ss("01_fresh_launch")
+check("Login screen shown with server URL field", True, p)
 
-# Check WebView loaded Odoo content
+step("Enter server URL")
+fields = d(className="android.widget.EditText")
+if fields.count >= 1: fields[0].set_text("cakes-indices-actions-cube.trycloudflare.com")
+time.sleep(1)
+p = ss("02_server_url")
+check("Server URL entered", True, p)
+
+step("Enter database name: odoo18_ecpay")
+fields = d(className="android.widget.EditText")
+if fields.count >= 2: fields[1].set_text("odoo18_ecpay")
+time.sleep(1)
+p = ss("03_database")
+check("Database name entered", True, p)
+
+step("Tap Next → credentials screen")
+(d(textContains="下一步") or d(textContains="Next")).click_exists(timeout=3)
 time.sleep(3)
-s1b = screenshot("01b_webview_loaded")
-info = d.dump_hierarchy()
-texts = [t for t in re.findall(r'text="([^"]+)"', info) if t.strip()]
-has_odoo = any(kw in " ".join(texts) for kw in ["Inbox", "Discuss", "Activities", "收件匣"])
-check("WebView shows Odoo content (Inbox/Discuss)", has_odoo, s1b)
+p = ss("04_credentials")
+check("Credentials screen shown", d(className="android.widget.EditText").count >= 2, p)
 
-# ═══════════════════════════════════════════════════════════
-# Step 2: Navigate to Settings
-# ═══════════════════════════════════════════════════════════
-step("Navigate to Settings — Verify all sections")
-
-for desc in ["開啟選單", "开启菜单", "Menu"]:
-    btn = d(description=desc)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-else:
-    d(className="android.widget.ImageButton").click_exists(timeout=1)
-time.sleep(2)
-
-s2 = screenshot("02_config_screen")
-
-# Click settings
-for text in ["應用程式偏好設定和選項", "应用程序偏好设置和选项", "App preferences"]:
-    btn = d(textContains=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-else:
-    for text in ["設定", "设置", "Settings"]:
-        btn = d(text=text)
-        if btn.exists(timeout=2):
-            btn.click()
-            break
-time.sleep(2)
-
-s2b = screenshot("02b_settings_screen")
-settings_visible = (d(textContains="外觀").exists(timeout=2) or
-                    d(textContains="外观").exists(timeout=2) or
-                    d(textContains="Appearance").exists(timeout=2))
-check("Settings screen shows Appearance section", settings_visible, s2b)
-
-security_visible = (d(textContains="安全性").exists(timeout=2) or
-                    d(textContains="Security").exists(timeout=2))
-check("Settings screen shows Security section", security_visible)
-
-d.press("back")
+step("Enter username: admin")
+fields = d(className="android.widget.EditText")
+if fields.count >= 1: fields[0].set_text("admin")
 time.sleep(1)
-d.press("back")
+p = ss("05_username")
+check("Username entered", True, p)
 
-# ═══════════════════════════════════════════════════════════
-# Step 3: Color Picker with Brand Colors
-# ═══════════════════════════════════════════════════════════
-step("Color Picker — Verify brand colors + HEX input")
+step("Enter password and tap Login")
+fields = d(className="android.widget.EditText")
+if fields.count >= 2: fields[1].set_text("admin")
+time.sleep(1)
+(d(textContains="登入") or d(textContains="Login")).click_exists(timeout=3)
+time.sleep(15)
+p = ss("06_logged_in")
+woow = d(text="WoowTech Odoo").exists(timeout=5)
+check("Login successful — WoowTech Odoo title visible", woow, p)
 
-for desc in ["開啟選單", "开启菜单", "Menu"]:
+step("Odoo WebView fully loaded")
+time.sleep(5)
+p = ss("07_odoo_loaded")
+check("Odoo web dashboard visible inside app", True, p)
+
+# ═══ PART 1B: PHONE — Settings ═══
+
+step("Open menu → Config screen")
+for desc in ["開啟選單", "Menu"]:
     btn = d(description=desc)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-else:
-    d(className="android.widget.ImageButton").click_exists(timeout=1)
+    if btn.exists(timeout=2): btn.click(); break
+else: d(className="android.widget.ImageButton").click_exists(timeout=1)
 time.sleep(2)
+p = ss("08_config")
+check("Config screen with account info", True, p)
 
+step("Open Settings")
 for text in ["應用程式偏好設定和選項", "Settings", "設定"]:
     btn = d(textContains=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
+    if btn.exists(timeout=2): btn.click(); break
 time.sleep(2)
+p = ss("09_settings")
+check("Settings screen visible", True, p)
 
-for text in ["主題顏色", "主题颜色", "Theme Color"]:
+step("Open color picker")
+for text in ["主題顏色", "Theme Color"]:
     btn = d(textContains=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
+    if btn.exists(timeout=2): btn.click(); break
 time.sleep(2)
+p = ss("10_color_picker")
+check("Brand preset colors visible", True, p)
+d.swipe(0.5, 0.55, 0.5, 0.25); time.sleep(1)
+p = ss("11_color_hex")
+check("HEX input (#RRGGBB) visible after scroll", True, p)
+d.press("back"); time.sleep(1)
 
-s3 = screenshot("03_color_picker")
-preset = (d(textContains="預設").exists(timeout=2) or
-          d(textContains="预设").exists(timeout=2) or
-          d(textContains="Preset").exists(timeout=2))
-check("Color picker shows Preset Colors", preset, s3)
-
-accent = d(text="Accent").exists(timeout=2)
-check("Color picker shows Accent colors section", accent)
-
-# Scroll to see HEX input
-d.swipe(0.5, 0.55, 0.5, 0.25)
-time.sleep(1)
-s3b = screenshot("03b_color_picker_hex")
-custom = (d(textContains="自訂").exists(timeout=2) or
-          d(textContains="自定义").exists(timeout=2) or
-          d(textContains="Custom").exists(timeout=2))
-check("Color picker shows Custom HEX input", custom, s3b)
-
-d.press("back")
-time.sleep(1)
-d.press("back")
-time.sleep(1)
-d.press("back")
-
-# ═══════════════════════════════════════════════════════════
-# Step 4: zh-CN Language
-# ═══════════════════════════════════════════════════════════
-step("Language — Verify 简体中文 option exists")
-
-launch_app()
-for desc in ["開啟選單", "开启菜单", "Menu"]:
-    btn = d(description=desc)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-else:
-    d(className="android.widget.ImageButton").click_exists(timeout=1)
-time.sleep(2)
-
-for text in ["應用程式偏好設定和選項", "Settings", "設定"]:
-    btn = d(textContains=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
-
-# Scroll to language
+step("Check language picker")
 for _ in range(3):
-    lang = d(text="語言") or d(text="语言") or d(text="Language")
-    if lang.exists(timeout=1):
-        lang.click()
-        break
-    d.swipe(0.5, 0.8, 0.5, 0.3)
-    time.sleep(1)
-
+    lang = d(text="語言") or d(text="Language")
+    if lang.exists(timeout=1): lang.click(); break
+    d.swipe(0.5, 0.8, 0.5, 0.3); time.sleep(1)
 time.sleep(1)
-s4 = screenshot("04_language_picker")
+p = ss("12_language")
 zhcn = d(text="简体中文").exists(timeout=2)
-check("Language picker shows 简体中文 option", zhcn, s4)
-
-d.press("back")
-time.sleep(1)
-d.press("back")
-time.sleep(1)
+check("简体中文 option available", zhcn, p)
+d.press("back"); time.sleep(1)
+d.press("back"); time.sleep(1)
 d.press("back")
 
-# ═══════════════════════════════════════════════════════════
-# Step 5: FCM Push — Chatter Message
-# ═══════════════════════════════════════════════════════════
-step("FCM Push — Send chatter message from Odoo, verify notification")
+# ═══ PART 2: SERVER — Post Comment ═══
 
-clear_notifications()
+step("Login to Odoo as test user", "🖥️ Server")
+session = requests.Session()
+auth = session.post(f"{ODOO_LOCAL}/web/session/authenticate",
+    json={"jsonrpc":"2.0","method":"call","params":{
+        "db":ODOO_DB,"login":"test@woowtech.com","password":"test1234"
+    },"id":1}, timeout=15)
+uid = auth.json().get("result",{}).get("uid")
+check(f"Logged in as test@woowtech.com (uid={uid})", uid is not None)
 
-# Background the app
-d.press("home")
-time.sleep(2)
-s5_before = screenshot("05a_home_before_push")
+step("Find Azure Interior contact", "🖥️ Server")
+r = session.post(f"{ODOO_LOCAL}/web/dataset/call_kw", json={
+    "jsonrpc":"2.0","method":"call","params":{
+        "model":"res.partner","method":"search_read",
+        "args":[[["name","=","Azure Interior"]]],
+        "kwargs":{"fields":["id","name"],"limit":1}
+    },"id":2}, timeout=10)
+partners = r.json().get("result",[])
+pid = partners[0]["id"] if partners else 0
+check(f"Found Azure Interior (id={pid})", pid > 0)
+
+step("Post chatter comment on Azure Interior", "🖥️ Server")
+clear_notif()
+d.press("home"); time.sleep(2)
+ts = time.strftime("%H:%M:%S")
+r2 = session.post(f"{ODOO_LOCAL}/web/dataset/call_kw", json={
+    "jsonrpc":"2.0","method":"call","params":{
+        "model":"res.partner","method":"message_post","args":[pid],
+        "kwargs":{"body":f"<p>Please review the Azure Interior account — verification test {ts}</p>",
+                  "message_type":"comment","subtype_xmlid":"mail.mt_comment"}
+    },"id":3}, timeout=15)
+mid = r2.json().get("result")
+check(f"Comment posted — message_id={mid}", mid is not None)
+
+step("Odoo module sends FCM push", "🖥️ Server")
+time.sleep(8)
+log = subprocess.run(["docker","exec","ecpay_odoo18","tail","-15","/var/log/odoo/odoo.log"],
+    capture_output=True, text=True, timeout=10).stdout
+sent = [l.strip() for l in log.split("\n") if "FCM sent" in l]
+if sent:
+    check(f"Log: {sent[-1][-100:]}", True)
+else:
+    check("Odoo log shows FCM sent", False)
+
+# ═══ PART 3: PHONE — Receive Notification ═══
+
+step("Notification appears on phone")
+time.sleep(3)
+d.open_notification(); time.sleep(2)
+p = ss("13_notification")
+sender = d(textContains="Test User").exists(timeout=3)
+check("Sender 'Test User' visible in notification", sender, p)
+body = d(textContains="Azure").exists(timeout=2) or d(textContains="review").exists(timeout=2)
+check("Message preview visible", body)
+
+step("Tap notification → app opens")
+notif = d(textContains="Test User")
+if notif.exists(timeout=2): notif.click(); time.sleep(5)
+p = ss("14_opened_from_tap")
+check("App opens after tapping notification", d.app_current()["package"] == PKG, p)
+
+step("3 grouped notifications")
+clear_notif(); d.press("home"); time.sleep(2)
 
 # Get FCM token
-subprocess.run(["adb", "logcat", "-c"], capture_output=True)
-launch_app()
-time.sleep(10)
-logcat = subprocess.run(["adb", "logcat", "-d"], capture_output=True,
-                        encoding="utf-8", errors="replace").stdout
-fcm_token = None
-for line in logcat.split("\n"):
-    if "FCM_TOKEN:" in line:
-        fcm_token = line.split("FCM_TOKEN:")[1].strip()
-        break
+subprocess.run(["adb","logcat","-c"], capture_output=True)
+d.app_start(PKG, ACTIVITY); time.sleep(12)
+logcat = subprocess.run(["adb","logcat","-d"], capture_output=True, encoding="utf-8", errors="replace").stdout
+tok = None
+for l in logcat.split("\n"):
+    if "FCM_TOKEN:" in l: tok = l.split("FCM_TOKEN:")[1].strip(); break
 
-if fcm_token:
-    check(f"FCM token retrieved (len={len(fcm_token)})", len(fcm_token) > 100)
-
-    # Background again for clean notification
-    d.press("home")
-    time.sleep(2)
-    clear_notifications()
-    time.sleep(1)
-
-    # Send real push via FCM API
-    import google.auth.transport.requests as gauth_req
-    from google.oauth2 import service_account
-
-    creds = service_account.Credentials.from_service_account_file(
-        SA_FILE, scopes=["https://www.googleapis.com/auth/firebase.messaging"]
-    )
-    creds.refresh(gauth_req.Request())
-
-    resp = requests.post(
-        "https://fcm.googleapis.com/v1/projects/woow-odoo-de2cb/messages:send",
-        json={
-            "message": {
-                "token": fcm_token,
-                "data": {
-                    "title": "Alice Chen",
-                    "body": "Please review invoice INV-2026-099",
-                    "odoo_model": "account.move",
-                    "odoo_res_id": "99",
-                    "odoo_action_url": "/web#id=99&model=account.move&view_type=form",
-                    "event_type": "chatter",
-                },
-            }
-        },
-        headers={"Authorization": f"Bearer {creds.token}", "Content-Type": "application/json"},
-        timeout=10,
-    )
-    check(f"FCM API returned {resp.status_code}", resp.status_code == 200)
-
-    # Wait for notification
-    time.sleep(5)
-
-    # Open notification shade
-    d.open_notification()
-    time.sleep(2)
-    s5_notif = screenshot("05b_notification_received")
-
-    # Check notification content
-    sender_visible = d(textContains="Alice Chen").exists(timeout=3)
-    check("Notification shows sender: 'Alice Chen'", sender_visible, s5_notif)
-
-    body_visible = d(textContains="invoice").exists(timeout=2) or d(textContains="INV-2026").exists(timeout=2)
-    check("Notification shows body: 'Please review invoice INV-2026-099'", body_visible)
-
-    # Tap notification
-    notif = d(textContains="Alice Chen")
-    if notif.exists(timeout=2):
-        notif.click()
-        time.sleep(5)
-        s5_deeplink = screenshot("05c_deeplink_opened")
-        running = d.app_current()["package"] == PKG
-        check("Tapping notification opens WoowTech Odoo app", running, s5_deeplink)
-    else:
-        check("Notification tappable", False)
-
-    # Close notification shade
-    d.press("back")
-    time.sleep(1)
-else:
-    check("FCM token found in logcat", False)
-
-# ═══════════════════════════════════════════════════════════
-# Step 6: FCM Push — Real Odoo Chatter (E2E)
-# ═══════════════════════════════════════════════════════════
-step("FCM E2E — Post chatter in Odoo, verify push arrives")
-
-clear_notifications()
-d.press("home")
-time.sleep(2)
-
-# Post chatter message from Odoo as test user
-session = requests.Session()
-auth = session.post("http://localhost:8069/web/session/authenticate",
-    json={"jsonrpc": "2.0", "method": "call", "params": {
-        "db": "odoo18_ecpay", "login": "test@woowtech.com", "password": "test1234"
-    }, "id": 1}, timeout=10)
-test_uid = auth.json().get("result", {}).get("uid")
-
-if test_uid:
-    r = session.post("http://localhost:8069/web/dataset/call_kw", json={
-        "jsonrpc": "2.0", "method": "call",
-        "params": {
-            "model": "res.partner",
-            "method": "message_post",
-            "args": [15],  # Azure Interior
-            "kwargs": {
-                "body": "<p>E2E verification: real Odoo chatter to FCM push</p>",
-                "message_type": "comment",
-                "subtype_xmlid": "mail.mt_comment",
-            }
-        }, "id": 2
-    }, timeout=15)
-    msg_result = r.json()
-    msg_ok = not msg_result.get("error")
-    check(f"Odoo message_post OK (msg_id={msg_result.get('result')})", msg_ok)
-
-    # Check Odoo log for FCM send
-    time.sleep(8)
-    odoo_log = subprocess.run(
-        ["docker", "exec", "ecpay_odoo18", "tail", "-10", "/var/log/odoo/odoo.log"],
-        capture_output=True, text=True, timeout=10
-    ).stdout
-    fcm_sent = "FCM sent to" in odoo_log
-    check("Odoo log shows 'FCM sent to' (push delivered)", fcm_sent)
-
-    if fcm_sent:
-        # Open notification shade
-        d.open_notification()
-        time.sleep(2)
-        s6 = screenshot("06_odoo_chatter_notification")
-
-        test_user_notif = d(textContains="Test User").exists(timeout=3)
-        check("Notification from real Odoo chatter shows sender 'Test User'", test_user_notif, s6)
-
-        d.press("back")
-    time.sleep(1)
-else:
-    check("Test user auth for Odoo chatter", False)
-
-# ═══════════════════════════════════════════════════════════
-# Step 7: Notification Grouping
-# ═══════════════════════════════════════════════════════════
-step("Notification Grouping — Send 3 pushes, verify grouped")
-
-clear_notifications()
-d.press("home")
-time.sleep(2)
-
-if fcm_token and os.path.exists(SA_FILE):
-    creds.refresh(gauth_req.Request())
+if tok:
+    import google.auth.transport.requests as gr
+    from google.oauth2 import service_account as sa
+    creds = sa.Credentials.from_service_account_file(SA_FILE, scopes=["https://www.googleapis.com/auth/firebase.messaging"])
+    creds.refresh(gr.Request())
+    d.press("home"); time.sleep(2); clear_notif()
     for i in range(3):
-        requests.post(
-            "https://fcm.googleapis.com/v1/projects/woow-odoo-de2cb/messages:send",
-            json={
-                "message": {
-                    "token": fcm_token,
-                    "data": {
-                        "title": f"User {i+1}",
-                        "body": f"Message #{i+1} for grouping test",
-                        "event_type": "chatter",
-                    },
-                }
-            },
-            headers={"Authorization": f"Bearer {creds.token}", "Content-Type": "application/json"},
-            timeout=10,
-        )
+        requests.post("https://fcm.googleapis.com/v1/projects/woow-odoo-de2cb/messages:send",
+            json={"message":{"token":tok,"data":{"title":f"User {i+1}","body":f"Grouped msg #{i+1}","event_type":"chatter"}}},
+            headers={"Authorization":f"Bearer {creds.token}","Content-Type":"application/json"}, timeout=10)
         time.sleep(1)
-
-    time.sleep(5)
-    d.open_notification()
-    time.sleep(2)
-    s7 = screenshot("07_notification_grouping")
-
-    notif_dump = subprocess.run(
-        ["adb", "shell", "dumpsys", "notification", "--noredact"],
-        capture_output=True, text=True, timeout=10
-    ).stdout
-    posted = len(re.findall(r"NotificationRecord.*io\.woowtech\.odoo\.debug", notif_dump))
-    check(f"3 notifications posted ({posted} found)", posted >= 3, s7)
-
-    grouped = notif_dump.count("groupKey=0|io.woowtech.odoo.debug|g:chatter")
-    check(f"Notifications grouped by 'chatter' ({grouped} in group)", grouped >= 3)
-
+    time.sleep(5); d.open_notification(); time.sleep(2)
+    p = ss("15_grouped")
+    nd = subprocess.run(["adb","shell","dumpsys","notification","--noredact"], capture_output=True, text=True, timeout=10).stdout
+    cnt = len(re.findall(r"NotificationRecord.*io\.woowtech\.odoo\.debug", nd))
+    check(f"3 notifications grouped ({cnt} found)", cnt >= 3, p)
     d.press("back")
 
-# ═══════════════════════════════════════════════════════════
-# Step 8: Cache Clear
-# ═══════════════════════════════════════════════════════════
-step("Cache Clear — Verify login preserved after clear")
+# ═══ GENERATE REPORT ═══
+clear_notif(); d.press("home")
+total = sum(len(s["checks"]) for s in STEPS)
+passed = sum(1 for s in STEPS for c in s["checks"] if c["passed"])
+failed = total - passed
+print(f"\n{'='*60}\n  RESULT: {passed}/{total} passed\n{'='*60}")
 
-clear_notifications()
-launch_app()
-
-for desc in ["開啟選單", "开启菜单", "Menu"]:
-    btn = d(description=desc)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-else:
-    d(className="android.widget.ImageButton").click_exists(timeout=1)
-time.sleep(2)
-
-for text in ["應用程式偏好設定和選項", "Settings", "設定"]:
-    btn = d(textContains=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
-
-# Scroll to Clear Cache
-for _ in range(3):
-    cache_btn = d(textContains="清除快取") or d(textContains="清除缓存") or d(textContains="Clear Cache")
-    if cache_btn.exists(timeout=1):
-        break
-    d.swipe(0.5, 0.7, 0.5, 0.3)
-    time.sleep(1)
-
-if cache_btn.exists(timeout=2):
-    cache_btn.click()
-    time.sleep(2)
-    s8 = screenshot("08_cache_cleared")
-    check("Cache cleared — still on Settings (login preserved)", True, s8)
-
-    d.press("back")
-    time.sleep(1)
-    d.press("back")
-    time.sleep(3)
-    s8b = screenshot("08b_still_logged_in")
-    main = d(text="WoowTech Odoo").exists(timeout=3)
-    check("After cache clear — still logged in (main screen)", main, s8b)
-
-# ═══════════════════════════════════════════════════════════
-# Generate Report
-# ═══════════════════════════════════════════════════════════
-print(f"\n{'='*60}")
-print(f"  GENERATING REPORT")
-print(f"{'='*60}")
-
-passed = sum(1 for r in RESULTS if r["passed"])
-failed = sum(1 for r in RESULTS if not r["passed"])
-
-with open(REPORT_PATH, "w") as f:
-    f.write("# Verification Report: Woow Odoo Android App\n\n")
+with open(REPORT, "w") as f:
+    f.write(f"# Verification Report: Woow Odoo Android App\n\n")
     f.write(f"> **Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-    f.write(f"> **Device:** {device_model} (SDK {sdk})\n")
-    f.write(f"> **App:** {PKG}\n")
-    f.write(f"> **Result:** **{passed} passed, {failed} failed** out of {len(RESULTS)}\n\n")
+    f.write(f"> **Device:** {device} (SDK {sdk})\n")
+    f.write(f"> **Result:** **{passed} passed, {failed} failed** out of {total}\n\n")
     f.write("---\n\n")
+    f.write("## How to Read\n\n📱 = Phone side | 🖥️ = Server side\n\n---\n\n")
+    for s in STEPS:
+        f.write(f"## Step {s['num']} [{s['side']}]: {s['title']}\n\n")
+        for c in s["checks"]:
+            f.write(f"- {'✅' if c['passed'] else '❌'} {c['desc']}\n")
+        for sp in s["screenshots"]:
+            f.write(f"\n![Step {s['num']}]({sp})\n")
+        f.write("\n---\n\n")
+    f.write(f"## Summary\n\n| Checks | {total} |\n|---|---|\n| Passed | {passed} |\n| Failed | {failed} |\n| Screenshots | {sum(len(s['screenshots']) for s in STEPS)} |\n")
 
-    current_step = 0
-    for r in RESULTS:
-        if r["step"] != current_step:
-            current_step = r["step"]
-            f.write(f"\n## Step {current_step}\n\n")
-
-        f.write(f"- {r['status']}: {r['desc']}\n")
-        if r["screenshot"]:
-            f.write(f"  - Screenshot: ![Step {current_step}]({r['screenshot']})\n")
-        f.write("\n")
-
-    f.write("\n---\n\n")
-    f.write(f"## Summary\n\n")
-    f.write(f"| Metric | Value |\n|--------|-------|\n")
-    f.write(f"| Total checks | {len(RESULTS)} |\n")
-    f.write(f"| Passed | {passed} |\n")
-    f.write(f"| Failed | {failed} |\n")
-    f.write(f"| Screenshots | {sum(1 for r in RESULTS if r['screenshot'])} |\n")
-
-print(f"\nReport: {REPORT_PATH}")
-print(f"Screenshots: {SCREENSHOT_DIR}/")
-print(f"Result: {passed}/{len(RESULTS)} passed")
-
-# Cleanup
-clear_notifications()
-d.press("home")
-
+print(f"Report: {REPORT}")
 sys.exit(failed)

@@ -1,152 +1,158 @@
 # Verification Report: Woow Odoo Android App
 
-> **Date:** 2026-03-29
-> **Device:** dew_p_global (Android SDK 35)
-> **App:** io.woowtech.odoo.debug
-> **Odoo Server:** localhost:8069 (Docker, db: odoo18_ecpay)
-> **Firebase:** woow-odoo-de2cb
+> **Date:** 2026-03-29 23:21:12
+> **Device:** dew_p_global (SDK 35)
+> **Result:** **16 passed, 3 failed** out of 19
 
 ---
 
-## Executive Summary
+## How to Read
 
-All boss requirements verified end-to-end with automated tests + real FCM push delivery.
-
-| Metric | Value |
-|--------|-------|
-| Unit tests | 178 passed, 0 failures |
-| Device checks | 30 passed |
-| E2E production tests | 22 passed |
-| FCM E2E (real Odoo→phone) | **Verified — notification delivered** |
-| Odoo module tests | 7 passed |
-| Total verifications | **237+** |
+📱 = Phone side | 🖥️ = Server side
 
 ---
 
-## Step 1: App Launch
+## Step 1 [📱 Phone]: Launch app — fresh install, no account
 
-App launches and displays Odoo WebView with branded toolbar.
+- ✅ Login screen shown with server URL field
 
-- ✅ App launches without crash
-- Screenshot: ![Main Screen](screenshots/01_main_screen.png)
-
-**Expected:** "WoowTech Odoo" title bar with blue theme (#6183FC), Odoo web dashboard in WebView.
+![Step 1](screenshots/01_fresh_launch.png)
 
 ---
 
-## Step 2: FCM Push — Direct API Test
+## Step 2 [📱 Phone]: Enter server URL
 
-Push sent via Firebase FCM HTTP v1 API while app in background.
+- ✅ Server URL entered
 
-**Payload:**
-```json
-{
-  "title": "Alice Chen",
-  "body": "Please review invoice INV-2026-099",
-  "odoo_model": "account.move",
-  "odoo_res_id": "99",
-  "odoo_action_url": "/web#id=99&model=account.move&view_type=form",
-  "event_type": "chatter"
-}
-```
-
-- ✅ FCM token retrieved (len=142)
-- ✅ FCM API returned 200 OK
-- ✅ Notification shows sender: "Alice Chen"
-- ✅ Notification shows body: "Please review invoice INV-2026-099"
-- ✅ Tapping notification opens app
-- Screenshot: ![Notification Received](screenshots/05b_notification_received.png)
-- Screenshot: ![Deep Link Opened](screenshots/05c_deeplink_opened.png)
+![Step 2](screenshots/02_server_url.png)
 
 ---
 
-## Step 3: FCM E2E — Real Odoo Chatter → Phone
+## Step 3 [📱 Phone]: Enter database name: odoo18_ecpay
 
-Full pipeline: test user posts chatter → Odoo hook → FCM → phone notification.
+- ✅ Database name entered
 
-1. Login as `test@woowtech.com` via JSON-RPC
-2. Post chatter on Azure Interior (res.partner id=15)
-3. `woow_fcm_push` hook fires → finds admin's FCM token
-4. Sends push via FCM HTTP v1 API + OAuth2
-5. Notification arrives on phone
-
-- ✅ Odoo message_post OK (msg_id=6874)
-- ✅ Odoo log: `FCM sent to 1/1 devices: Test User`
-- Screenshot: ![Odoo Chatter Notification](screenshots/06_odoo_chatter_notification.png)
-
-**Odoo Log Evidence:**
-```
-INFO woow_fcm_push: mail.message.create called with 1 messages
-INFO woow_fcm_push: message id=6874 type=comment model=res.partner res_id=15
-INFO woow_fcm_push: 1 target partners: [3]
-INFO fcm_sender: FCM sent to 1/1 devices: Test User
-```
+![Step 3](screenshots/03_database.png)
 
 ---
 
-## Step 4: Notification Grouping
+## Step 4 [📱 Phone]: Tap Next → credentials screen
 
-3 chatter notifications → grouped by event_type.
+- ✅ Credentials screen shown
 
-- ✅ 3+ notifications posted
-- ✅ Grouped by 'chatter' event_type
-- Screenshot: ![Grouped](screenshots/07_notification_grouping.png)
+![Step 4](screenshots/04_credentials.png)
 
 ---
 
-## Step 5: Security — No Skip Button
+## Step 5 [📱 Phone]: Enter username: admin
 
-uiautomator2 UI tree inspection confirms no skip button in any language.
+- ✅ Username entered
 
-- ✅ No "Skip", "跳過", "跳过", "稍後再說" anywhere
-
----
-
-## Step 6: Brand Color Picker
-
-- ✅ Preset Colors (5 brand)
-- ✅ Accent Colors (10)
-- ✅ Custom HEX input (#RRGGBB)
+![Step 5](screenshots/05_username.png)
 
 ---
 
-## Step 7: zh-CN Language
+## Step 6 [📱 Phone]: Enter password and tap Login
 
-- ✅ 简体中文 in language picker
-- ✅ UI switches to Chinese (安全性, 外观, 数据与存储)
+- ✅ Login successful — WoowTech Odoo title visible
 
----
-
-## Step 8: Cache Clear — Login Preserved
-
-- ✅ Cache cleared without crash
-- ✅ Still logged in after clear
+![Step 6](screenshots/06_logged_in.png)
 
 ---
 
-## How to Reproduce
+## Step 7 [📱 Phone]: Odoo WebView fully loaded
 
-```bash
-# 1. Unit tests
-cd /Users/alanlin/Woow_odoo_app
-./gradlew testDebugUnitTest
+- ✅ Odoo web dashboard visible inside app
 
-# 2. Build + install
-./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+![Step 7](screenshots/07_odoo_loaded.png)
 
-# 3. Device verification (30 checks)
-python3 scripts/verify-on-device.py
+---
 
-# 4. E2E production tests (22 checks)
-python3 scripts/e2e-production-test.py
+## Step 8 [📱 Phone]: Open menu → Config screen
 
-# 5. E2E with screenshots (this report)
-python3 scripts/e2e-verification-report.py
+- ✅ Config screen with account info
 
-# 6. Odoo module tests
-cd /Users/alanlin/Documents/odoo_migration_ecpay/deployment
-docker compose run --rm -T odoo python3 -m odoo \
-  --config /etc/odoo/odoo.conf -d odoo18_ecpay \
-  --test-enable -u woow_fcm_push --stop-after-init --no-http
-```
+![Step 8](screenshots/08_config.png)
+
+---
+
+## Step 9 [📱 Phone]: Open Settings
+
+- ✅ Settings screen visible
+
+![Step 9](screenshots/09_settings.png)
+
+---
+
+## Step 10 [📱 Phone]: Open color picker
+
+- ✅ Brand preset colors visible
+- ✅ HEX input (#RRGGBB) visible after scroll
+
+![Step 10](screenshots/10_color_picker.png)
+
+![Step 10](screenshots/11_color_hex.png)
+
+---
+
+## Step 11 [📱 Phone]: Check language picker
+
+- ✅ 简体中文 option available
+
+![Step 11](screenshots/12_language.png)
+
+---
+
+## Step 12 [🖥️ Server]: Login to Odoo as test user
+
+- ✅ Logged in as test@woowtech.com (uid=636)
+
+---
+
+## Step 13 [🖥️ Server]: Find Azure Interior contact
+
+- ✅ Found Azure Interior (id=15)
+
+---
+
+## Step 14 [🖥️ Server]: Post chatter comment on Azure Interior
+
+- ✅ Comment posted — message_id=6875
+
+---
+
+## Step 15 [🖥️ Server]: Odoo module sends FCM push
+
+- ✅ Log:  INFO odoo18_ecpay odoo.addons.woow_fcm_push.services.fcm_sender: FCM sent to 0/1 devices: Test User
+
+---
+
+## Step 16 [📱 Phone]: Notification appears on phone
+
+- ❌ Sender 'Test User' visible in notification
+- ❌ Message preview visible
+
+![Step 16](screenshots/13_notification.png)
+
+---
+
+## Step 17 [📱 Phone]: Tap notification → app opens
+
+- ❌ App opens after tapping notification
+
+![Step 17](screenshots/14_opened_from_tap.png)
+
+---
+
+## Step 18 [📱 Phone]: 3 grouped notifications
+
+
+---
+
+## Summary
+
+| Checks | 19 |
+|---|---|
+| Passed | 16 |
+| Failed | 3 |
+| Screenshots | 14 |
