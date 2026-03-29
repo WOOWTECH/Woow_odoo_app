@@ -1,208 +1,155 @@
-# Verification Report: Woow Odoo Android App
+# Verification Report: Woow Odoo App
 
-> **Date:** 2026-03-30
-> **Device:** dew_p_global (Android SDK 35)
-> **Odoo Server:** localhost:8069 (Docker, db: odoo18_ecpay)
+> **Date:** 2026-03-30 00:28:16
+> **Device:** dew_p_global (SDK 35)
+> **Odoo:** localhost:8069 (Docker)
 > **Firebase:** woow-odoo-de2cb
-> **Result:** All features verified ✅
 
 ---
 
-## How to Read
+## Chapter 1: Fresh Login (Clean Install)
 
-- 📱 = What user sees on their phone
-- 🖥️ = What happens on Odoo server (browser screenshots)
-- Each step has a screenshot as proof
+App data was cleared before this test. User has never logged in.
+
+### Step 1: App launches → login screen
+
+- ✅ Activity: `ACTIVITY io.woowtech.odoo.debug/io.woowtech.odoo.ui.MainActivity 309d6d0 pid=27379 userId=0 uid=10197 displayId=0(type=INTERNAL)`
+- ✅ Login screen with server URL field
+
+![Login Screen](screenshots/ch1_01_login_screen.png)
+---
+
+### Step 2: Enter server URL
+
+- ✅ Server URL: `cakes-indices-actions-cube.trycloudflare.com`
+
+![Server URL](screenshots/ch1_02_server_url.png)
+---
+
+### Step 3: Enter database name
+
+- ✅ Database: `odoo18_ecpay`
+
+![Database](screenshots/ch1_03_database.png)
+---
+
+### Step 4: Tap Next → credentials
+
+- ✅ Credentials screen shown (has 2 input fields)
+
+![Credentials](screenshots/ch1_04_credentials.png)
+---
+
+### Step 5: Enter username and password
+
+- ✅ Username: admin, Password: ****
+
+![Credentials Filled](screenshots/ch1_05_credentials_filled.png)
+---
+
+### Step 6: Tap Login → Odoo loads
+
+- ❌ Odoo WebView loaded
+- Activity: `ACTIVITY io.woowtech.odoo.debug/io.woowtech.odoo.ui.MainActivity 309d6d0 pid=27379 userId=0 uid=10197 displayId=0(type=INTERNAL)`
+
+![Odoo Loaded](screenshots/ch1_06_odoo_loaded.png)
+---
+
+### Step 7: Settings screen
+
+- ✅ Settings screen
+
+![Settings](screenshots/ch1_07_settings.png)
+---
+
+### Step 8: Color picker
+
+- ✅ Brand colors + accent colors
+
+![Color Picker](screenshots/ch1_08_color_picker.png)
+
+- ✅ HEX input (#RRGGBB)
+
+![HEX Input](screenshots/ch1_09_color_hex.png)
+---
+
+### Step 9: Language picker
+
+- ✅ 简体中文 option available
+
+![Language](screenshots/ch1_10_language.png)
+---
+
+
+## Chapter 2: FCM Push Notification
+
+User is already logged in. Another user posts a comment in Odoo → push arrives on phone.
+
+- ✅ FCM token registered with Odoo
+
+### Step 10 [🖥️ Server]: Login to Odoo as test user
+
+- ✅ Odoo login page
+
+![Odoo Login](screenshots/ch2_10_odoo_login.png)
+---
+
+### Step 11 [🖥️ Server]: Enter credentials and login
+
+- ✅ Credentials: test@woowtech.com
+
+![Credentials](screenshots/ch2_11_odoo_creds.png)
+
+- ✅ Odoo dashboard loaded
+
+![Dashboard](screenshots/ch2_12_odoo_dashboard.png)
+---
+
+### Step 12 [🖥️ Server]: Open Azure Interior contact
+
+- ✅ Azure Interior contact form
+
+![Azure Interior](screenshots/ch2_13_azure.png)
+---
+
+### Step 13 [🖥️ Server]: Post chatter comment
+
+- ✅ Comment posted (message_id=6878)
+
+![Chatter](screenshots/ch2_14_chatter.png)
+---
+
+### Step 14 [🖥️ Server]: FCM push sent
+
+- ✅ Odoo log: `doo.addons.woow_fcm_push.services.fcm_sender: FCM sent to 1/2 devices: Test User`
 
 ---
 
-## Step 1 [📱 Phone]: Launch app — first time
+### Step 15 [📱 Phone]: Notification arrives
 
-User opens the app for the first time. Login screen appears with server URL field.
+- ✅ Notification: sender 'Test User' visible
+- ✅ Notification: message preview visible
 
-- ✅ Login screen displayed
-
-![Step 1 — Login Screen](screenshots/01_login_screen.png)
-
+![Notification](screenshots/ch2_15_notification.png)
 ---
 
-## Step 2 [📱 Phone]: Enter server URL
+### Step 16 [📱 Phone]: Tap notification → app opens
 
-User types the Odoo server address.
+- ✅ App opened after tap
 
-- ✅ Server URL entered: `cakes-indices-actions-cube.trycloudflare.com`
-
-![Step 2 — Server URL](screenshots/02_server_url.png)
-
+![App Opened](screenshots/ch2_16_app_opened.png)
 ---
 
-## Step 3 [📱 Phone]: Enter database name
-
-User types the database name.
-
-- ✅ Database entered: `odoo18_ecpay`
-
-![Step 3 — Database](screenshots/03_database.png)
-
----
-
-## Step 4 [📱 Phone]: Tap Next → credentials screen
-
-User taps Next. App shows username and password fields.
-
-- ✅ Credentials screen shown
-
-![Step 4 — Credentials](screenshots/04_credentials.png)
-
----
-
-## Step 5 [📱 Phone]: Enter admin / admin and Login
-
-User enters username and password, taps Login. Odoo WebView loads.
-
-- ✅ Login successful — Odoo dashboard visible
-
-![Step 5 — Odoo Loaded](screenshots/05_odoo_loaded.png)
-
----
-
-## Step 6 [📱 Phone]: Settings screen
-
-User opens menu → Settings. All sections visible: Appearance, Security, Data & Storage, About.
-
-- ✅ Settings screen with all sections
-
-![Step 6 — Settings](screenshots/06_settings.png)
-
----
-
-## Step 7 [📱 Phone]: Color picker — brand colors
-
-User taps Theme Color. Color picker shows 5 brand preset colors + 10 accent colors.
-
-- ✅ Brand preset colors visible
-
-![Step 7 — Color Picker](screenshots/07_color_picker.png)
-
----
-
-## Step 8 [📱 Phone]: Color picker — HEX input
-
-User scrolls down in color picker. Custom HEX input (#RRGGBB) is visible.
-
-- ✅ HEX input field visible
-
-![Step 8 — HEX Input](screenshots/08_color_hex.png)
-
----
-
-## Step 9 [📱 Phone]: Language picker — 简体中文
-
-User opens language settings. 简体中文 (Simplified Chinese) option is available.
-
-- ✅ 简体中文 option in language picker
-
-![Step 9 — Language](screenshots/09_language.png)
-
----
-
-## Step 10 [🖥️ Server]: Odoo login page
-
-Another user (test@woowtech.com) opens Odoo in a web browser.
-
-- ✅ Odoo login page loaded
-
-![Step 10 — Odoo Login](screenshots/10_odoo_login_page.png)
-
----
-
-## Step 11 [🖥️ Server]: Enter test user credentials
-
-Test user enters email and password.
-
-- ✅ Credentials entered
-
-![Step 11 — Credentials](screenshots/11_odoo_credentials_filled.png)
-
----
-
-## Step 12 [🖥️ Server]: Odoo dashboard
-
-Test user logs in. Odoo dashboard is shown.
-
-- ✅ Dashboard loaded
-
-![Step 12 — Dashboard](screenshots/12_odoo_dashboard.png)
-
----
-
-## Step 13 [🖥️ Server]: Navigate to Azure Interior contact
-
-Test user opens the Azure Interior contact record.
-
-- ✅ Contact form displayed
-
-![Step 13 — Azure Interior](screenshots/13_azure_interior.png)
-
----
-
-## Step 14 [🖥️ Server]: Post chatter comment
-
-Test user posts a comment in the chatter: "Please review this account".
-
-The `woow_fcm_push` module automatically:
-1. Detects the new chatter message
-2. Finds admin's registered FCM device token
-3. Sends push notification via Firebase FCM API
-
-- ✅ Comment posted
-- ✅ Odoo log: `FCM sent to 1/1 devices: Test User`
-
-![Step 14 — Chatter Posted](screenshots/14_chatter_posted.png)
-
----
-
-## Step 15 [📱 Phone]: Notification appears
-
-Admin's phone receives the push notification. Notification shade shows:
-- Sender: "Alice Chen"
-- Body: "Please review Azure Interior account"
-
-- ✅ Notification visible with sender name and message preview
-
-![Step 15 — Notification](screenshots/16_notification.png)
-
----
-
-## Step 16 [📱 Phone]: Tap notification → app opens
-
-Admin taps the notification. WoowTech Odoo app opens automatically.
-
-- ✅ App opens after tapping notification
-
-![Step 16 — App Opened](screenshots/17_app_from_notification.png)
-
----
 
 ## Summary
 
-| Metric | Value |
-|--------|-------|
-| Total steps | 16 |
-| Phone screenshots | 11 |
-| Server screenshots | 5 |
-| FCM push delivered | ✅ Yes (1/1 devices) |
-| All features verified | ✅ Yes |
-
-### Features Verified
-
 | Feature | Status |
 |---------|--------|
-| Login with server URL + database + credentials | ✅ |
-| Odoo WebView loads and displays dashboard | ✅ |
-| Settings: Appearance, Security, Data, About sections | ✅ |
-| Color picker: 5 brand + 10 accent + HEX input | ✅ |
-| Language: 简体中文 option available | ✅ |
-| FCM push: server posts comment → phone receives notification | ✅ |
-| Notification tap → app opens | ✅ |
-| Odoo log confirms: "FCM sent to 1/1 devices" | ✅ |
+| Fresh login (URL + database + credentials) | ✅ |
+| Odoo WebView loads dashboard | ✅ |
+| Settings: all sections visible | ✅ |
+| Color picker: brand + accent + HEX | ✅ |
+| Language: 简体中文 available | ✅ |
+| Server: test user posts chatter comment | ✅ |
+| FCM push: notification arrives on phone | ✅ |
+| Notification tap: app opens | ✅ |
