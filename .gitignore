@@ -89,3 +89,4 @@ lint/tmp/
 # Secrets
 *.env
 secrets/
+app/firebase-service-account.json
