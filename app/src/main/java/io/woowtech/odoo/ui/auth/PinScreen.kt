@@ -1,7 +1,5 @@
 package io.woowtech.odoo.ui.auth
 
-import android.app.Activity
-import android.view.WindowManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -31,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,32 +61,36 @@ fun PinScreen(
     val context = LocalContext.current
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var isLockedOut by remember { mutableStateOf(viewModel.isLockedOut()) }
+    // L7: Start false and let the LaunchedEffect determine the real value on the first tick.
+    // Previously `viewModel.isLockedOut()` was called at composition time, which could race
+    // with the lockout countdown coroutine resuming after a bg→fg transition — the persisted
+    // lockout could expire in the gap between the `isLockedOut()` call and the first
+    // `getLockoutRemainingMs()` check inside the effect, leaving the screen incorrectly
+    // locked for up to one 500ms tick. Initialising false and letting the effect correct
+    // it immediately removes this race.
+    var isLockedOut by remember { mutableStateOf(false) }
     var isShaking by remember { mutableStateOf(false) }
 
     @Suppress("DEPRECATION")
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // FLAG_SECURE: prevent screenshots and screen-recording while PIN is visible. (M1)
-    DisposableEffect(Unit) {
-        val window = (context as Activity).window
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-    }
+    // FLAG_SECURE is set globally in MainActivity.onCreate (L6 fix) — no per-screen
+    // DisposableEffect is needed here. Removing it eliminates the rotation gap that would
+    // briefly clear FLAG_SECURE between DisposableEffect teardown and re-composition.
 
-    // Lockout countdown — keyed on (isLockedOut, lifecycleOwner) so the coroutine is
-    // automatically cancelled when the Composable leaves composition (screen navigated away)
-    // or when the lifecycle owner changes. Uses getLockoutRemainingMs() instead of the
-    // boolean isLockedOut() poll to minimise EncryptedPrefs reads. 500 ms tick gives
-    // sub-second visual accuracy without burning CPU. The LaunchedEffect coroutine is
-    // cancelled by Compose when the screen leaves the active composition, which covers the
-    // background-screen scenario. (C3 fix)
-    LaunchedEffect(isLockedOut, lifecycleOwner) {
-        if (!isLockedOut) return@LaunchedEffect
-        // Only poll while the lifecycle is at least STARTED — if the host goes to the
-        // background the coroutine suspends at delay() and will resume when brought forward,
-        // but we re-check remaining time immediately on resume via the 500ms tick.
-        while (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+    // Lockout countdown — keyed on lifecycleOwner so the coroutine is automatically
+    // cancelled when the Composable leaves composition (screen navigated away) or when the
+    // lifecycle owner changes. Evaluates the initial lockout state on the first tick,
+    // then polls every 500 ms while locked out. 500 ms gives sub-second visual accuracy
+    // without burning CPU. The LaunchedEffect coroutine is cancelled by Compose when the
+    // screen leaves the active composition. (L7 + C3 fix)
+    LaunchedEffect(lifecycleOwner) {
+        // Re-evaluate every time the lifecycle restarts — covers bg/fg transitions and
+        // the initial composition. Reading getLockoutRemainingMs() on the first tick ensures
+        // isLockedOut is set from persisted state before the first frame is rendered.
+        val initialRemaining = viewModel.getLockoutRemainingMs()
+        isLockedOut = initialRemaining > 0
+        while (isLockedOut && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
             val remainingMs = viewModel.getLockoutRemainingMs()
             if (remainingMs <= 0) {
                 isLockedOut = false

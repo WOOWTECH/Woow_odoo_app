@@ -27,6 +27,25 @@ class BiometricPromptHelper(
     private val promptFactory: (FragmentActivity, Executor, BiometricPrompt.AuthenticationCallback) -> BiometricPrompt =
         ::defaultPromptFactory,
 ) {
+
+    // L4: Holds the most recently created BiometricPrompt so it can be cancelled when
+    // the host composition is disposed (e.g. during rotation or back navigation). Without
+    // this, the old prompt's callbacks can fire after the new composition is live,
+    // delivering onFallbackToPin() through a stale lambda reference.
+    private var activePrompt: BiometricPrompt? = null
+    /**
+     * Cancels any in-progress biometric prompt. Must be called when the host Composable is
+     * disposed (via a [androidx.compose.runtime.DisposableEffect]) to prevent stale callbacks
+     * from the previous [BiometricPrompt] instance landing on a new composition after rotation
+     * or back-navigation.
+     *
+     * Calling this when no prompt is active is a no-op.
+     */
+    fun cancelPendingAuthentication() {
+        activePrompt?.cancelAuthentication()
+        activePrompt = null
+    }
+
     /**
      * Queries whether the device can currently perform a `BIOMETRIC_STRONG` auth.
      * Maps the full set of [BiometricManager] status codes to a closed enum so callers
@@ -106,6 +125,8 @@ class BiometricPromptHelper(
         }
 
         val biometricPrompt = promptFactory(activity, executor, callback)
+        // L4: Track the active prompt so cancelPendingAuthentication() can reach it.
+        activePrompt = biometricPrompt
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)

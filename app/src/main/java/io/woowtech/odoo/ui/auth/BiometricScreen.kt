@@ -1,7 +1,5 @@
 package io.woowtech.odoo.ui.auth
 
-import android.app.Activity
-import android.view.WindowManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -73,13 +71,9 @@ fun BiometricScreen(
 
     val maxFailures = 3
 
-    // FLAG_SECURE: prevent screenshots and screen-recording while the auth UI is visible.
-    // Cleared on dispose so subsequent non-auth screens are not affected. (M1)
-    DisposableEffect(Unit) {
-        val window = (context as Activity).window
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-        onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
-    }
+    // FLAG_SECURE is set globally in MainActivity.onCreate (L6 fix) — no per-screen
+    // DisposableEffect is needed here. The window-level flag eliminates the rotation
+    // gap that would occur if the flag were added/cleared on composition entry/exit.
 
     // Helper is only valid when hosted by a FragmentActivity — which MainActivity is.
     // If somehow not (preview/tests), treat biometric as unavailable.
@@ -145,7 +139,21 @@ fun BiometricScreen(
         )
     }
 
-    LaunchedEffect(Unit) {
+    // L4: Cancel any in-progress prompt when this composition is disposed. This prevents
+    // stale callbacks from the previous BiometricPrompt (tied to the old FragmentActivity)
+    // landing on the new composition's lambda closures after a rotation or back-navigation.
+    // Even with android:configChanges preventing recreation, this guards against any other
+    // path that disposes the composable while a prompt is showing (e.g. back-press).
+    DisposableEffect(activity) {
+        onDispose { biometricHelper?.cancelPendingAuthentication() }
+    }
+
+    // L3: Keyed on `activity` instead of `Unit` so the effect is tied to the specific
+    // FragmentActivity instance. With android:configChanges declared, `activity` does not
+    // change on rotation, meaning this effect fires exactly once per activity instance
+    // (preventing double-prompt). If the activity is ever recreated, the new instance gets
+    // a fresh effect trigger — which is the correct behaviour.
+    LaunchedEffect(activity) {
         if (settings.biometricEnabled && canUseBiometric) {
             showBiometricPrompt()
         }
