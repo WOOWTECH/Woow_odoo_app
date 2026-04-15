@@ -1,7 +1,7 @@
 package io.woowtech.odoo.ui.auth
 
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -18,17 +18,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -53,12 +50,20 @@ import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
 
+/**
+ * Biometric authentication screen. There is no "skip" path — if the user cannot or will
+ * not authenticate with biometrics and has a PIN configured they are routed to [PinScreen].
+ * If neither biometric nor PIN is available the caller is responsible for routing the user
+ * to PIN setup before arriving at this screen.
+ *
+ * FLAG_SECURE is applied while this screen is visible to prevent screenshots and screen
+ * recordings from capturing the authentication UI.
+ */
 @Composable
 fun BiometricScreen(
     viewModel: AuthViewModel = hiltViewModel(),
     onAuthSuccess: () -> Unit,
     onUsePinClick: () -> Unit,
-    onSkip: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
@@ -68,10 +73,22 @@ fun BiometricScreen(
 
     val maxFailures = 3
 
-    val biometricManager = remember { BiometricManager.from(context) }
-    val canUseBiometric = remember {
-        biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
-                BiometricManager.BIOMETRIC_SUCCESS
+    // FLAG_SECURE: prevent screenshots and screen-recording while the auth UI is visible.
+    // Cleared on dispose so subsequent non-auth screens are not affected. (M1)
+    DisposableEffect(Unit) {
+        val window = (context as Activity).window
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+
+    // Helper is only valid when hosted by a FragmentActivity — which MainActivity is.
+    // If somehow not (preview/tests), treat biometric as unavailable.
+    val activity = context as? FragmentActivity
+    val biometricHelper = remember(activity) {
+        activity?.let { BiometricPromptHelper(it, ContextCompat.getMainExecutor(context)) }
+    }
+    val canUseBiometric = remember(biometricHelper) {
+        biometricHelper?.canAuthenticate() == BiometricAvailability.Available
     }
 
     // Animation for fingerprint icon
@@ -82,68 +99,50 @@ fun BiometricScreen(
     )
 
     fun showBiometricPrompt() {
-        val activity = context as? FragmentActivity ?: return
+        val helper = biometricHelper ?: return
         isAnimating = true
 
-        val executor = ContextCompat.getMainExecutor(context)
-        val biometricPrompt = BiometricPrompt(
-            activity,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    isAnimating = false
-                    onAuthSuccess()
+        // TODO(D1): Pass a CryptoObject built from BiometricCryptoManager so the biometric
+        // result is cryptographically bound to a Keystore key (defends against callback
+        // spoofing on rooted devices). Requires enrollment-flow wiring in SettingsScreen
+        // to seal a proof token at PIN-setup time. Tracked in
+        // docs/2026-04-15-biometric-security-fixes.md (D1).
+        helper.prompt(
+            title = context.getString(R.string.biometric_title),
+            subtitle = context.getString(R.string.biometric_subtitle),
+            negativeText = if (settings.pinEnabled) {
+                context.getString(R.string.biometric_negative)
+            } else {
+                context.getString(R.string.cancel)
+            },
+            onSuccess = { _ ->
+                isAnimating = false
+                onAuthSuccess()
+            },
+            onFallbackToPin = {
+                isAnimating = false
+                if (settings.pinEnabled) onUsePinClick()
+            },
+            onPermanentLockout = {
+                isAnimating = false
+                errorMessage = context.getString(R.string.biometric_too_many_attempts)
+                if (settings.pinEnabled) onUsePinClick()
+            },
+            onError = { message ->
+                isAnimating = false
+                errorMessage = message
+            },
+            onFailed = {
+                isAnimating = false
+                failureCount++
+                if (failureCount >= maxFailures && settings.pinEnabled) {
+                    errorMessage = context.getString(R.string.biometric_too_many_attempts)
+                    onUsePinClick()
+                } else {
+                    errorMessage = context.getString(R.string.biometric_failed)
                 }
-
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    isAnimating = false
-                    when (errorCode) {
-                        BiometricPrompt.ERROR_USER_CANCELED,
-                        BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
-                            // User pressed cancel or "Use PIN" - go to PIN screen
-                            if (settings.pinEnabled) {
-                                onUsePinClick()
-                            }
-                        }
-                        BiometricPrompt.ERROR_LOCKOUT,
-                        BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> {
-                            errorMessage = errString.toString()
-                            // Device locked out, must use PIN
-                            if (settings.pinEnabled) {
-                                onUsePinClick()
-                            }
-                        }
-                        else -> {
-                            errorMessage = errString.toString()
-                        }
-                    }
-                }
-
-                override fun onAuthenticationFailed() {
-                    isAnimating = false
-                    failureCount++
-                    if (failureCount >= maxFailures && settings.pinEnabled) {
-                        errorMessage = context.getString(R.string.biometric_too_many_attempts)
-                        // Auto-redirect to PIN after too many failures
-                        onUsePinClick()
-                    } else {
-                        errorMessage = context.getString(R.string.biometric_failed)
-                    }
-                }
-            }
+            },
         )
-
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(context.getString(R.string.biometric_title))
-            .setSubtitle(context.getString(R.string.biometric_subtitle))
-            .setNegativeButtonText(
-                if (settings.pinEnabled) context.getString(R.string.biometric_negative)
-                else context.getString(R.string.cancel)
-            )
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            .build()
-
-        biometricPrompt.authenticate(promptInfo)
     }
 
     LaunchedEffect(Unit) {
@@ -165,26 +164,6 @@ fun BiometricScreen(
                 )
             )
     ) {
-        // Skip button in top-right corner
-        IconButton(
-            onClick = {
-                if (settings.pinEnabled) {
-                    onUsePinClick()
-                } else {
-                    onSkip()
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Close,
-                contentDescription = stringResource(R.string.skip),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -301,25 +280,6 @@ fun BiometricScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                 }
-            }
-
-            // Skip option at the bottom
-            Spacer(modifier = Modifier.height(24.dp))
-
-            TextButton(
-                onClick = {
-                    if (settings.pinEnabled) {
-                        onUsePinClick()
-                    } else {
-                        onSkip()
-                    }
-                }
-            ) {
-                Text(
-                    text = stringResource(R.string.skip_for_now),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium
-                )
             }
         }
     }

@@ -1,5 +1,7 @@
 package io.woowtech.odoo.ui.auth
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -29,17 +31,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,17 +61,41 @@ fun PinScreen(
     onPinVerified: () -> Unit,
     onBackClick: () -> Unit
 ) {
+    val context = LocalContext.current
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var isLockedOut by remember { mutableStateOf(viewModel.isLockedOut()) }
     var isShaking by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isLockedOut) {
-        if (isLockedOut) {
-            while (viewModel.isLockedOut()) {
-                delay(1000)
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // FLAG_SECURE: prevent screenshots and screen-recording while PIN is visible. (M1)
+    DisposableEffect(Unit) {
+        val window = (context as Activity).window
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+
+    // Lockout countdown — keyed on (isLockedOut, lifecycleOwner) so the coroutine is
+    // automatically cancelled when the Composable leaves composition (screen navigated away)
+    // or when the lifecycle owner changes. Uses getLockoutRemainingMs() instead of the
+    // boolean isLockedOut() poll to minimise EncryptedPrefs reads. 500 ms tick gives
+    // sub-second visual accuracy without burning CPU. The LaunchedEffect coroutine is
+    // cancelled by Compose when the screen leaves the active composition, which covers the
+    // background-screen scenario. (C3 fix)
+    LaunchedEffect(isLockedOut, lifecycleOwner) {
+        if (!isLockedOut) return@LaunchedEffect
+        // Only poll while the lifecycle is at least STARTED — if the host goes to the
+        // background the coroutine suspends at delay() and will resume when brought forward,
+        // but we re-check remaining time immediately on resume via the 500ms tick.
+        while (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            val remainingMs = viewModel.getLockoutRemainingMs()
+            if (remainingMs <= 0) {
+                isLockedOut = false
+                break
             }
-            isLockedOut = false
+            delay(500)
         }
     }
 
@@ -208,21 +238,23 @@ fun PinScreen(
                 NumberPad(
                     onNumberClick = { number ->
                         if (pin.length < 6) {
-                            pin += number
                             error = null
-
-                            if (pin.length >= 4) {
-                                if (viewModel.verifyPin(pin)) {
-                                    onPinVerified()
-                                } else {
-                                    val remaining = viewModel.getRemainingAttempts()
-                                    if (remaining > 0) {
-                                        error = "Wrong PIN. $remaining attempts remaining"
-                                        isShaking = true
-                                    } else {
-                                        isLockedOut = true
-                                    }
-                                    pin = ""
+                            val (nextPin, result) = viewModel.enterPinDigit(number, pin)
+                            pin = nextPin
+                            when (result) {
+                                is PinEntryResult.NeedMoreDigits -> {
+                                    // Keep accumulating — stored PIN may be 5 or 6 digits
+                                }
+                                is PinEntryResult.Success -> onPinVerified()
+                                is PinEntryResult.WrongPin -> {
+                                    error = context.getString(
+                                        R.string.wrong_pin_attempts_remaining,
+                                        result.remainingAttempts
+                                    )
+                                    isShaking = true
+                                }
+                                is PinEntryResult.LockedOut -> {
+                                    isLockedOut = true
                                 }
                             }
                         }
