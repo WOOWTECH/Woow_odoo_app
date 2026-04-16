@@ -753,6 +753,149 @@ else:
 
 
 # ═══════════════════════════════════════════════════════════
+# E2E-12: FCM token registration after fresh install
+# Commit 482a7bf wires WoowFcmService → FcmTokenRepository →
+# HTTP POST to /woow_fcm_push/register. Verifies the server
+# actually receives the token (catches silent C1 regression).
+# ═══════════════════════════════════════════════════════════
+section("E2E-12: FCM token registration after fresh install reaches Odoo")
+try:
+    # Clear app data to simulate fresh install
+    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
+    time.sleep(2)
+    # Launch + login (reuse helper if available, else manual)
+    d.app_start("io.woowtech.odoo.debug", "io.woowtech.odoo.ui.MainActivity")
+    time.sleep(6)
+    # Wait for token generation + registration POST to complete
+    time.sleep(10)
+    # Query the Odoo server's woow.fcm.device table
+    device_count = odoo_execute(
+        "woow.fcm.device",
+        "search_count",
+        [[]],
+    )
+    token = get_fcm_token()
+    has_token = token is not None
+    check("E2E-12a", "FCM token generated on fresh install", has_token)
+
+    if has_token:
+        server_tokens = odoo_execute(
+            "woow.fcm.device",
+            "search_read",
+            [[["fcm_token", "=", token]]],
+            {"fields": ["id", "fcm_token", "platform"]},
+        )
+        registered = len(server_tokens) > 0 and server_tokens[0].get("platform") == "android"
+        check("E2E-12b", "Odoo server received the FCM token (C1 registration chain working)", registered)
+    else:
+        check("E2E-12b", "Cannot verify server registration without token", False)
+except Exception as e:
+    check("E2E-12", f"FCM registration E2E error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
+# E2E-13: FCM token unregister on logout
+# Commit 482a7bf C3: AccountRepository.logout() must call
+# FcmTokenRepository.unregisterToken() before clearing session.
+# Verifies the server-side device record is deactivated so
+# notifications for the logged-out account stop arriving.
+# ═══════════════════════════════════════════════════════════
+section("E2E-13: Logout deactivates FCM token on server")
+try:
+    # Prereq: E2E-12 completed and token is registered
+    token_before = get_fcm_token()
+    if token_before:
+        before = odoo_execute(
+            "woow.fcm.device",
+            "search_read",
+            [[["fcm_token", "=", token_before], ["active", "=", True]]],
+            {"fields": ["id", "active"]},
+        )
+        had_active_record = len(before) > 0
+        check("E2E-13a", "Active FCM device record exists before logout", had_active_record)
+
+        # Trigger logout via Settings → Logout
+        d.app_start("io.woowtech.odoo.debug", "io.woowtech.odoo.ui.MainActivity")
+        time.sleep(4)
+        # Navigate to settings (hamburger → settings → logout)
+        if d(description="Settings").exists(timeout=3):
+            d(description="Settings").click()
+        elif d(text="Settings").exists(timeout=2):
+            d(text="Settings").click()
+        time.sleep(2)
+        if d(text="Logout").exists(timeout=3):
+            d(text="Logout").click()
+            time.sleep(1)
+            if d(text="Confirm").exists(timeout=2):
+                d(text="Confirm").click()
+            time.sleep(6)  # give unregister POST time to complete
+
+        # Verify server record is now inactive
+        after = odoo_execute(
+            "woow.fcm.device",
+            "search_read",
+            [[["fcm_token", "=", token_before]]],
+            {"fields": ["id", "active"]},
+        )
+        deactivated = len(after) == 0 or not after[0].get("active", True)
+        check("E2E-13b", "Logout deactivated FCM device record on server (C3 unregister chain)", deactivated)
+
+        # Bonus: send a test push — it MUST NOT be delivered
+        clear_notifications()
+        send_fcm(token_before, "Post-logout leak test", "If you see this, C3 failed", data={"test": "leak"})
+        time.sleep(10)
+        leaked = check_notification_in_shade(text_match="Post-logout leak test")
+        check("E2E-13c", "Push notification to logged-out token is NOT delivered", not leaked)
+    else:
+        check("E2E-13", "No token available (E2E-12 prerequisite failed)", False)
+except Exception as e:
+    check("E2E-13", f"Logout unregister E2E error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
+# E2E-14: Reduce Motion toggle makes biometric animations instant
+# Commit 482a7bf H1/UX-57: Reduce Motion toggle in SettingsScreen
+# makes BiometricScreen + PinScreen animations use snap() instead
+# of tween(300). Verifies the animation duration observable in
+# Compose perf traces or heuristic timing.
+# ═══════════════════════════════════════════════════════════
+section("E2E-14: Reduce Motion → biometric animations are instant")
+try:
+    d.app_start("io.woowtech.odoo.debug", "io.woowtech.odoo.ui.MainActivity")
+    time.sleep(4)
+    # Navigate to Settings → Appearance → Reduce Motion toggle
+    if d(description="Settings").exists(timeout=3):
+        d(description="Settings").click()
+    elif d(text="Settings").exists(timeout=2):
+        d(text="Settings").click()
+    time.sleep(2)
+
+    toggle_exists = d(text="Reduce Motion").exists(timeout=3) or d(text="减少动态效果").exists(timeout=1)
+    check("E2E-14a", "Reduce Motion toggle exists in Settings (H1/UX-57)", toggle_exists)
+
+    if toggle_exists:
+        if d(text="Reduce Motion").exists():
+            d(text="Reduce Motion").click()
+        elif d(text="减少动态效果").exists():
+            d(text="减少动态效果").click()
+        time.sleep(1)
+        # Now trigger auth flow by backgrounding + reopening
+        d.press("home")
+        time.sleep(2)
+        t_start = time.time()
+        d.app_start("io.woowtech.odoo.debug", "io.woowtech.odoo.ui.MainActivity")
+        # Wait for biometric/PIN UI element to appear
+        appeared = (
+            d(text="Unlock").wait(timeout=5)
+            or d(text="Use PIN").wait(timeout=2)
+            or any(d(text=digit).wait(timeout=1) for digit in "0123")
+        )
+        t_elapsed = time.time() - t_start
+        # With Reduce Motion ON, the UI should appear in < 1.5s (no 300ms fade animation)
+        # With tween(300) animations, observed elapsed is typically 1.8-2.2s
+        check("E2E-14b", f"Auth UI appears quickly with Reduce Motion ON (elapsed {t_elapsed:.2f}s, threshold < 1.5s)", appeared and t_elapsed < 1.5)
+except Exception as e:
+    check("E2E-14", f"Reduce Motion E2E error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════
 section("PRODUCTION E2E TEST SUMMARY")
