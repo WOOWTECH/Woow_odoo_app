@@ -130,6 +130,7 @@
     <string name="pin_mismatch">PIN 碼不符</string>
     <string name="pin_set_success">PIN 碼設定成功</string>
     <string name="wrong_pin">PIN 碼錯誤</string>
+    <string name="wrong_pin_attempts_remaining">PIN 碼錯誤，剩餘 %d 次嘗試機會。</string>
     <string name="attempts_remaining">剩餘 %d 次嘗試機會</string>
     <string name="try_again_later">嘗試次數過多，請稍後再試</string>
 

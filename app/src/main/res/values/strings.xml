@@ -130,6 +130,7 @@
     <string name="pin_mismatch">PINs do not match</string>
     <string name="pin_set_success">PIN set successfully</string>
     <string name="wrong_pin">Wrong PIN</string>
+    <string name="wrong_pin_attempts_remaining">Wrong PIN. %d attempts remaining.</string>
     <string name="attempts_remaining">%d attempts remaining</string>
     <string name="try_again_later">Too many attempts. Try again later.</string>
 

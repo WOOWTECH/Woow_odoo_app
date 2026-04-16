@@ -14,6 +14,7 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
+import timber.log.Timber
 
 @Singleton
 class SettingsRepository @Inject constructor(
@@ -45,9 +46,26 @@ class SettingsRepository @Inject constructor(
         _settings.value = _settings.value.copy(appLockEnabled = enabled)
     }
 
-    fun updateBiometric(enabled: Boolean) {
-        encryptedPrefs.updateBiometric(enabled)
-        _settings.value = _settings.value.copy(biometricEnabled = enabled)
+    /**
+     * Updates the biometric-unlock preference.
+     *
+     * When [canEnable] is false (caller has confirmed that [androidx.biometric.BiometricManager]
+     * reports no available strong biometric), the setting is forced to false regardless of the
+     * requested [enabled] value, and a warning is logged. This prevents the UI from enabling
+     * biometric unlock on devices where it cannot function, which would silently break
+     * authentication. (M1 fix)
+     *
+     * @param enabled the desired state.
+     * @param canEnable pass [androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS] == true;
+     *   defaults to `true` so existing callers that pre-check availability are unaffected.
+     */
+    fun updateBiometric(enabled: Boolean, canEnable: Boolean = true) {
+        val effective = enabled && canEnable
+        if (enabled && !canEnable) {
+            Timber.w("updateBiometric(true) rejected — BiometricManager reports unavailable, forcing false")
+        }
+        encryptedPrefs.updateBiometric(effective)
+        _settings.value = _settings.value.copy(biometricEnabled = effective)
     }
 
     fun setPin(pin: String): Boolean {

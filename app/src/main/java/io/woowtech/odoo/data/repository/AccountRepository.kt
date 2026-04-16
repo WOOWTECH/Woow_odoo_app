@@ -6,6 +6,7 @@ import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.flow.Flow
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,6 +18,13 @@ class AccountRepository @Inject constructor(
 ) {
     val allAccounts: Flow<List<OdooAccount>> = accountDao.getAllAccounts()
     val activeAccount: Flow<OdooAccount?> = accountDao.getActiveAccount()
+
+    /**
+     * FCM token repository is injected lazily (after construction) to avoid a circular
+     * dependency: AccountRepository → FcmTokenRepository → AccountDao (already held here).
+     * Set by the DI framework after both objects are constructed.
+     */
+    var fcmTokenRepository: FcmTokenRepository? = null
 
     suspend fun getActiveAccountOnce(): OdooAccount? = accountDao.getActiveAccountOnce()
 
@@ -81,9 +89,28 @@ class AccountRepository @Inject constructor(
         }
     }
 
+    /**
+     * Logs out of the given account (or the active account if [accountId] is null).
+     *
+     * C3: Before clearing the local session, attempts to unregister the FCM token from
+     * the Odoo server so the device stops receiving notifications after logout. If the
+     * unregister call fails (e.g. network unavailable or session already expired), the
+     * failure is logged as a warning and logout proceeds — the user must not be blocked
+     * by a network failure when attempting to sign out.
+     */
     suspend fun logout(accountId: String? = null) {
         val id = accountId ?: accountDao.getActiveAccountOnce()?.id ?: return
         val account = accountDao.getAccountById(id) ?: return
+
+        // C3: Attempt to unregister FCM token before session is cleared. Non-fatal if it
+        // fails — the token will eventually be cleaned up server-side when it bounces.
+        fcmTokenRepository?.let { repo ->
+            repo.unregisterToken(id)
+                .onSuccess { Timber.d("FCM token unregistered for account %s before logout", id) }
+                .onFailure { error ->
+                    Timber.w(error, "FCM unregister failed for account %s — proceeding with logout anyway", id)
+                }
+        }
 
         // Clear cookies
         val host = account.fullServerUrl.removePrefix("https://").split("/").first()

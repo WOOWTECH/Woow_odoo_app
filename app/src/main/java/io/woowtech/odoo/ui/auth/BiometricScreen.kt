@@ -1,8 +1,7 @@
 package io.woowtech.odoo.ui.auth
 
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +25,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -50,99 +49,110 @@ import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
 
+/**
+ * Biometric authentication screen. There is no "skip" path — if the user cannot or will
+ * not authenticate with biometrics and has a PIN configured they are routed to [PinScreen].
+ * If neither biometric nor PIN is available the caller is responsible for routing the user
+ * to PIN setup before arriving at this screen.
+ *
+ * FLAG_SECURE is applied at the window level in MainActivity.onCreate (L6 fix), so no
+ * per-screen DisposableEffect is needed here.
+ */
 @Composable
 fun BiometricScreen(
     viewModel: AuthViewModel = hiltViewModel(),
     onAuthSuccess: () -> Unit,
-    onUsePinClick: () -> Unit
+    onUsePinClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsState()
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var failureCount by remember { mutableIntStateOf(0) }
     var isAnimating by remember { mutableStateOf(false) }
 
-    val maxFailures = 3
+    val maxFailures = AuthViewModel.MAX_BIOMETRIC_FAILURES
 
-    val biometricManager = remember { BiometricManager.from(context) }
-    val canUseBiometric = remember {
-        biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
-                BiometricManager.BIOMETRIC_SUCCESS
+    // Helper is only valid when hosted by a FragmentActivity — which MainActivity is.
+    // If somehow not (preview/tests), treat biometric as unavailable.
+    val activity = context as? FragmentActivity
+    val biometricHelper = remember(activity) {
+        activity?.let { BiometricPromptHelper(it, ContextCompat.getMainExecutor(context)) }
+    }
+    val canUseBiometric = remember(biometricHelper) {
+        biometricHelper?.canAuthenticate() == BiometricAvailability.Available
     }
 
-    // Animation for fingerprint icon
+    // Respect the reduceMotion preference. When enabled, snap() is used so there
+    // is no animated transition — the scale changes instantaneously, which is the correct
+    // accessible behaviour for users who experience motion sickness or vestibular disorders.
+    val reduceMotion = settings.reduceMotion
     val iconScale by animateFloatAsState(
         targetValue = if (isAnimating) 1.1f else 1f,
-        animationSpec = tween(300),
+        animationSpec = if (reduceMotion) snap() else tween(300),
         label = "iconScale"
     )
 
     fun showBiometricPrompt() {
-        val activity = context as? FragmentActivity ?: return
+        val helper = biometricHelper ?: return
         isAnimating = true
 
-        val executor = ContextCompat.getMainExecutor(context)
-        val biometricPrompt = BiometricPrompt(
-            activity,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    isAnimating = false
-                    onAuthSuccess()
+        // TODO(D1): Pass a CryptoObject built from BiometricCryptoManager so the biometric
+        // result is cryptographically bound to a Keystore key (defends against callback
+        // spoofing on rooted devices). Requires enrollment-flow wiring in SettingsScreen
+        // to seal a proof token at PIN-setup time.
+        helper.prompt(
+            title = context.getString(R.string.biometric_title),
+            subtitle = context.getString(R.string.biometric_subtitle),
+            negativeText = if (settings.pinEnabled) {
+                context.getString(R.string.biometric_negative)
+            } else {
+                context.getString(R.string.cancel)
+            },
+            onSuccess = { _ ->
+                isAnimating = false
+                onAuthSuccess()
+            },
+            onFallbackToPin = {
+                isAnimating = false
+                if (settings.pinEnabled) onUsePinClick()
+            },
+            onPermanentLockout = {
+                isAnimating = false
+                errorMessage = context.getString(R.string.biometric_too_many_attempts)
+                if (settings.pinEnabled) onUsePinClick()
+            },
+            onError = { message ->
+                isAnimating = false
+                errorMessage = message
+            },
+            onFailed = {
+                isAnimating = false
+                failureCount++
+                if (failureCount >= maxFailures && settings.pinEnabled) {
+                    errorMessage = context.getString(R.string.biometric_too_many_attempts)
+                    onUsePinClick()
+                } else {
+                    errorMessage = context.getString(R.string.biometric_failed)
                 }
-
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    isAnimating = false
-                    when (errorCode) {
-                        BiometricPrompt.ERROR_USER_CANCELED,
-                        BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
-                            // User pressed cancel or "Use PIN" - go to PIN screen
-                            if (settings.pinEnabled) {
-                                onUsePinClick()
-                            }
-                        }
-                        BiometricPrompt.ERROR_LOCKOUT,
-                        BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> {
-                            errorMessage = errString.toString()
-                            // Device locked out, must use PIN
-                            if (settings.pinEnabled) {
-                                onUsePinClick()
-                            }
-                        }
-                        else -> {
-                            errorMessage = errString.toString()
-                        }
-                    }
-                }
-
-                override fun onAuthenticationFailed() {
-                    isAnimating = false
-                    failureCount++
-                    if (failureCount >= maxFailures && settings.pinEnabled) {
-                        errorMessage = context.getString(R.string.biometric_too_many_attempts)
-                        // Auto-redirect to PIN after too many failures
-                        onUsePinClick()
-                    } else {
-                        errorMessage = context.getString(R.string.biometric_failed)
-                    }
-                }
-            }
+            },
         )
-
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(context.getString(R.string.biometric_title))
-            .setSubtitle(context.getString(R.string.biometric_subtitle))
-            .setNegativeButtonText(
-                if (settings.pinEnabled) context.getString(R.string.biometric_negative)
-                else context.getString(R.string.cancel)
-            )
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            .build()
-
-        biometricPrompt.authenticate(promptInfo)
     }
 
-    LaunchedEffect(Unit) {
+    // L4: Cancel any in-progress prompt when this composition is disposed. This prevents
+    // stale callbacks from the previous BiometricPrompt (tied to the old FragmentActivity)
+    // landing on the new composition's lambda closures after a rotation or back-navigation.
+    // Even with android:configChanges preventing recreation, this guards against any other
+    // path that disposes the composable while a prompt is showing (e.g. back-press).
+    DisposableEffect(activity) {
+        onDispose { biometricHelper?.cancelPendingAuthentication() }
+    }
+
+    // L3: Keyed on `activity` instead of `Unit` so the effect is tied to the specific
+    // FragmentActivity instance. With android:configChanges declared, `activity` does not
+    // change on rotation, meaning this effect fires exactly once per activity instance
+    // (preventing double-prompt). If the activity is ever recreated, the new instance gets
+    // a fresh effect trigger — which is the correct behaviour.
+    LaunchedEffect(activity) {
         if (settings.biometricEnabled && canUseBiometric) {
             showBiometricPrompt()
         }
@@ -278,7 +288,6 @@ fun BiometricScreen(
                     )
                 }
             }
-
         }
     }
 }

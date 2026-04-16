@@ -43,8 +43,15 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateAppLock(enabled)
     }
 
-    fun updateBiometric(enabled: Boolean) {
-        settingsRepository.updateBiometric(enabled)
+    /**
+     * Updates the biometric-unlock preference.
+     *
+     * [canUseBiometric] must reflect the result of a fresh [BiometricManager.canAuthenticate]
+     * call from the UI layer — this prevents the setting from being turned on when the device
+     * has no available strong biometric hardware or no enrolled biometrics.
+     */
+    fun updateBiometric(enabled: Boolean, canUseBiometric: Boolean = true) {
+        settingsRepository.updateBiometric(enabled = enabled, canEnable = canUseBiometric)
     }
 
     fun setPin(pin: String): Boolean {

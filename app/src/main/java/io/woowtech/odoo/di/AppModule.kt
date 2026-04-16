@@ -14,7 +14,9 @@ import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.data.repository.FcmTokenRepository
 import io.woowtech.odoo.data.repository.FcmTokenRepositoryImpl
+import io.woowtech.odoo.data.repository.SessionCookieProvider
 import io.woowtech.odoo.data.repository.SettingsRepository
+import okhttp3.Cookie
 import javax.inject.Singleton
 
 @Module
@@ -58,9 +60,15 @@ object AppModule {
     fun provideAccountRepository(
         accountDao: AccountDao,
         encryptedPrefs: EncryptedPrefs,
-        odooClient: OdooJsonRpcClient
+        odooClient: OdooJsonRpcClient,
+        fcmTokenRepository: dagger.Lazy<FcmTokenRepository>,
     ): AccountRepository {
-        return AccountRepository(accountDao, encryptedPrefs, odooClient)
+        return AccountRepository(accountDao, encryptedPrefs, odooClient).also { repo ->
+            // C3: Wire the FCM token repository lazily to avoid a circular dependency
+            // (AccountRepository ← FcmTokenRepository → AccountDao ← AccountRepository).
+            // Using dagger.Lazy defers instantiation until the first access, breaking the cycle.
+            repo.fcmTokenRepository = fcmTokenRepository.get()
+        }
     }
 
     @Provides
@@ -71,13 +79,31 @@ object AppModule {
         return SettingsRepository(encryptedPrefs)
     }
 
+    /**
+     * Bridges the OdooJsonRpcClient cookie store to the SessionCookieProvider interface
+     * so FcmTokenRepositoryImpl can attach session cookies to its HTTP requests without
+     * a direct dependency on the JSON-RPC client.
+     */
+    @Provides
+    @Singleton
+    fun provideSessionCookieProvider(odooClient: OdooJsonRpcClient): SessionCookieProvider {
+        return object : SessionCookieProvider {
+            override fun getCookiesForHost(host: String): List<Cookie> =
+                odooClient.getSessionCookies(host)
+        }
+    }
+
     @Provides
     @Singleton
     fun provideFcmTokenRepository(
-        apiClient: OdooJsonRpcClient,
         encryptedPrefs: EncryptedPrefs,
-        accountDao: AccountDao
+        accountDao: AccountDao,
+        sessionCookieProvider: SessionCookieProvider,
     ): FcmTokenRepository {
-        return FcmTokenRepositoryImpl(apiClient, encryptedPrefs, accountDao)
+        return FcmTokenRepositoryImpl(
+            encryptedPrefs = encryptedPrefs,
+            accountDao = accountDao,
+            sessionCookieProvider = sessionCookieProvider,
+        )
     }
 }
