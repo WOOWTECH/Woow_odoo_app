@@ -1,6 +1,7 @@
 package io.woowtech.odoo.ui.auth
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -85,10 +86,13 @@ fun BiometricScreen(
         biometricHelper?.canAuthenticate() == BiometricAvailability.Available
     }
 
-    // Animation for fingerprint icon
+    // C1 fix: Respect the reduceMotion preference. When enabled, snap() is used so there
+    // is no animated transition — the scale changes instantaneously, which is the correct
+    // accessible behaviour for users who experience motion sickness or vestibular disorders.
+    val reduceMotion = settings.reduceMotion
     val iconScale by animateFloatAsState(
         targetValue = if (isAnimating) 1.1f else 1f,
-        animationSpec = tween(300),
+        animationSpec = if (reduceMotion) snap() else tween(300),
         label = "iconScale"
     )
 

@@ -30,8 +30,17 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateAppLock(enabled)
     }
 
-    fun updateBiometric(enabled: Boolean) {
-        settingsRepository.updateBiometric(enabled)
+    /**
+     * Persists the biometric-unlock preference.
+     *
+     * [canUseBiometric] must reflect the current device capability (query
+     * [androidx.biometric.BiometricManager.canAuthenticate] at the call site). When
+     * [enabled] is `true` but [canUseBiometric] is `false`, the repository forces
+     * the effective value to `false` so stale preferences cannot re-enable biometrics
+     * on a device that has since lost capability.
+     */
+    fun updateBiometric(enabled: Boolean, canUseBiometric: Boolean = true) {
+        settingsRepository.updateBiometric(enabled = enabled, canEnable = canUseBiometric)
     }
 
     fun setPin(pin: String): Boolean {

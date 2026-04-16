@@ -71,9 +71,28 @@ class SettingsRepository @Inject constructor(
         _settings.value = _settings.value.copy(appLockEnabled = enabled)
     }
 
-    fun updateBiometric(enabled: Boolean) {
-        encryptedPrefs.updateBiometric(enabled)
-        _settings.value = _settings.value.copy(biometricEnabled = enabled)
+    /**
+     * Persists the biometric-unlock preference.
+     *
+     * [canEnable] is a caller-supplied gate representing the current
+     * [androidx.biometric.BiometricManager.canAuthenticate] result. When [enabled] is
+     * `true` but [canEnable] is `false` (device capability lost after the previous save),
+     * the effective value is forced to `false` and a warning is logged. This prevents the
+     * setting from being stuck as `true` on devices that have since removed biometric
+     * enrollment or experienced a hardware fault.
+     *
+     * Passing `canEnable = true` (the default) preserves the old behaviour so existing
+     * call sites that already validate capability before calling this method are unaffected.
+     *
+     * M1 fix: previously the flag was written unconditionally without re-checking capability.
+     */
+    fun updateBiometric(enabled: Boolean, canEnable: Boolean = true) {
+        val effective = enabled && canEnable
+        if (enabled && !canEnable) {
+            Log.w(TAG, "updateBiometric(true) rejected — BiometricManager reports unavailable, forcing false")
+        }
+        encryptedPrefs.updateBiometric(effective)
+        _settings.value = _settings.value.copy(biometricEnabled = effective)
     }
 
     /**

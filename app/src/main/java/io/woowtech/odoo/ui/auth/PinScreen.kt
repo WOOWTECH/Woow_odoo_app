@@ -1,6 +1,7 @@
 package io.woowtech.odoo.ui.auth
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +61,10 @@ fun PinScreen(
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val settings by viewModel.settings.collectAsState()
+    // C1 fix: read reduceMotion once per composition; individual animation specs reference
+    // this val so changes to the setting are reflected on the next recompose.
+    val reduceMotion = settings.reduceMotion
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     // L7: Start false and let the LaunchedEffect determine the real value on the first tick.
@@ -100,10 +106,12 @@ fun PinScreen(
         }
     }
 
-    // Shake animation for wrong PIN
+    // C1 fix: Shake animation respects reduceMotion. When reduceMotion=true, snap() gives
+    // an instant jump rather than the lateral shake movement, eliminating motion for users
+    // who have opted out of animations.
     val shakeOffset by animateFloatAsState(
         targetValue = if (isShaking) 1f else 0f,
-        animationSpec = tween(100),
+        animationSpec = if (reduceMotion) snap() else tween(100),
         finishedListener = { isShaking = false },
         label = "shake"
     )
@@ -237,6 +245,7 @@ fun PinScreen(
             // Number pad with improved visibility
             if (!isLockedOut) {
                 NumberPad(
+                    reduceMotion = reduceMotion,
                     onNumberClick = { number ->
                         if (pin.length < 6) {
                             error = null
@@ -275,6 +284,7 @@ fun PinScreen(
 
 @Composable
 private fun NumberPad(
+    reduceMotion: Boolean,
     onNumberClick: (String) -> Unit,
     onDeleteClick: () -> Unit
 ) {
@@ -284,27 +294,27 @@ private fun NumberPad(
     ) {
         // Row 1: 1, 2, 3
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            NumberKey("1", onNumberClick)
-            NumberKey("2", onNumberClick)
-            NumberKey("3", onNumberClick)
+            NumberKey(number = "1", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "2", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "3", reduceMotion = reduceMotion, onClick = onNumberClick)
         }
         // Row 2: 4, 5, 6
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            NumberKey("4", onNumberClick)
-            NumberKey("5", onNumberClick)
-            NumberKey("6", onNumberClick)
+            NumberKey(number = "4", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "5", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "6", reduceMotion = reduceMotion, onClick = onNumberClick)
         }
         // Row 3: 7, 8, 9
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            NumberKey("7", onNumberClick)
-            NumberKey("8", onNumberClick)
-            NumberKey("9", onNumberClick)
+            NumberKey(number = "7", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "8", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "9", reduceMotion = reduceMotion, onClick = onNumberClick)
         }
         // Row 4: empty, 0, backspace
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
             Spacer(modifier = Modifier.size(76.dp))
-            NumberKey("0", onNumberClick)
-            DeleteKey(onDeleteClick)
+            NumberKey(number = "0", reduceMotion = reduceMotion, onClick = onNumberClick)
+            DeleteKey(reduceMotion = reduceMotion, onClick = onDeleteClick)
         }
     }
 }
@@ -312,13 +322,15 @@ private fun NumberPad(
 @Composable
 private fun NumberKey(
     number: String,
+    reduceMotion: Boolean,
     onClick: (String) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // C1 fix: key-press scale animation respects reduceMotion.
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(100),
+        animationSpec = if (reduceMotion) snap() else tween(100),
         label = "keyScale"
     )
 
@@ -355,12 +367,13 @@ private fun NumberKey(
 }
 
 @Composable
-private fun DeleteKey(onClick: () -> Unit) {
+private fun DeleteKey(reduceMotion: Boolean, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // C1 fix: delete-key press scale animation respects reduceMotion.
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(100),
+        animationSpec = if (reduceMotion) snap() else tween(100),
         label = "deleteScale"
     )
 

@@ -1,8 +1,12 @@
 package io.woowtech.odoo.ui.config
 
+import android.app.Activity
+import android.app.LocaleManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.LocaleList
 import androidx.biometric.BiometricManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.HelpCenter
+import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.ChevronRight
@@ -156,6 +161,18 @@ fun SettingsScreen(
                     ),
                     onClick = { showThemeModePicker = true }
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+
+                // C1 fix: Reduce Motion toggle — previously the string was defined and the
+                // preference persisted, but no UI toggle existed and no animation read the flag.
+                SettingsToggleItem(
+                    icon = Icons.Default.AccessibilityNew,
+                    title = stringResource(R.string.reduce_motion),
+                    subtitle = stringResource(R.string.reduce_motion_subtitle),
+                    checked = settings.reduceMotion,
+                    onCheckedChange = { viewModel.updateReduceMotion(it) }
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -178,7 +195,9 @@ fun SettingsScreen(
                         title = stringResource(R.string.biometric_unlock),
                         subtitle = stringResource(R.string.biometric_unlock_subtitle),
                         checked = settings.biometricEnabled,
-                        onCheckedChange = { viewModel.updateBiometric(it) },
+                        // M1 fix: pass current capability so the repository can guard against
+                        // the flag being set true when biometrics have become unavailable.
+                        onCheckedChange = { viewModel.updateBiometric(it, canUseBiometric) },
                         enabled = settings.appLockEnabled
                     )
 
@@ -322,9 +341,15 @@ fun SettingsScreen(
     if (showLanguagePicker) {
         LanguagePickerDialog(
             currentLanguage = settings.language,
-            onLanguageSelected = {
-                viewModel.updateLanguage(it)
+            onLanguageSelected = { selectedLanguage ->
+                viewModel.updateLanguage(selectedLanguage)
                 showLanguagePicker = false
+                // H2 fix: Apply the locale change immediately so the UI reflects the
+                // new language without requiring an app restart.
+                // API 33+: use LocaleManager (per-app locale, persisted by the OS).
+                // Below API 33: recreate the Activity which re-inflates all strings
+                // from the updated Configuration — the only reliable path on older APIs.
+                applyLocaleChange(context = context, languageCode = selectedLanguage.code)
             },
             onDismiss = { showLanguagePicker = false }
         )
@@ -655,6 +680,31 @@ private fun ThemeModePickerDialog(
             }
         }
     )
+}
+
+/**
+ * Applies the selected [languageCode] as the active per-app locale.
+ *
+ * On API 33 and above, [LocaleManager.setApplicationLocales] persists the preference at
+ * the OS level without restarting the activity — the system handles resource reloading.
+ * The special value [io.woowtech.odoo.domain.model.AppLanguage.SYSTEM] uses code "system"
+ * which maps to an empty [LocaleList], restoring the device default.
+ *
+ * On API 32 and below, the only fully reliable approach is [Activity.recreate], which
+ * re-inflates all string resources from the updated [android.content.res.Configuration].
+ * Calling recreate() on a non-Activity context is silently ignored.
+ */
+private fun applyLocaleChange(context: Context, languageCode: String) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val localeManager = context.getSystemService(LocaleManager::class.java)
+        localeManager?.applicationLocales = if (languageCode == "system") {
+            LocaleList.getEmptyLocaleList()
+        } else {
+            LocaleList.forLanguageTags(languageCode)
+        }
+    } else {
+        (context as? Activity)?.recreate()
+    }
 }
 
 private fun openUrl(context: Context, url: String) {
