@@ -808,48 +808,332 @@ except Exception as e:
     check("V21-C482a7bf", f"FLAG_SECURE check error: {e}", False)
 
 # ═══════════════════════════════════════════════════════════
-section("V22-C482a7bf: PinScreen renders keypad (iOS parity, no submit button)")
-# V22 fix: use test hook to seed PIN + enable App Lock so PinScreen is reliably
-# the first screen without requiring multi-step Compose UI interaction.
-try:
+# Self-contained test helpers (per CLAUDE.md "Test Independence" rule)
+# ═══════════════════════════════════════════════════════════
+
+# Test credentials — same as the rest of the suite assumes
+TEST_SERVER_URL = "monthly-awesome-kernel-immune.trycloudflare.com"
+TEST_DB = "odoo18_ecpay"
+TEST_USER = "admin"
+TEST_PASSWORD = "admin"
+TEST_PIN = "1234"
+
+
+def _edits():
+    """Return the bounds of every EditText currently on screen."""
+    return re.findall(
+        r'<node[^>]*class="[^"]*EditText[^"]*"[^>]*bounds="([^"]+)"[^>]*>',
+        d.dump_hierarchy(),
+    )
+
+
+def _center(bounds_str):
+    m = re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+    return ((int(m.group(1)) + int(m.group(3))) // 2,
+            (int(m.group(2)) + int(m.group(4))) // 2)
+
+
+def _type_into(idx, text):
+    """Click the idx-th EditText and ADB-type text into it. Returns True on success."""
+    e = _edits()
+    if len(e) <= idx:
+        return False
+    x, y = _center(e[idx])
+    d.click(x, y); time.sleep(1)
+    subprocess.run(["adb", "shell", "input", "text", text], timeout=15)
+    time.sleep(1)
+    return True
+
+
+def is_webview_visible():
+    return "android.webkit.WebView" in d.dump_hierarchy()
+
+
+def is_add_account_visible():
+    return d(text="新增帳號").exists(timeout=1) or d(text="Add Account").exists(timeout=1)
+
+
+def perform_login():
+    """Walk through the Add Account → credentials → WebView flow."""
+    # Server URL screen
+    for _ in range(15):
+        if len(_edits()) >= 2:
+            break
+        time.sleep(1)
+    if not (_type_into(0, TEST_SERVER_URL) and _type_into(1, TEST_DB)):
+        return False
+    subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
+    if d(text="下一步").exists(timeout=10):
+        d(text="下一步").click()
+    elif d(text="Next").exists(timeout=2):
+        d(text="Next").click()
+    time.sleep(8)
+    # Credentials screen
+    for _ in range(15):
+        if len(_edits()) >= 2:
+            break
+        time.sleep(1)
+    if not (_type_into(0, TEST_USER) and _type_into(1, TEST_PASSWORD)):
+        return False
+    subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
+    if d(text="登入").exists(timeout=10):
+        d(text="登入").click()
+    elif d(text="Login").exists(timeout=2):
+        d(text="Login").click()
+    # Wait for WebView
+    for _ in range(25):
+        if is_webview_visible():
+            return True
+        time.sleep(1)
+    return is_webview_visible()
+
+
+def is_auth_gate_visible():
+    """True if the BiometricScreen or PinScreen is showing the auth gate."""
+    return (
+        d(textContains="生物辨識").exists(timeout=1) or
+        d(textContains="Biometric").exists(timeout=1) or
+        d(textContains="使用 PIN").exists(timeout=1) or
+        d(textContains="Use PIN").exists(timeout=1) or
+        d(textContains="Unlock").exists(timeout=1)
+    )
+
+
+def is_logged_in_but_not_on_webview():
+    """True if user is logged in (account exists) but currently on a non-WebView
+    screen like Settings, Profile, Config/Account drawer. Detected by presence
+    of account-management text without the WebView class.
+    """
+    return (
+        not is_webview_visible()
+        and not is_add_account_visible()
+        and not is_auth_gate_visible()
+        and (
+            d(textContains="切換帳號").exists(timeout=1) or       # Switch Account (zh-TW)
+            d(textContains="Switch Account").exists(timeout=1) or
+            d(textContains="登出").exists(timeout=1) or          # Logout (zh)
+            d(textContains="Logout").exists(timeout=1) or
+            d(textContains="設定").exists(timeout=1) or          # Settings (zh)
+            d(textContains="Settings").exists(timeout=1)
+        )
+    )
+
+
+def ensure_logged_in():
+    """Idempotent precondition: app must be launched and showing the WebView.
+
+    Per CLAUDE.md "Test Independence" rule: every test that needs an account
+    calls this so it has no dependency on previous tests' state.
+
+    Handles three possible starting states:
+      1. Already on WebView → return True immediately
+      2. On Add Account screen → run perform_login()
+      3. On auth gate (Biometric/PIN screen) → use test hook to disable App
+         Lock and reset state, restart, then re-check
+    """
+    d.app_start(PKG, ACTIVITY); time.sleep(4)
+    if is_webview_visible():
+        return True
+    if is_add_account_visible():
+        return perform_login()
+    if is_auth_gate_visible():
+        # Account exists but is gated. Use the test hook to disable App Lock
+        # and reset failure state, then restart to land on WebView directly.
+        subprocess.run([
+            "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+            "--ez", "app-lock-enabled", "false",
+            "--ez", "reset-state", "true",
+        ], timeout=10)
+        time.sleep(3)
+        d.app_stop(PKG); time.sleep(1); d.app_start(PKG, ACTIVITY); time.sleep(5)
+        if is_webview_visible():
+            return True
+        if is_add_account_visible():
+            return perform_login()
+    if is_logged_in_but_not_on_webview():
+        # On a non-WebView screen (Settings, Profile drawer, etc.) with an
+        # active account. Press BACK up to 3 times to close the drawer/screen
+        # and return to the main WebView. (Force-stopping does NOT help —
+        # the drawer is restored on next launch.)
+        for _ in range(3):
+            d.press("back"); time.sleep(2)
+            if is_webview_visible():
+                return True
+            if not is_logged_in_but_not_on_webview():
+                break
+        if is_webview_visible():
+            return True
+        # If we ended up on the auth gate after dismissing, recurse once
+        if is_auth_gate_visible():
+            subprocess.run([
+                "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+                "--ez", "app-lock-enabled", "false",
+                "--ez", "reset-state", "true",
+            ], timeout=10)
+            time.sleep(3)
+            d.app_stop(PKG); time.sleep(1); d.app_start(PKG, ACTIVITY); time.sleep(5)
+            if is_webview_visible():
+                return True
+    # Unknown state — last resort: clean restart and re-check
+    d.app_stop(PKG); time.sleep(1); d.app_start(PKG, ACTIVITY); time.sleep(5)
+    if is_webview_visible():
+        return True
+    if is_add_account_visible():
+        return perform_login()
+
+    # Nuclear fallback: pm clear + fresh login. Slow (~30s per test) but
+    # deterministic. This is the price of true test independence when
+    # Compose state cannot be reliably navigated via uiautomator2.
     subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
     time.sleep(2)
-    subprocess.run([
-        "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
-        "--es", "test-pin", "1234",
-        "--ez", "app-lock-enabled", "true",
-        "--ez", "biometric-enabled", "false",  # force PIN path, skip biometric prompt
-    ], timeout=10)
-    time.sleep(5)
+    d.app_start(PKG, ACTIVITY); time.sleep(6)
+    if is_add_account_visible():
+        return perform_login()
+    return is_webview_visible()
 
-    # If biometric prompt still shows (device ignores biometric-enabled=false), dismiss it.
-    if d(text="Use PIN").exists(timeout=3):
-        d(text="Use PIN").click()
-        time.sleep(2)
-    elif d(text="使用 PIN").exists(timeout=2):
-        d(text="使用 PIN").click()
-        time.sleep(2)
 
-    # Look for digit buttons 0-9 on the keypad
-    digits_found = sum(1 for digit in "0123456789" if d(text=str(digit)).exists(timeout=1))
-    check("V22a-C482a7bf", f"PinScreen shows full 0-9 keypad ({digits_found}/10 digits found)", digits_found >= 10)
+def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=False):
+    """Fire MainActivity intent with test-hook extras. Hook is debug-only and
+    R8-stripped in release. Activity restarts to apply the seeded state cleanly."""
+    args = ["adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}"]
+    if test_pin is not None:
+        args += ["--es", "test-pin", test_pin]
+    if app_lock is not None:
+        args += ["--ez", "app-lock-enabled", "true" if app_lock else "false"]
+    if biometric is not None:
+        args += ["--ez", "biometric-enabled", "true" if biometric else "false"]
+    if reset_state:
+        args += ["--ez", "reset-state", "true"]
+    subprocess.run(args, timeout=10)
+    time.sleep(3)
 
-    # There must NOT be a submit/confirm/OK button — PIN must auto-verify on full length
-    has_submit = any(d(text=t).exists(timeout=1) for t in ("Submit", "Confirm", "OK", "確認", "确认"))
-    check("V22b-C482a7bf", "No submit/confirm button — PIN auto-verifies on full length (iOS parity)", not has_submit)
+
+def restart_to_trigger_gate():
+    """Force-stop + relaunch so onCreate runs and the auth gate evaluates
+    the freshly-seeded settings."""
+    d.app_stop(PKG); time.sleep(1)
+    d.app_start(PKG, ACTIVITY); time.sleep(5)
+
+
+def fall_through_to_pin():
+    """If the BiometricScreen is showing, tap 'Use PIN' to reach the PIN keypad."""
+    for label in ("Use PIN", "使用 PIN", "使用PIN"):
+        if d(text=label).exists(timeout=2):
+            d(text=label).click(); time.sleep(2); return True
+    return False
+
+
+def type_pin_keypad(pin):
+    """Tap each digit on the PinScreen keypad."""
+    for digit in pin:
+        if d(text=digit).exists(timeout=2):
+            d(text=digit).click(); time.sleep(0.3)
+
+
+# ═══════════════════════════════════════════════════════════
+section("V22-C482a7bf: PinScreen renders keypad (iOS parity, no submit button)")
+# Self-contained per CLAUDE.md test-independence rule:
+#   1. Setup: ensure logged in, seed PIN + enable App Lock + disable biometric
+#   2. Restart to trigger the auth gate
+#   3. Assert PinScreen has 0-9 keypad and no submit button
+#   4. Cleanup: enter PIN to leave authenticated, disable App Lock so the next
+#      test starts in a clean state
+try:
+    if not ensure_logged_in():
+        check("V22-C482a7bf", "Could not reach logged-in baseline", False)
+    else:
+        apply_test_hook(test_pin=TEST_PIN, app_lock=True, biometric=False)
+        restart_to_trigger_gate()
+        # Force-PIN path — biometric should be off but dismiss prompt if it appears
+        fall_through_to_pin()
+
+        digits_found = sum(1 for digit in "0123456789" if d(text=str(digit)).exists(timeout=1))
+        check("V22a-C482a7bf",
+              f"PinScreen shows full 0-9 keypad ({digits_found}/10 digits found)",
+              digits_found >= 10)
+
+        has_submit = any(
+            d(text=t).exists(timeout=1)
+            for t in ("Submit", "Confirm", "OK", "確認", "确认")
+        )
+        check("V22b-C482a7bf",
+              "No submit/confirm button — PIN auto-verifies on full length (iOS parity)",
+              not has_submit)
+
+        # Cleanup: enter PIN to authenticate, then disable lock for next test
+        type_pin_keypad(TEST_PIN)
+        for _ in range(10):
+            if is_webview_visible(): break
+            time.sleep(1)
+        apply_test_hook(app_lock=False, reset_state=True)
 except Exception as e:
     check("V22-C482a7bf", f"PinScreen keypad check error: {e}", False)
 
 # ═══════════════════════════════════════════════════════════
-section("V23-C482a7bf: DeepLinkValidator rejects deep links with no active account")
-# MainActivity now reads activeAccount.serverHost from AccountRepository.
-# When no account is active, ALL deep links must be rejected — prevents
-# blind navigation before a trust anchor exists.
+section("V24-C482a7bf: ProcessLifecycleOwner re-auth on bg→fg (L1 fix)")
+# Self-contained per CLAUDE.md test-independence rule:
+#   1. Setup: ensure logged in, seed PIN + enable App Lock, restart, enter PIN
+#      → reach WebView (so we have an authenticated session to invalidate)
+#   2. Action: HOME → reopen
+#   3. Assert: auth screen reappears (NOT WebView)
+#   4. Cleanup: enter PIN, disable App Lock
 try:
-    # Clear all app data (no active account)
+    if not ensure_logged_in():
+        check("V24-C482a7bf", "Could not reach logged-in baseline", False)
+    else:
+        apply_test_hook(test_pin=TEST_PIN, app_lock=True, biometric=False)
+        restart_to_trigger_gate()
+        fall_through_to_pin()
+        type_pin_keypad(TEST_PIN)
+
+        # Wait until past the gate (WebView visible) — we MUST be authenticated
+        # before we can meaningfully test that backgrounding invalidates auth.
+        webview_reached = False
+        for _ in range(15):
+            if is_webview_visible():
+                webview_reached = True; break
+            time.sleep(1)
+        if not webview_reached:
+            check("V24-C482a7bf", "Could not reach WebView after PIN entry — V24 setup failed", False)
+        else:
+            # The real V24 check: background → foreground must re-trigger auth
+            d.press("home"); time.sleep(3)
+            d.app_start(PKG, ACTIVITY); time.sleep(3)
+
+            # Auth screen indicators: any digit key from PIN keypad, biometric
+            # prompt text, or "Use PIN" fallback. NOT the WebView.
+            still_on_webview = is_webview_visible()
+            auth_visible = (
+                not still_on_webview and (
+                    any(d(text=digit).exists(timeout=1) for digit in "0123") or
+                    d(textContains="PIN").exists(timeout=1) or
+                    d(textContains="生物辨識").exists(timeout=1) or
+                    d(textContains="Biometric").exists(timeout=1)
+                )
+            )
+            check("V24-C482a7bf",
+                  "Auth screen re-appears after bg→fg (ProcessLifecycleOwner ON_STOP invalidated auth)",
+                  auth_visible)
+
+            # Cleanup
+            type_pin_keypad(TEST_PIN)
+            for _ in range(10):
+                if is_webview_visible(): break
+                time.sleep(1)
+            apply_test_hook(app_lock=False, reset_state=True)
+except Exception as e:
+    check("V24-C482a7bf", f"bg→fg re-auth check error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
+section("V23-C482a7bf: DeepLinkValidator rejects deep links with no active account")
+# Destructive test — runs LAST per CLAUDE.md test-independence rule because
+# `pm clear` wipes account state. Cannot run before V22/V24/etc. without
+# breaking those tests' preconditions. (V23 itself is self-contained: it
+# performs its own pm clear setup, the cleanup is "leave app in fresh
+# uninstalled state" which is fine for the end of the test sequence.)
+try:
     subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
     time.sleep(2)
-    # Fire a deep link while app has no account
     subprocess.run([
         "adb", "shell", "am", "start",
         "-a", "android.intent.action.VIEW",
@@ -857,67 +1141,23 @@ try:
         PKG,
     ], timeout=10)
     time.sleep(4)
-    # App should either: not launch at all, or launch to login (no MainScreen)
-    # Check via dumpsys top activity
     top = adb_cmd(["dumpsys", "activity", "top"])
-    on_main_with_webview = (
-        "MainActivity" in top and "OdooWebView" in top
-    )
-    # Expectation: we did NOT blindly navigate into the webview
-    check("V23-C482a7bf", "Deep link rejected — no auto-navigation to WebView without active account", not on_main_with_webview)
-    # Check logcat for the rejection reason
+    on_main_with_webview = ("MainActivity" in top and "OdooWebView" in top)
+    check("V23-C482a7bf",
+          "Deep link rejected — no auto-navigation to WebView without active account",
+          not on_main_with_webview)
+
     logcat = adb_cmd(["logcat", "-d", "-t", "200"])
-    rejected_logged = "deep link" in logcat.lower() and ("reject" in logcat.lower() or "no active" in logcat.lower())
+    rejected_logged = (
+        "deep link" in logcat.lower()
+        and ("reject" in logcat.lower() or "no active" in logcat.lower())
+    )
     if rejected_logged:
         green("V23b-C482a7bf", "Timber log confirms deep-link rejection")
     else:
-        # Not strictly a failure — the app may silently reject without logging
         print("  ℹ  V23b-C482a7bf: no explicit rejection log (soft check)")
 except Exception as e:
     check("V23-C482a7bf", f"Deep-link rejection check error: {e}", False)
-
-# ═══════════════════════════════════════════════════════════
-section("V24-C482a7bf: ProcessLifecycleOwner re-auth on bg→fg (L1 fix)")
-# V24 fix: use test hook to seed precondition (PIN + App Lock enabled), then
-# type the PIN to reach the WebView, then exercise the real bg→fg path.
-try:
-    subprocess.run([
-        "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
-        "--es", "test-pin", "1234",
-        "--ez", "app-lock-enabled", "true",
-    ], timeout=10)
-    time.sleep(5)
-
-    # Dismiss biometric prompt if present, fall through to PIN
-    if d(text="Use PIN").exists(timeout=3):
-        d(text="Use PIN").click()
-        time.sleep(2)
-    elif d(text="使用 PIN").exists(timeout=2):
-        d(text="使用 PIN").click()
-        time.sleep(2)
-
-    # Type the seeded PIN to authenticate and reach the WebView
-    for digit in "1234":
-        if d(text=digit).exists(timeout=2):
-            d(text=digit).click()
-            time.sleep(0.3)
-
-    # Wait until WebView is visible (up to 15s)
-    for _ in range(15):
-        if "android.webkit.WebView" in d.dump_hierarchy():
-            break
-        time.sleep(1)
-
-    # Now the real V24 check: background → foreground must re-trigger auth
-    d.press("home")
-    time.sleep(3)
-    d.app_start(PKG, ACTIVITY)
-    time.sleep(3)
-
-    auth_visible = any(d(text=t).exists(timeout=2) for t in ("使用 PIN", "Use PIN", "1", "2"))
-    check("V24-C482a7bf", "Auth screen re-appears after bg→fg (ProcessLifecycleOwner ON_STOP invalidated auth)", auth_visible)
-except Exception as e:
-    check("V24-C482a7bf", f"bg→fg re-auth check error: {e}", False)
 
 # ═══════════════════════════════════════════════════════════
 section("V25-C482a7bf: Release variant ignores test hooks")

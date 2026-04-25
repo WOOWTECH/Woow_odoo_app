@@ -94,6 +94,55 @@ app/src/main/java/io/woowtech/odoo/
 - **7 Odoo module tests** (TransactionCase)
 - Test naming: `Given X when Y then Z` (Kotlin), `test_{method}_given{X}_returns{Y}` (general)
 
+### Test Independence (CRITICAL RULE)
+
+**Every test must be independently runnable.** A test must pass when run alone,
+in any order with other tests, or in parallel — same outcome every time. No test
+may depend on side effects from another test.
+
+**Why:** chained tests cascade failures (one breakage fails N tests), make CI
+flaky, prevent parallel execution, and create order-sensitive bugs. The same
+trap was hit in the iOS port — iOS now uses `ensureAccountThenRelaunch` to make
+every E2E self-contained (`docs/2026-04-14-E2E-Test-Progress.md:159`).
+
+**Required pattern — every test owns its own setup, action, cleanup:**
+
+```python
+# ✅ GOOD — self-contained
+def test_V22_pin_keypad():
+    # Setup (idempotent — does nothing if already in target state)
+    ensure_logged_in()
+    apply_test_hook(test_pin="1234", app_lock=True, biometric=False)
+    restart_app_to_trigger_gate()
+    # Action + assertion
+    assert digit_keys_visible() == 10
+    # Cleanup so next test isn't affected
+    type_pin("1234"); wait_for_webview()
+    apply_test_hook(app_lock=False)
+```
+
+```python
+# ❌ BAD — depends on prior test
+def test_V24_bg_fg():
+    # Assumes V22 just ran and left us authenticated with lock on
+    press_home()
+    launch_app()
+    assert auth_screen_visible()
+```
+
+**Test hooks** (`io.woowtech.odoo.ui.TestHooks`, debug-only):
+- `--es test-pin <4-6 digits>` — seed PIN
+- `--ez app-lock-enabled <bool>` — toggle App Lock
+- `--ez biometric-enabled <bool>` — toggle biometric
+- `--ez reset-state <bool>` — clear failed PIN attempts / auth state
+
+Use these in `scripts/verify-on-device.py` to set preconditions without
+multi-step Compose UI navigation. Hooks are stripped by R8 in release builds.
+
+**`pm clear` is destructive** — only use it inside the ONE test that explicitly
+exercises the empty-state behaviour (currently V23 deep-link rejection). Other
+tests should re-create state via hooks instead of cleaning data.
+
 ### Verification Rules
 
 **Every commit must pass:**
