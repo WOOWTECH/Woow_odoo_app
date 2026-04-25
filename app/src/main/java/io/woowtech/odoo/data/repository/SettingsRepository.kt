@@ -88,6 +88,14 @@ class SettingsRepository @Inject constructor(
         )
     }
 
+    /**
+     * Resets the persisted failed-PIN-attempt counter. Used by the auth flow on
+     * successful unlock and by debug test hooks to clear lockout state between runs.
+     */
+    fun resetFailedPinAttempts() {
+        encryptedPrefs.resetFailedPinAttempts()
+    }
+
     fun verifyPin(pin: String): Boolean {
         val currentHash = _settings.value.pinHash ?: return false
 

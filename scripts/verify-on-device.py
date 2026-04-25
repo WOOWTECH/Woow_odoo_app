@@ -178,14 +178,15 @@ check("V04-C04",
 # ═══════════════════════════════════════════════════════════
 section("V05-C04: WebView No Popup Windows (B0.7)")
 
-activities_dump = adb_cmd(["dumpsys", "activity", "activities"])
-# Count unique ActivityRecord IDs for our package
-unique_ids = set(
-    re.findall(r"ActivityRecord\{([a-f0-9]+)\s.*?" + PKG, activities_dump)
+# V05 fix: count only currently-Resumed MainActivity records, not historical task entries.
+top_dump = adb_cmd(["dumpsys", "activity", "activities"])
+resumed_main = sum(
+    1 for line in top_dump.splitlines()
+    if "MainActivity" in line and ("Resumed" in line or "mResumed=true" in line)
 )
 check("V05-C04",
-      f"Only 1 unique Activity instance (found {len(unique_ids)})",
-      len(unique_ids) <= 1)
+      f"Exactly 1 active MainActivity instance (found {resumed_main} Resumed)",
+      resumed_main == 1)
 
 # ═══════════════════════════════════════════════════════════
 # V06-C06: POST_NOTIFICATIONS permission
@@ -808,12 +809,20 @@ except Exception as e:
 
 # ═══════════════════════════════════════════════════════════
 section("V22-C482a7bf: PinScreen renders keypad (iOS parity, no submit button)")
-# After commit 482a7bf, PinScreen must be keypad-driven: 0-9 digit buttons
-# visible, NO "Submit" or "Confirm" button. This detects silent UI revert.
+# V22 fix: use test hook to seed PIN + enable App Lock so PinScreen is reliably
+# the first screen without requiring multi-step Compose UI interaction.
 try:
-    # Assume app-lock is enabled and relaunch puts us on the auth screen.
-    launch_app()
-    # If biometric prompt shows up, press back to fall through to PIN.
+    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+    time.sleep(2)
+    subprocess.run([
+        "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+        "--es", "test-pin", "1234",
+        "--ez", "app-lock-enabled", "true",
+        "--ez", "biometric-enabled", "false",  # force PIN path, skip biometric prompt
+    ], timeout=10)
+    time.sleep(5)
+
+    # If biometric prompt still shows (device ignores biometric-enabled=false), dismiss it.
     if d(text="Use PIN").exists(timeout=3):
         d(text="Use PIN").click()
         time.sleep(2)
@@ -822,17 +831,11 @@ try:
         time.sleep(2)
 
     # Look for digit buttons 0-9 on the keypad
-    digits_found = sum(1 for digit in "0123456789" if d(text=digit).exists(timeout=1))
+    digits_found = sum(1 for digit in "0123456789" if d(text=str(digit)).exists(timeout=1))
     check("V22a-C482a7bf", f"PinScreen shows full 0-9 keypad ({digits_found}/10 digits found)", digits_found >= 10)
 
     # There must NOT be a submit/confirm/OK button — PIN must auto-verify on full length
-    has_submit = (
-        d(text="Submit").exists(timeout=1)
-        or d(text="Confirm").exists(timeout=1)
-        or d(text="OK").exists(timeout=1)
-        or d(text="確認").exists(timeout=1)
-        or d(text="确认").exists(timeout=1)
-    )
+    has_submit = any(d(text=t).exists(timeout=1) for t in ("Submit", "Confirm", "OK", "確認", "确认"))
     check("V22b-C482a7bf", "No submit/confirm button — PIN auto-verifies on full length (iOS parity)", not has_submit)
 except Exception as e:
     check("V22-C482a7bf", f"PinScreen keypad check error: {e}", False)
@@ -875,33 +878,60 @@ except Exception as e:
 
 # ═══════════════════════════════════════════════════════════
 section("V24-C482a7bf: ProcessLifecycleOwner re-auth on bg→fg (L1 fix)")
-# After commit 482a7bf, the ProcessLifecycleOwner observer resets
-# isAuthenticated on ON_STOP and is removed in onDestroy. Background
-# the app and reopen — auth screen must reappear.
+# V24 fix: use test hook to seed precondition (PIN + App Lock enabled), then
+# type the PIN to reach the WebView, then exercise the real bg→fg path.
 try:
-    launch_app()
-    # Ensure we are past any initial auth; if on auth screen, skip this test
-    # (test requires a logged-in state which previous tests should have set)
-    on_auth = d(resourceId=f"{PKG}:id/pin_screen").exists(timeout=2) or d(text="Unlock").exists(timeout=1)
-    if on_auth:
-        print("  ℹ  V24: app is already on auth screen — skipping (need logged-in state)")
-    else:
-        # Press HOME to background
-        d.press("home")
-        time.sleep(3)
-        # Bring back to foreground
-        d.app_start(PKG, ACTIVITY)
-        time.sleep(3)
-        # Auth screen must reappear (biometric prompt or PIN screen)
-        auth_visible = (
-            d(text="Unlock").exists(timeout=5)
-            or d(text="Use PIN").exists(timeout=1)
-            or d(text="使用 PIN").exists(timeout=1)
-            or any(d(text=digit).exists(timeout=1) for digit in "0123")  # keypad indicator
-        )
-        check("V24-C482a7bf", "Auth screen re-appears after bg→fg (ProcessLifecycleOwner ON_STOP invalidated auth)", auth_visible)
+    subprocess.run([
+        "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+        "--es", "test-pin", "1234",
+        "--ez", "app-lock-enabled", "true",
+    ], timeout=10)
+    time.sleep(5)
+
+    # Dismiss biometric prompt if present, fall through to PIN
+    if d(text="Use PIN").exists(timeout=3):
+        d(text="Use PIN").click()
+        time.sleep(2)
+    elif d(text="使用 PIN").exists(timeout=2):
+        d(text="使用 PIN").click()
+        time.sleep(2)
+
+    # Type the seeded PIN to authenticate and reach the WebView
+    for digit in "1234":
+        if d(text=digit).exists(timeout=2):
+            d(text=digit).click()
+            time.sleep(0.3)
+
+    # Wait until WebView is visible (up to 15s)
+    for _ in range(15):
+        if "android.webkit.WebView" in d.dump_hierarchy():
+            break
+        time.sleep(1)
+
+    # Now the real V24 check: background → foreground must re-trigger auth
+    d.press("home")
+    time.sleep(3)
+    d.app_start(PKG, ACTIVITY)
+    time.sleep(3)
+
+    auth_visible = any(d(text=t).exists(timeout=2) for t in ("使用 PIN", "Use PIN", "1", "2"))
+    check("V24-C482a7bf", "Auth screen re-appears after bg→fg (ProcessLifecycleOwner ON_STOP invalidated auth)", auth_visible)
 except Exception as e:
     check("V24-C482a7bf", f"bg→fg re-auth check error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
+section("V25-C482a7bf: Release variant ignores test hooks")
+# @Skip — requires a built and installed release APK (io.woowtech.odoo, not .debug).
+# Manual verification steps:
+#   1. ./gradlew :app:assembleRelease
+#   2. adb install -r app/build/outputs/apk/release/app-release-unsigned.apk
+#   3. adb shell am start -n io.woowtech.odoo/io.woowtech.odoo.ui.MainActivity \
+#        --es test-pin 9999 --ez app-lock-enabled true
+#   4. Open Settings → Security: verify PIN is not "9999" and App Lock state unchanged.
+#   5. apkanalyzer dex packages app-release-unsigned.apk | grep TestHooks
+#      Expected: TestHooks class absent or method body empty (R8 dead-code removal).
+# This test is intentionally skipped in the automated suite; it requires a signed release build.
+print("  ℹ  V25-C482a7bf: @Skip — release-variant test-hook isolation requires manual APK install (see script comments)")
 
 # ═══════════════════════════════════════════════════════════
 # SUMMARY

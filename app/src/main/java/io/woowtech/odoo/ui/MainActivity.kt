@@ -19,6 +19,7 @@ import io.woowtech.odoo.data.push.DeepLinkManager
 import io.woowtech.odoo.data.push.DeepLinkValidator
 import io.woowtech.odoo.data.push.NotificationHelper
 import io.woowtech.odoo.data.repository.AccountRepository
+import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.ui.auth.AuthViewModel
 import io.woowtech.odoo.ui.navigation.WoowOdooNavHost
 import io.woowtech.odoo.ui.theme.WoowTechOdooTheme
@@ -55,6 +56,7 @@ class MainActivity : FragmentActivity() {
 
     @Inject lateinit var deepLinkManager: DeepLinkManager
     @Inject lateinit var accountRepository: AccountRepository
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private val authViewModel: AuthViewModel by viewModels()
 
@@ -83,6 +85,10 @@ class MainActivity : FragmentActivity() {
         }
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
 
+        // Test hooks must run BEFORE setContent so seeded state is visible
+        // to the first composition (auth gate reads it immediately).
+        TestHooks.applyIfPresent(intent, settingsRepository)
+
         handleDeepLinkIntent(intent)
 
         setContent {
@@ -99,6 +105,9 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
+        // Warm-start re-seeding for E2E tests (no-op in release).
+        TestHooks.applyIfPresent(intent, settingsRepository)
         handleDeepLinkIntent(intent)
     }
 
