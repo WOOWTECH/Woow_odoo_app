@@ -143,6 +143,49 @@ multi-step Compose UI navigation. Hooks are stripped by R8 in release builds.
 exercises the empty-state behaviour (currently V23 deep-link rejection). Other
 tests should re-create state via hooks instead of cleaning data.
 
+### Inspect Before Asserting (uiautomator2 rule)
+
+**When developing or fixing a uiautomator2 check, ALWAYS dump the live UI
+hierarchy first to see what selector matches the element.** Never guess what
+attribute (`text=` vs `content-desc=` vs `resource-id=`) a Compose element
+exposes — Compose semantics are not consistent with classic Android Views.
+
+Why: Compose nodes often expose only `content-desc` (from
+`Modifier.semantics { contentDescription = ... }`), or expose `text` only on
+the inner `BasicText` and not on the surrounding `Button`. Guessing wastes a
+30+ second setup cycle (PBKDF2, login form, navigation) per attempt.
+
+Required workflow:
+
+```python
+# 1. Drive the phone into the target state ONCE
+ensure_logged_in()
+apply_test_hook(test_pin="1234", app_lock=True, biometric=False)
+restart_to_trigger_gate()
+fall_through_to_pin()
+
+# 2. Dump the hierarchy and PRINT IT
+import re
+hier = d.dump_hierarchy()
+print("=== Visible interactive elements ===")
+for m in re.finditer(r'<node[^>]*>', hier):
+    el = m.group()
+    text = re.search(r'text="([^"]+)"', el)
+    desc = re.search(r'content-desc="([^"]+)"', el)
+    rid  = re.search(r'resource-id="([^"]+)"', el)
+    bnds = re.search(r'bounds="([^"]+)"', el)
+    if (text and text.group(1).strip()) or (desc and desc.group(1).strip()):
+        print(f"  text='{text.group(1) if text else ''}' "
+              f"desc='{desc.group(1) if desc else ''}' "
+              f"id='{rid.group(1) if rid else ''}' "
+              f"{bnds.group(1) if bnds else ''}")
+
+# 3. Now you know the right selector — write the assertion
+```
+
+Save the dump to `/tmp/hierarchy_<screen>.xml` for later reference. Reuse the
+dump across iterations if you can't reach the same state quickly.
+
 ### Verification Rules
 
 **Every commit must pass:**

@@ -994,7 +994,9 @@ def ensure_logged_in():
 
 def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=False):
     """Fire MainActivity intent with test-hook extras. Hook is debug-only and
-    R8-stripped in release. Activity restarts to apply the seeded state cleanly."""
+    R8-stripped in release. Waits long enough for PBKDF2 (600K iterations,
+    ~6-8s on Xiaomi 25078PC3EG) to complete before returning — otherwise the
+    next app_stop kills the hash mid-flight and the PIN never persists."""
     args = ["adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}"]
     if test_pin is not None:
         args += ["--es", "test-pin", test_pin]
@@ -1005,7 +1007,10 @@ def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=Fa
     if reset_state:
         args += ["--ez", "reset-state", "true"]
     subprocess.run(args, timeout=10)
-    time.sleep(3)
+    # Wait for PBKDF2 to complete. The setPin path takes ~6-8s on the test
+    # device because PBKDF2-HMAC-SHA256 with 600K iterations runs on the main
+    # thread inside the hook. Wait extra when test_pin is provided.
+    time.sleep(10 if test_pin is not None else 3)
 
 
 def restart_to_trigger_gate():
@@ -1016,10 +1021,28 @@ def restart_to_trigger_gate():
 
 
 def fall_through_to_pin():
-    """If the BiometricScreen is showing, tap 'Use PIN' to reach the PIN keypad."""
-    for label in ("Use PIN", "使用 PIN", "使用PIN"):
+    """If the BiometricScreen is showing, tap 'Use PIN' to reach the PIN keypad.
+    The Chinese label is "使用 PIN 碼" (PIN-code), not just "使用 PIN".
+    Verified by hierarchy dump on Xiaomi 25078PC3EG (zh-TW)."""
+    for label in ("Use PIN", "使用 PIN 碼", "使用 PIN", "使用PIN碼", "使用PIN"):
         if d(text=label).exists(timeout=2):
-            d(text=label).click(); time.sleep(2); return True
+            d(text=label).click(); time.sleep(3); return True
+    # Fallback: textContains("使用 PIN") matches "使用 PIN 碼"
+    if d(textContains="使用 PIN").exists(timeout=2):
+        d(textContains="使用 PIN").click(); time.sleep(3); return True
+    if d(textContains="Use PIN").exists(timeout=2):
+        d(textContains="Use PIN").click(); time.sleep(3); return True
+    return False
+
+
+def wait_for_pin_keypad(timeout_s=10):
+    """Poll until the PinScreen keypad is rendered (digit '1' visible).
+    Returns True if found within timeout, False otherwise.
+    The keypad uses text= attributes (verified by hierarchy dump)."""
+    for _ in range(timeout_s):
+        if d(text="1").exists(timeout=1):
+            return True
+        time.sleep(1)
     return False
 
 
@@ -1046,6 +1069,8 @@ try:
         restart_to_trigger_gate()
         # Force-PIN path — biometric should be off but dismiss prompt if it appears
         fall_through_to_pin()
+        # Wait for PinScreen keypad to render before counting digits
+        wait_for_pin_keypad(timeout_s=10)
 
         digits_found = sum(1 for digit in "0123456789" if d(text=str(digit)).exists(timeout=1))
         check("V22a-C482a7bf",
@@ -1084,6 +1109,7 @@ try:
         apply_test_hook(test_pin=TEST_PIN, app_lock=True, biometric=False)
         restart_to_trigger_gate()
         fall_through_to_pin()
+        wait_for_pin_keypad(timeout_s=10)
         type_pin_keypad(TEST_PIN)
 
         # Wait until past the gate (WebView visible) — we MUST be authenticated
