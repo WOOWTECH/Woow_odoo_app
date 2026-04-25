@@ -138,3 +138,25 @@ The location bug (P1) is fixed in commit `caea05e` with a 3-line change. The abo
 - Users switch between accounts in the same session (F1, F2, F5, F6, F8 — HIGH)
 - Future features add more closures inside the WebView factory (F1-F5 same-class)
 - Maintenance cost as MainScreen.kt continues to grow (F9, F10 — refactor)
+
+---
+
+## Status update — 2026-04-25 (post-fix)
+
+The original location bug (the "instance" that prompted this audit) has been
+fixed in commit `caea05e` using `rememberUpdatedState(activeHostSnapshot)`,
+the canonical Compose pattern recommended by the architect.
+
+**Verified end-to-end on real device** (Xiaomi 25078PC3EG, Odoo 18 tunnel):
+
+| field | before fix | after fix |
+|-------|-----------|-----------|
+| `hr.attendance.in_latitude` | 0.0 | 25.0539539 |
+| `hr.attendance.in_longitude` | 0.0 | 121.6152575 |
+| Gate decision | Reject (no-active-account) | Grant |
+
+Full verification summary in
+`docs/2026-04-25-location-permission-design-v2.md` §11.
+
+Findings F1–F14 in this document remain **open** as a separate refactor sprint.
+None block the location feature shipping.

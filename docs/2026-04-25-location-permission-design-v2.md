@@ -481,3 +481,97 @@ PR mergeable when:
 - iOS port — separate ticket. The iOS app will need WKWebView's `requestGeolocationAuthorization` AND must NOT set iOS UA (to avoid Odoo's `isIosApp` skip). Or, use native CoreLocation + JS bridge to inject coords (similar to the iOS Odoo Mobile app workaround).
 - Mock-location detection — future security follow-up if anti-fraud becomes a requirement.
 - Geofencing (must clock-in within X meters of office) — out of scope; would need 3rd-party Odoo module.
+
+---
+
+## 11. Verification Results (real device — 2026-04-25)
+
+### Device + environment
+- Phone: Xiaomi 25078PC3EG, Android 15 (SDK 35)
+- App: `io.woowtech.odoo.debug` v1.0.20-debug (built from branch `dev_missing_features_security`)
+- Odoo: v18.0, `hr_attendance` installed at runtime (was uninstalled before testing)
+- Tunnel: `https://monthly-awesome-kernel-immune.trycloudflare.com`
+
+### Tier 1 — Unit tests (`./gradlew :app:testDebugUnitTest`)
+| Suite | Tests | Pass | Skip |
+|-------|------:|-----:|-----:|
+| `LocationPermissionGateTest` | 8 | 8 | 0 |
+| `TestHooksTest` | 11 | 11 | 0 |
+| All other existing suites | 243 | 243 | 3 (Keystore @Ignore) |
+| **Total** | **262** | **259** | **3** |
+
+### Tier 2 — uiautomator2 device verification (`scripts/verify-on-device.py`)
+4-part V26 check, all pass on real device:
+
+| ID | Check | Result |
+|----|-------|--------|
+| V26a | App launches with `setGeolocationEnabled(true)` and does not crash | PASS |
+| V26b | Manifest declares `ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION`, **NOT** `ACCESS_BACKGROUND_LOCATION` | PASS |
+| V26c | TestHooks logs `Location preference set via test hook (DEBUG only)` after `--ez location-enabled true` (cold-start) | PASS |
+| V26d | `hr_attendance` is `installed` on the test Odoo (E2E-15 prerequisite) | PASS |
+
+### Tier 3 — E2E (`scripts/e2e_15_clockin_full.py`)
+
+Fully automated end-to-end, drives the WebView via Chrome DevTools Protocol over the adb-forwarded `webview_devtools_remote` socket. No manual taps required.
+
+**Run output:**
+```
+✓ Odoo auth OK (uid=2)
+✓ Employee 1 (Mitchell Admin), state before: checked_in
+✓ FINE + COARSE granted via adb
+✓ App launched cold with location-enabled=true
+✓ CDP forward: tcp:9222 → webview_devtools_remote_25202
+✓ Navigated to /odoo/attendances
+✓ Clicked Attendance systray (currently checkedIn=True)
+✓ Clicked: action=check-out
+ℹ Waiting 8s for geolocation acquisition + RPC round-trip...
+ℹ SAME record id=16 (clock-out path) in=(25.0539539, 121.6152575) out=(25.0539586, 121.6152536)
+✓ E2E-15 PASS: clock-out updated record with non-zero out coords
+```
+
+**Server-side state after the run:**
+| field | value |
+|-------|-------|
+| `hr.attendance.id` | 16 |
+| `in_latitude` | 25.0539539 (Taipei) |
+| `in_longitude` | 121.6152575 |
+| `out_latitude` | 25.0539586 |
+| `out_longitude` | 121.6152536 |
+| `check_in` | 2026-04-25 12:16:08 |
+| `check_out` | 2026-04-25 12:51:xx (set by E2E run) |
+
+The full chain works: adb permission grant → TestHook seeds `locationEnabled` → MainScreen `rememberUpdatedState` fix (commit `caea05e`) → `WebChromeClient.onGeolocationPermissionsShowPrompt` → `LocationPermissionGate.resolve()` returns `Grant` → `GeolocationPermissions.clear(origin)` → Chromium GPS fix → Odoo JS RPC → server writes `hr.attendance.in_latitude`/`in_longitude`/`out_latitude`/`out_longitude`.
+
+### Discovery during E2E development
+
+Three non-obvious technical findings, all documented inline in `scripts/e2e_15_clockin_full.py`:
+
+1. **WebSocket Origin policy.** Recent Chromium WebView rejects WebSocket from any non-allowlisted origin (returns 403 with `--remote-allow-origins` guidance). Stock WebView has no way to set that flag. Fix: pass `suppress_origin=True` to `websocket.create_connection` so no Origin header is sent at all.
+
+2. **OWL Dropdown ignores synthetic `element.click()`.** The systray button's `aria-expanded` flips to `true` but the dropdown content slot is not rendered. OWL listens for native pointer events. Fix: dispatch `Input.dispatchMouseEvent` `mousePressed` + `mouseReleased` at the element's bounding-box center.
+
+3. **Selector source-of-truth = OWL XML.** Reading `addons/hr_attendance/static/src/components/.../*.xml` directly is faster and more reliable than guessing at runtime DOM. The Odoo 18 selectors used:
+   - Systray trigger: `header i.fa-circle[aria-label="Attendance"]`
+   - Action button (clock-out): `button.btn-warning > i.fa-sign-out`
+   - Action button (clock-in): `button.btn-success > i.fa-sign-in`
+
+### How to re-run
+
+```bash
+# Pre-requisites
+pip install websocket-client requests
+adb devices                   # phone connected, USB debugging on
+adb shell wm size             # confirm portrait
+
+# Tier 1
+./gradlew :app:testDebugUnitTest
+
+# Tier 2
+python3 scripts/verify-on-device.py
+
+# Tier 3
+python3 scripts/e2e_15_clockin_full.py
+```
+
+### Acceptance — closed
+All 10 criteria from §8 met. The location feature ships green.
