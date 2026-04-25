@@ -992,7 +992,8 @@ def ensure_logged_in():
     return is_webview_visible()
 
 
-def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=False):
+def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=False,
+                    location_enabled=None):
     """Fire MainActivity intent with test-hook extras. Hook is debug-only and
     R8-stripped in release. Waits long enough for PBKDF2 (600K iterations,
     ~6-8s on Xiaomi 25078PC3EG) to complete before returning — otherwise the
@@ -1006,6 +1007,8 @@ def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=Fa
         args += ["--ez", "biometric-enabled", "true" if biometric else "false"]
     if reset_state:
         args += ["--ez", "reset-state", "true"]
+    if location_enabled is not None:
+        args += ["--ez", "location-enabled", "true" if location_enabled else "false"]
     subprocess.run(args, timeout=10)
     # Wait for PBKDF2 to complete. The setPin path takes ~6-8s on the test
     # device because PBKDF2-HMAC-SHA256 with 600K iterations runs on the main
@@ -1184,6 +1187,56 @@ try:
         print("  ℹ  V23b-C482a7bf: no explicit rejection log (soft check)")
 except Exception as e:
     check("V23-C482a7bf", f"Deep-link rejection check error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
+section("V26-C<sha>: Geolocation grant flow during clock-in")
+# Self-contained verification: pre-grant OS permissions, enable the location toggle
+# via test hook, launch the app, and confirm it starts without crashing.
+# Full hr.attendance E2E (verify lat/lon on server) is in E2E-15 (e2e-production-test.py).
+try:
+    if not ensure_logged_in():
+        check("V26", "baseline failed — not logged in", False)
+    else:
+        # Pre-grant FINE + COARSE via adb so checkSelfPermission matches.
+        subprocess.run(
+            ["adb", "shell", "pm", "grant", PKG,
+             "android.permission.ACCESS_FINE_LOCATION"],
+            timeout=5,
+        )
+        subprocess.run(
+            ["adb", "shell", "pm", "grant", PKG,
+             "android.permission.ACCESS_COARSE_LOCATION"],
+            timeout=5,
+        )
+
+        # Enable location toggle via test hook.
+        apply_test_hook(location_enabled=True)
+        time.sleep(2)
+
+        # Relaunch and confirm the app is still running (WebView with
+        # setGeolocationEnabled did not crash).
+        d.app_start(PKG, ACTIVITY)
+        time.sleep(5)
+        running = d.app_current()["package"] == PKG
+        check(
+            "V26-C<sha>",
+            "WebView with geolocation enabled launches without crash",
+            running,
+        )
+
+        # Cleanup: revoke permissions so subsequent tests start clean.
+        subprocess.run(
+            ["adb", "shell", "pm", "revoke", PKG,
+             "android.permission.ACCESS_FINE_LOCATION"],
+            timeout=5,
+        )
+        subprocess.run(
+            ["adb", "shell", "pm", "revoke", PKG,
+             "android.permission.ACCESS_COARSE_LOCATION"],
+            timeout=5,
+        )
+except Exception as e:
+    check("V26", f"error: {e}", False)
 
 # ═══════════════════════════════════════════════════════════
 section("V25-C482a7bf: Release variant ignores test hooks")

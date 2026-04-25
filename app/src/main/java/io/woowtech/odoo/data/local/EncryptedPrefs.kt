@@ -54,6 +54,7 @@ class EncryptedPrefs @Inject constructor(
             putInt(KEY_FAILED_PIN_ATTEMPTS, settings.failedPinAttempts)
             settings.pinLockoutUntil?.let { putLong(KEY_PIN_LOCKOUT_UNTIL, it) }
                 ?: remove(KEY_PIN_LOCKOUT_UNTIL)
+            putBoolean(KEY_LOCATION_ENABLED, settings.locationEnabled)
         }.apply()
     }
 
@@ -74,7 +75,8 @@ class EncryptedPrefs @Inject constructor(
             failedPinAttempts = prefs.getInt(KEY_FAILED_PIN_ATTEMPTS, 0),
             pinLockoutUntil = if (prefs.contains(KEY_PIN_LOCKOUT_UNTIL)) {
                 prefs.getLong(KEY_PIN_LOCKOUT_UNTIL, 0)
-            } else null
+            } else null,
+            locationEnabled = prefs.getBoolean(KEY_LOCATION_ENABLED, true),
         )
     }
 
@@ -127,6 +129,10 @@ class EncryptedPrefs @Inject constructor(
         prefs.edit().putString(KEY_THEME_MODE, mode.code).apply()
     }
 
+    fun updateLocationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LOCATION_ENABLED, enabled).apply()
+    }
+
     fun saveFcmToken(token: String) {
         prefs.edit().putString(KEY_FCM_TOKEN, token).apply()
     }
@@ -147,5 +153,6 @@ class EncryptedPrefs @Inject constructor(
         private const val KEY_FAILED_PIN_ATTEMPTS = "failed_pin_attempts"
         private const val KEY_PIN_LOCKOUT_UNTIL = "pin_lockout_until"
         private const val KEY_FCM_TOKEN = "fcm_token"
+        private const val KEY_LOCATION_ENABLED = "location_enabled"
     }
 }

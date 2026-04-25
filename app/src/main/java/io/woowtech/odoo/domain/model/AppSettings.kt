@@ -10,7 +10,8 @@ data class AppSettings(
     val pinHash: String? = null,
     val language: AppLanguage = AppLanguage.SYSTEM,
     val failedPinAttempts: Int = 0,
-    val pinLockoutUntil: Long? = null
+    val pinLockoutUntil: Long? = null,
+    val locationEnabled: Boolean = true,
 )
 
 enum class ThemeMode(val code: String) {

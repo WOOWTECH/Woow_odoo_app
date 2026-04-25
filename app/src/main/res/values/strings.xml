@@ -173,4 +173,9 @@
     <!-- Notification Channels -->
     <string name="notification_channel_messages">Odoo Messages</string>
     <string name="notification_channel_messages_desc">Notifications for Odoo messages, mentions, and activities</string>
+
+    <!-- Location / Privacy -->
+    <string name="settings_location_section">Privacy</string>
+    <string name="settings_location_title">Use location for clock-in</string>
+    <string name="settings_location_description">Tags your Odoo clock-in record with your current location. Your phone never tracks you in the background.</string>
 </resources>

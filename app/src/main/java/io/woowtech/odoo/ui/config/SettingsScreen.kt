@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pin
 import androidx.compose.material.icons.filled.Public
@@ -226,6 +227,19 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Privacy Section
+            SettingsSection(title = stringResource(R.string.settings_location_section)) {
+                SettingsToggleItem(
+                    icon = Icons.Default.MyLocation,
+                    title = stringResource(R.string.settings_location_title),
+                    subtitle = stringResource(R.string.settings_location_description),
+                    checked = settings.locationEnabled,
+                    onCheckedChange = { viewModel.updateLocationEnabled(it) }
                 )
             }
 

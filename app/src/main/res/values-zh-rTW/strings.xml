@@ -169,4 +169,9 @@
     <string name="content_description_avatar">使用者頭像</string>
     <string name="content_description_visibility_on">顯示密碼</string>
     <string name="content_description_visibility_off">隱藏密碼</string>
+
+    <!-- Location / Privacy -->
+    <string name="settings_location_section">隱私</string>
+    <string name="settings_location_title">打卡時使用定位</string>
+    <string name="settings_location_description">為您的 Odoo 打卡記錄附上目前位置。我們不會在背景追蹤您。</string>
 </resources>

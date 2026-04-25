@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.main
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
@@ -7,15 +8,15 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Message
 import android.provider.MediaStore
-import timber.log.Timber
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebResourceResponse
 import android.webkit.WebViewClient
 import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,6 +38,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,10 +54,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
+import io.woowtech.odoo.data.location.LocationPermissionGate
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import timber.log.Timber
+
+/** Holds a pending geolocation permission request while the runtime OS dialog is showing. */
+private data class PendingGeolocationRequest(
+    val origin: String?,
+    val callback: GeolocationPermissions.Callback,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +76,15 @@ fun MainScreen(
     val account by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+
+    // Cache the active account host so we never need to suspend on the WebChromeClient
+    // callback thread. Updated whenever the active account changes.
+    var activeHostSnapshot by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(account) {
+        activeHostSnapshot = account?.fullServerUrl?.let { url ->
+            runCatching { Uri.parse(url).host?.lowercase() }.getOrNull()
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -108,9 +129,11 @@ fun MainScreen(
                     database = acc.database,
                     sessionId = sessionId,
                     deepLinkUrl = pendingDeepLink,
+                    locationPermissionGate = viewModel.locationPermissionGate,
+                    activeHostSnapshot = activeHostSnapshot,
                     onWebViewCreated = { webView = it },
                     onLoadingChanged = { isLoading = it },
-                    onSessionExpired = onMenuClick // Navigate to menu/login on session expiry
+                    onSessionExpired = onMenuClick,
                 )
             }
 
@@ -133,15 +156,47 @@ fun OdooWebView(
     database: String,
     sessionId: String?,
     deepLinkUrl: String? = null,
+    locationPermissionGate: LocationPermissionGate? = null,
+    activeHostSnapshot: String? = null,
     onWebViewCreated: (WebView) -> Unit,
     onLoadingChanged: (Boolean) -> Unit,
-    onSessionExpired: () -> Unit
+    onSessionExpired: () -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // v1.0.15: File upload support - state for file chooser callback
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Geolocation: holds an in-flight permission request while the OS dialog is open.
+    var pendingGeolocationRequest by remember { mutableStateOf<PendingGeolocationRequest?>(null) }
+
+    // Runtime permission launcher for ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION.
+    // Invoked when LocationPermissionGate returns NeedsRuntimePrompt.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants.values.any { it }
+        pendingGeolocationRequest?.let { req ->
+            if (granted && req.origin?.isNotBlank() == true) {
+                // Clear any stale per-origin "blocked" entry before granting so that
+                // a previously denied WebView database entry cannot override the grant.
+                GeolocationPermissions.getInstance().clear(req.origin)
+                req.callback.invoke(req.origin, true, true)
+                Timber.d("Geolocation: granted after runtime prompt for %s", req.origin)
+            } else {
+                req.callback.invoke(req.origin, false, false)
+                Timber.d("Geolocation: denied at runtime prompt for %s", req.origin)
+            }
+            pendingGeolocationRequest = null
+        }
+    }
+
+    // Null-guard: clear any dangling request when the composable leaves the composition.
+    DisposableEffect(Unit) {
+        onDispose { pendingGeolocationRequest = null }
+    }
 
     // v1.0.15: Create temp file for camera photo
     fun createImageFile(): File {
@@ -225,6 +280,9 @@ fun OdooWebView(
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
+                    // Required for navigator.geolocation to fire
+                    // onGeolocationPermissionsShowPrompt in the WebChromeClient.
+                    setGeolocationEnabled(true)
 
                     // v1.0.12: CRITICAL FIX - Disable wide viewport settings
                     // These settings cause Odoo OWL to miscalculate layout dimensions
@@ -475,6 +533,72 @@ fun OdooWebView(
                             )
                         }
                         return true
+                    }
+
+                    /**
+                     * Called by the WebView when a page requests geolocation permission.
+                     *
+                     * The resolution order is:
+                     * 1. Activity-resumed guard — if the Activity is not RESUMED the OS dialog
+                     *    cannot be shown, so we deny immediately and let Odoo's error callback
+                     *    fire the no-coords clock-in path.
+                     * 2. [LocationPermissionGate.resolve] — checks origin, user preference,
+                     *    and OS permission state.
+                     *
+                     * Every code path invokes [callback] exactly once, satisfying the
+                     * WebView's contract of calling the callback within the 30s timeout.
+                     */
+                    override fun onGeolocationPermissionsShowPrompt(
+                        origin: String?,
+                        callback: GeolocationPermissions.Callback?,
+                    ) {
+                        if (callback == null) return
+
+                        // Guard: OS runtime dialog cannot be shown unless Activity is RESUMED.
+                        if (lifecycleOwner.lifecycle.currentState < Lifecycle.State.RESUMED) {
+                            callback.invoke(origin, false, false)
+                            Timber.w("Geolocation: Activity not RESUMED — denied for %s", origin)
+                            return
+                        }
+
+                        val gate = locationPermissionGate
+                        if (gate == null) {
+                            // Gate unavailable (e.g. previews, tests without Hilt) — deny safely.
+                            callback.invoke(origin, false, false)
+                            return
+                        }
+
+                        when (val decision = gate.resolve(origin, activeHostSnapshot)) {
+                            is LocationPermissionGate.Decision.Grant -> {
+                                // Defense-in-depth: clear any stale per-origin "blocked" cache
+                                // entry that could override this grant.
+                                if (!origin.isNullOrBlank()) {
+                                    GeolocationPermissions.getInstance().clear(origin)
+                                }
+                                callback.invoke(origin, true, true)
+                                Timber.d("Geolocation: granted for %s", origin)
+                            }
+                            is LocationPermissionGate.Decision.Reject -> {
+                                callback.invoke(origin, false, false)
+                                Timber.d("Geolocation: rejected (%s)", decision.reason)
+                            }
+                            is LocationPermissionGate.Decision.NeedsRuntimePrompt -> {
+                                pendingGeolocationRequest = PendingGeolocationRequest(
+                                    origin = origin,
+                                    callback = callback,
+                                )
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    override fun onGeolocationPermissionsHidePrompt() {
+                        super.onGeolocationPermissionsHidePrompt()
                     }
                 }
 

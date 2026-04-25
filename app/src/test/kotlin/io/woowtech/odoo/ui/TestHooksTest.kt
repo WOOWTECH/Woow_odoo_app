@@ -172,6 +172,17 @@ class TestHooksTest {
         }
     }
 
+    // ─── Test 11: location-enabled=false delegates correctly ─────────────────
+
+    @Test
+    fun `Given location-enabled=false then updateLocationEnabled false called`() {
+        val intent = intentWithExtras(locationEnabled = false)
+
+        TestHooks.applyIfPresent(intent, settings)
+
+        verify { settings.updateLocationEnabled(false) }
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     /**
@@ -184,6 +195,7 @@ class TestHooksTest {
         appLock: Boolean? = null,
         biometric: Boolean? = null,
         resetState: Boolean? = null,
+        locationEnabled: Boolean? = null,
     ): Intent = mockk {
         val fakeBundle = mockk<Bundle>(relaxed = true)
         every { extras } returns fakeBundle
@@ -201,5 +213,9 @@ class TestHooksTest {
 
         // reset-state — getBooleanExtra is used directly (no hasExtra guard)
         every { getBooleanExtra("reset-state", false) } returns (resetState ?: false)
+
+        // location-enabled
+        every { hasExtra("location-enabled") } returns (locationEnabled != null)
+        every { getBooleanExtra("location-enabled", true) } returns (locationEnabled ?: true)
     }
 }

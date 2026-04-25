@@ -11,6 +11,8 @@ import io.woowtech.odoo.data.api.OdooJsonRpcClient
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.AppDatabase
 import io.woowtech.odoo.data.local.EncryptedPrefs
+import io.woowtech.odoo.data.location.ContextPermissionChecker
+import io.woowtech.odoo.data.location.PermissionChecker
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.data.repository.FcmTokenRepository
 import io.woowtech.odoo.data.repository.FcmTokenRepositoryImpl
@@ -92,6 +94,16 @@ object AppModule {
                 odooClient.getSessionCookies(host)
         }
     }
+
+    /**
+     * Binds the production [PermissionChecker] so [LocationPermissionGate] can be
+     * tested without touching real [android.content.Context] permission APIs.
+     */
+    @Provides
+    @Singleton
+    fun providePermissionChecker(
+        @ApplicationContext context: Context,
+    ): PermissionChecker = ContextPermissionChecker(context)
 
     @Provides
     @Singleton

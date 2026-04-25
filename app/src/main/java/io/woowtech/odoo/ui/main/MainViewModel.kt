@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.woowtech.odoo.data.local.EncryptedPrefs
+import io.woowtech.odoo.data.location.LocationPermissionGate
 import io.woowtech.odoo.data.push.DeepLinkManager
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.domain.model.OdooAccount
@@ -25,7 +26,8 @@ data class WebViewCredentials(
 class MainViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val encryptedPrefs: EncryptedPrefs,
-    private val deepLinkManager: DeepLinkManager
+    private val deepLinkManager: DeepLinkManager,
+    val locationPermissionGate: LocationPermissionGate,
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount

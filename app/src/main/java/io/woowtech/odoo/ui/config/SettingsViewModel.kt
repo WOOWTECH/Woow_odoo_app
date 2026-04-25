@@ -71,6 +71,14 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
+     * Updates whether the app shares the device location with the Odoo server
+     * during attendance clock-in.
+     */
+    fun updateLocationEnabled(enabled: Boolean) {
+        settingsRepository.updateLocationEnabled(enabled)
+    }
+
+    /**
      * Clears app cache and WebView cache via CacheRepository.
      * Does not clear login session or user settings.
      */

@@ -34,6 +34,7 @@ internal object TestHooks {
     private const val EXTRA_APP_LOCK = "app-lock-enabled"
     private const val EXTRA_BIOMETRIC = "biometric-enabled"
     private const val EXTRA_RESET = "reset-state"
+    private const val EXTRA_LOCATION = "location-enabled"
 
     fun applyIfPresent(intent: Intent?, settings: SettingsRepository) {
         if (!BuildConfig.DEBUG) return
@@ -66,6 +67,11 @@ internal object TestHooks {
             if (intent.getBooleanExtra(EXTRA_RESET, false)) {
                 settings.resetFailedPinAttempts()
                 Timber.tag(TAG).w("Auth state reset via test hook (DEBUG only)")
+            }
+
+            if (intent.hasExtra(EXTRA_LOCATION)) {
+                settings.updateLocationEnabled(intent.getBooleanExtra(EXTRA_LOCATION, true))
+                Timber.tag(TAG).w("Location preference set via test hook (DEBUG only)")
             }
         } catch (t: Throwable) {
             // Defense in depth: NEVER crash the app from a test hook. If

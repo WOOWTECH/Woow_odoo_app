@@ -896,6 +896,121 @@ except Exception as e:
     check("E2E-14", f"Reduce Motion E2E error: {e}", False)
 
 # ═══════════════════════════════════════════════════════════
+section("E2E-15: Geolocation clock-in — hr.attendance gets lat/lon")
+# Preconditions: Odoo server running, employee exists, user is logged in.
+# Verifies the full path: WebView geolocation → Odoo RPC → hr.attendance record.
+try:
+    if not ensure_logged_in():
+        check("E2E-15", "baseline login failed", False)
+    else:
+        # Grant FINE + COARSE via adb (deterministic — matches checkSelfPermission).
+        subprocess.run(
+            ["adb", "shell", "pm", "grant", PKG,
+             "android.permission.ACCESS_FINE_LOCATION"],
+            timeout=5,
+        )
+        subprocess.run(
+            ["adb", "shell", "pm", "grant", PKG,
+             "android.permission.ACCESS_COARSE_LOCATION"],
+            timeout=5,
+        )
+
+        # Ensure the location toggle is ON via test hook.
+        args_hook = [
+            "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+            "--ez", "location-enabled", "true",
+        ]
+        subprocess.run(args_hook, timeout=10)
+        time.sleep(3)
+
+        # Snapshot: capture the latest hr.attendance record ID before clock-in.
+        records_before, err = odoo_execute(
+            "hr.attendance",
+            "search_read",
+            [[]],
+            {"fields": ["id"], "order": "id desc", "limit": 1},
+        )
+        before_id = records_before[0]["id"] if records_before else 0
+        check("E2E-15a", "can query hr.attendance before clock-in", err is None)
+
+        # Navigate to /odoo/attendances so the Check In/Out button is visible.
+        d.app_stop(PKG)
+        time.sleep(1)
+        d.app_start(PKG, ACTIVITY)
+        time.sleep(5)
+
+        # Inject JS to call navigator.geolocation.getCurrentPosition via the
+        # systray (or trigger it manually). We simulate the clock-in by evaluating
+        # JavaScript directly in the WebView — the geo callback fires, then Odoo
+        # receives the RPC. We wait 8s for the round-trip to complete.
+        #
+        # Note: uiautomator2 cannot directly inject JS into a WebView. Instead,
+        # we rely on the UI tap path: navigate to /odoo/attendances and tap the
+        # Check In/Out button. The button is typically labeled by employee name.
+        attended_page = False
+        for nav_label in ("Attendances", "出勤", "考勤"):
+            if d(text=nav_label).exists(timeout=3):
+                d(text=nav_label).click()
+                attended_page = True
+                time.sleep(3)
+                break
+
+        # Find and tap the Check In / Check Out button.
+        clocked = False
+        for label in ("Check In", "Check Out", "打卡", "上班打卡", "下班打卡", "Clock In", "Clock Out"):
+            if d(text=label).exists(timeout=3):
+                d(text=label).click()
+                clocked = True
+                Timber_note = f"Tapped '{label}'"
+                time.sleep(8)  # Wait for geolocation + RPC round-trip
+                break
+
+        check("E2E-15b", "Check In/Out button found and tapped", clocked)
+
+        if clocked:
+            # Query the latest attendance record created after our baseline.
+            records_after, err2 = odoo_execute(
+                "hr.attendance",
+                "search_read",
+                [[["id", ">", before_id]]],
+                {"fields": ["id", "in_latitude", "in_longitude",
+                            "out_latitude", "out_longitude"],
+                 "order": "id desc", "limit": 1},
+            )
+            if err2 or not records_after:
+                check("E2E-15c", f"new hr.attendance record exists (err={err2})", False)
+            else:
+                rec = records_after[0]
+                # Accept either in_* or out_* coords — depends on current state.
+                in_lat = rec.get("in_latitude") or 0
+                in_lon = rec.get("in_longitude") or 0
+                out_lat = rec.get("out_latitude") or 0
+                out_lon = rec.get("out_longitude") or 0
+                has_coords = (in_lat != 0 and in_lon != 0) or (out_lat != 0 and out_lon != 0)
+                check(
+                    "E2E-15c",
+                    f"hr.attendance record has non-zero lat/lon "
+                    f"(in={in_lat},{in_lon} out={out_lat},{out_lon})",
+                    has_coords,
+                )
+        else:
+            check("E2E-15c", "skipped — could not tap clock-in button", False)
+
+        # Cleanup: revoke permissions so other tests start clean.
+        subprocess.run(
+            ["adb", "shell", "pm", "revoke", PKG,
+             "android.permission.ACCESS_FINE_LOCATION"],
+            timeout=5,
+        )
+        subprocess.run(
+            ["adb", "shell", "pm", "revoke", PKG,
+             "android.permission.ACCESS_COARSE_LOCATION"],
+            timeout=5,
+        )
+except Exception as e:
+    check("E2E-15", f"error: {e}", False)
+
+# ═══════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════
 section("PRODUCTION E2E TEST SUMMARY")

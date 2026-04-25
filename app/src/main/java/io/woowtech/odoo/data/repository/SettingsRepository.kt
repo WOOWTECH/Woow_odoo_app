@@ -157,6 +157,16 @@ class SettingsRepository @Inject constructor(
     }
 
     /**
+     * Persists and reflects the user's preference for whether the app may share
+     * the device location with the active Odoo server during attendance clock-in.
+     * This is a user-facing opt-out; the default is true (enabled).
+     */
+    fun updateLocationEnabled(enabled: Boolean) {
+        encryptedPrefs.updateLocationEnabled(enabled)
+        _settings.value = _settings.value.copy(locationEnabled = enabled)
+    }
+
+    /**
      * Hashes a PIN using PBKDF2WithHmacSHA256 with a random 16-byte salt.
      * Returns the salt and hash encoded as "salt:hash" in hex.
      */
