@@ -5,9 +5,11 @@ import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
 import io.woowtech.odoo.domain.model.ThemeMode
 import io.woowtech.odoo.ui.theme.ThemeManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import android.os.SystemClock
 import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
@@ -68,8 +70,17 @@ class SettingsRepository @Inject constructor(
         _settings.value = _settings.value.copy(biometricEnabled = effective)
     }
 
-    fun setPin(pin: String): Boolean {
-        if (pin.length < 4 || pin.length > 6) return false
+    /**
+     * Hashes the given [pin] with PBKDF2 (600,000 iterations) and persists the result.
+     *
+     * The PBKDF2 computation is dispatched to [Dispatchers.Default] so it never
+     * executes on the main thread. Callers must launch this in a coroutine scope
+     * (e.g. [viewModelScope] in a ViewModel or [lifecycleScope] in an Activity).
+     *
+     * @return `true` on success, `false` when [pin] length is outside 4–6.
+     */
+    suspend fun setPin(pin: String): Boolean = withContext(Dispatchers.Default) {
+        if (pin.length < 4 || pin.length > 6) return@withContext false
 
         val hash = hashPin(pin)
         encryptedPrefs.updatePinHash(hash)
@@ -77,7 +88,7 @@ class SettingsRepository @Inject constructor(
             pinEnabled = true,
             pinHash = hash
         )
-        return true
+        true
     }
 
     fun removePin() {
@@ -96,18 +107,36 @@ class SettingsRepository @Inject constructor(
         encryptedPrefs.resetFailedPinAttempts()
     }
 
-    fun verifyPin(pin: String): Boolean {
-        val currentHash = _settings.value.pinHash ?: return false
+    /**
+     * Verifies [pin] against the stored PBKDF2 hash (600,000 iterations).
+     *
+     * The PBKDF2 computation is dispatched to [Dispatchers.Default] so it never
+     * blocks the main thread. The inherent verify cost is still 1–3 seconds on
+     * mid-range hardware; callers should display a progress indicator while
+     * suspended (see [PinScreen]'s `isVerifying` state).
+     *
+     * Also handles the legacy SHA-256 → PBKDF2 migration path: if the stored hash
+     * has no colon separator it is treated as a legacy hash and re-hashed with
+     * PBKDF2 on successful verification (also off the main thread).
+     *
+     * Increments the persisted failed-attempt counter and applies exponential
+     * lockout on failure. Resets the counter on success.
+     *
+     * @return `true` when [pin] matches the stored hash and the account is not
+     *   locked out, `false` otherwise.
+     */
+    suspend fun verifyPin(pin: String): Boolean = withContext(Dispatchers.Default) {
+        val currentHash = _settings.value.pinHash ?: return@withContext false
 
         // Check if locked out
         _settings.value.pinLockoutUntil?.let { lockoutUntil ->
             if (SystemClock.elapsedRealtime() < lockoutUntil) {
-                return false
+                return@withContext false
             }
         }
 
         val matches = verifyPbkdf2(pin, currentHash)
-        return if (matches) {
+        if (matches) {
             encryptedPrefs.resetFailedPinAttempts()
             _settings.value = _settings.value.copy(
                 failedPinAttempts = 0,

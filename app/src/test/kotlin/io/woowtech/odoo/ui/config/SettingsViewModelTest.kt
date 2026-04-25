@@ -20,7 +20,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
@@ -205,24 +204,25 @@ class SettingsViewModelTest {
     inner class PinManagement {
 
         @Test
-        fun `Given valid PIN when setPin then returns result from repository`() {
-            every { settingsRepository.setPin("1234") } returns true
+        fun `Given valid PIN when setPin then delegates to repository`() = runTest {
+            coEvery { settingsRepository.setPin("1234") } returns true
             viewModel = createViewModel()
 
-            val result = viewModel.setPin("1234")
+            viewModel.setPin("1234")
+            testDispatcher.scheduler.advanceUntilIdle()
 
-            assertTrue(result)
-            verify { settingsRepository.setPin("1234") }
+            coVerify { settingsRepository.setPin("1234") }
         }
 
         @Test
-        fun `Given invalid PIN when setPin then returns false from repository`() {
-            every { settingsRepository.setPin("12") } returns false
+        fun `Given invalid PIN when setPin then repository is still called`() = runTest {
+            coEvery { settingsRepository.setPin("12") } returns false
             viewModel = createViewModel()
 
-            val result = viewModel.setPin("12")
+            viewModel.setPin("12")
+            testDispatcher.scheduler.advanceUntilIdle()
 
-            assertFalse(result)
+            coVerify { settingsRepository.setPin("12") }
         }
 
         @Test

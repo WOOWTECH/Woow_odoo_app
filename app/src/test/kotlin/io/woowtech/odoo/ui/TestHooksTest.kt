@@ -2,10 +2,17 @@ package io.woowtech.odoo.ui
 
 import android.content.Intent
 import android.os.Bundle
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.woowtech.odoo.data.repository.SettingsRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import timber.log.Timber
@@ -23,7 +30,11 @@ import timber.log.Timber
  *
  * Timber is planted with a list-recording tree in setUp so we can assert on
  * warning messages logged for invalid input paths.
+ *
+ * [SettingsRepository.setPin] is now `suspend` so tests that verify it is called
+ * use [coEvery]/[coVerify] and call [advanceUntilIdle] to drain the launched coroutine.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class TestHooksTest {
 
     private lateinit var settings: SettingsRepository
@@ -44,23 +55,26 @@ class TestHooksTest {
     // ─── Test 1: Valid 4-digit PIN is seeded ───────────────────────────────────
 
     @Test
-    fun `Given valid test-pin 1234 when applyIfPresent then setPin called`() {
+    fun `Given valid test-pin 1234 when applyIfPresent then setPin called`() = runTest {
         val intent = intentWithExtras(pin = "1234")
+        coEvery { settings.setPin(any()) } returns true
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
+        advanceUntilIdle()
 
-        verify { settings.setPin("1234") }
+        coVerify { settings.setPin("1234") }
     }
 
     // ─── Test 2: Non-digit PIN is skipped ─────────────────────────────────────
 
     @Test
-    fun `Given test-pin abc when applyIfPresent then setPin NOT called and warning logged`() {
+    fun `Given test-pin abc when applyIfPresent then setPin NOT called and warning logged`() = runTest {
         val intent = intentWithExtras(pin = "abc")
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
+        advanceUntilIdle()
 
-        verify(exactly = 0) { settings.setPin(any()) }
+        coVerify(exactly = 0) { settings.setPin(any()) }
         assert(loggedMessages.any { it.contains("invalid test-pin", ignoreCase = true) }) {
             "Expected an invalid-pin warning log. Got: $loggedMessages"
         }
@@ -69,12 +83,13 @@ class TestHooksTest {
     // ─── Test 3: PIN too short is skipped ─────────────────────────────────────
 
     @Test
-    fun `Given test-pin 12 too short when applyIfPresent then setPin NOT called`() {
+    fun `Given test-pin 12 too short when applyIfPresent then setPin NOT called`() = runTest {
         val intent = intentWithExtras(pin = "12")
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
+        advanceUntilIdle()
 
-        verify(exactly = 0) { settings.setPin(any()) }
+        coVerify(exactly = 0) { settings.setPin(any()) }
         assert(loggedMessages.any { it.contains("invalid test-pin", ignoreCase = true) }) {
             "Expected an invalid-pin warning log. Got: $loggedMessages"
         }
@@ -83,12 +98,13 @@ class TestHooksTest {
     // ─── Test 4: PIN too long is skipped ──────────────────────────────────────
 
     @Test
-    fun `Given test-pin 1234567 too long when applyIfPresent then setPin NOT called`() {
+    fun `Given test-pin 1234567 too long when applyIfPresent then setPin NOT called`() = runTest {
         val intent = intentWithExtras(pin = "1234567")
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
+        advanceUntilIdle()
 
-        verify(exactly = 0) { settings.setPin(any()) }
+        coVerify(exactly = 0) { settings.setPin(any()) }
         assert(loggedMessages.any { it.contains("invalid test-pin", ignoreCase = true) }) {
             "Expected an invalid-pin warning log. Got: $loggedMessages"
         }
@@ -97,10 +113,10 @@ class TestHooksTest {
     // ─── Test 5: app-lock-enabled=true delegates correctly ────────────────────
 
     @Test
-    fun `Given app-lock-enabled=true when applyIfPresent then updateAppLock true called`() {
+    fun `Given app-lock-enabled=true when applyIfPresent then updateAppLock true called`() = runTest {
         val intent = intentWithExtras(appLock = true)
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
 
         verify { settings.updateAppLock(true) }
     }
@@ -108,10 +124,10 @@ class TestHooksTest {
     // ─── Test 6: biometric-enabled=true delegates correctly ───────────────────
 
     @Test
-    fun `Given biometric-enabled=true when applyIfPresent then updateBiometric true canEnable true called`() {
+    fun `Given biometric-enabled=true when applyIfPresent then updateBiometric true canEnable true called`() = runTest {
         val intent = intentWithExtras(biometric = true)
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
 
         verify { settings.updateBiometric(enabled = true, canEnable = true) }
     }
@@ -119,10 +135,10 @@ class TestHooksTest {
     // ─── Test 7: reset-state=true delegates correctly ─────────────────────────
 
     @Test
-    fun `Given reset-state=true when applyIfPresent then resetFailedPinAttempts called`() {
+    fun `Given reset-state=true when applyIfPresent then resetFailedPinAttempts called`() = runTest {
         val intent = intentWithExtras(resetState = true)
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
 
         verify { settings.resetFailedPinAttempts() }
     }
@@ -130,14 +146,15 @@ class TestHooksTest {
     // ─── Test 8: Intent with null extras → no settings touched ────────────────
 
     @Test
-    fun `Given intent with no extras when applyIfPresent then no settings methods called`() {
+    fun `Given intent with no extras when applyIfPresent then no settings methods called`() = runTest {
         val intent = mockk<Intent> {
             every { extras } returns null
         }
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
+        advanceUntilIdle()
 
-        verify(exactly = 0) { settings.setPin(any()) }
+        coVerify(exactly = 0) { settings.setPin(any()) }
         verify(exactly = 0) { settings.updateAppLock(any()) }
         verify(exactly = 0) { settings.updateBiometric(any(), any()) }
         verify(exactly = 0) { settings.resetFailedPinAttempts() }
@@ -146,11 +163,12 @@ class TestHooksTest {
     // ─── Test 9: Null intent → no settings touched, no exception ──────────────
 
     @Test
-    fun `Given null intent when applyIfPresent then no settings methods called and no exception`() {
+    fun `Given null intent when applyIfPresent then no settings methods called and no exception`() = runTest {
         // Must not throw — graceful no-op when intent is null
-        TestHooks.applyIfPresent(null, settings)
+        TestHooks.applyIfPresent(null, settings, this)
+        advanceUntilIdle()
 
-        verify(exactly = 0) { settings.setPin(any()) }
+        coVerify(exactly = 0) { settings.setPin(any()) }
         verify(exactly = 0) { settings.updateAppLock(any()) }
         verify(exactly = 0) { settings.updateBiometric(any(), any()) }
         verify(exactly = 0) { settings.resetFailedPinAttempts() }
@@ -159,15 +177,16 @@ class TestHooksTest {
     // ─── Test 10: setPin throws → exception does NOT propagate ────────────────
 
     @Test
-    fun `Given setPin throws when applyIfPresent then no exception propagates`() {
+    fun `Given setPin throws when applyIfPresent then no exception propagates`() = runTest {
         val intent = intentWithExtras(pin = "1234")
-        every { settings.setPin(any()) } throws RuntimeException("Simulated keystore failure")
+        coEvery { settings.setPin(any()) } throws RuntimeException("Simulated keystore failure")
 
-        // Must not throw — the outer try/catch in TestHooks absorbs it
-        TestHooks.applyIfPresent(intent, settings)
+        // Must not throw — the inner try/catch inside the launched coroutine absorbs it
+        TestHooks.applyIfPresent(intent, settings, this)
+        advanceUntilIdle()
 
         // Verify the error path was logged
-        assert(loggedMessages.any { it.contains("Test hook threw", ignoreCase = true) }) {
+        assert(loggedMessages.any { it.contains("Test hook", ignoreCase = true) }) {
             "Expected an error log for the thrown exception. Got: $loggedMessages"
         }
     }
@@ -175,10 +194,10 @@ class TestHooksTest {
     // ─── Test 11: location-enabled=false delegates correctly ─────────────────
 
     @Test
-    fun `Given location-enabled=false then updateLocationEnabled false called`() {
+    fun `Given location-enabled=false then updateLocationEnabled false called`() = runTest {
         val intent = intentWithExtras(locationEnabled = false)
 
-        TestHooks.applyIfPresent(intent, settings)
+        TestHooks.applyIfPresent(intent, settings, this)
 
         verify { settings.updateLocationEnabled(false) }
     }

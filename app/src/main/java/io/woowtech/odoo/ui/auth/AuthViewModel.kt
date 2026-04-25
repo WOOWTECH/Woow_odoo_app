@@ -73,7 +73,12 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun verifyPin(pin: String): Boolean = settingsRepository.verifyPin(pin)
+    /**
+     * Verifies [pin] against the stored PBKDF2 hash. Delegates to
+     * [SettingsRepository.verifyPin] which dispatches the CPU-intensive hash
+     * computation to [kotlinx.coroutines.Dispatchers.Default].
+     */
+    suspend fun verifyPin(pin: String): Boolean = settingsRepository.verifyPin(pin)
 
     fun getRemainingAttempts(): Int = settingsRepository.getRemainingAttempts()
 
@@ -90,12 +95,17 @@ class AuthViewModel @Inject constructor(
      * Only a length-6 mismatch is recorded as a failure via [SettingsRepository.verifyPin],
      * mirroring the iOS `enterPinDigit` behaviour verbatim.
      *
+     * This function is `suspend` because [SettingsRepository.verifyPin] dispatches
+     * 600,000-iteration PBKDF2 to [kotlinx.coroutines.Dispatchers.Default]. Callers
+     * in the UI layer must wrap calls in a coroutine scope (e.g. `rememberCoroutineScope`)
+     * and guard against rapid taps with an `isVerifying` flag.
+     *
      * @param digit the single character to append.
      * @param currentPin the PIN accumulated so far (caller-managed UI state).
      * @return a pair of (new accumulated PIN, [PinEntryResult]). On `WrongPin` or
      *   `LockedOut`, the returned PIN is empty so the caller can re-render the dots.
      */
-    fun enterPinDigit(digit: String, currentPin: String): Pair<String, PinEntryResult> {
+    suspend fun enterPinDigit(digit: String, currentPin: String): Pair<String, PinEntryResult> {
         val nextPin = currentPin + digit
 
         if (nextPin.length < MIN_PIN_LENGTH) {

@@ -23,6 +23,7 @@ import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.ui.auth.AuthViewModel
 import io.woowtech.odoo.ui.navigation.WoowOdooNavHost
 import io.woowtech.odoo.ui.theme.WoowTechOdooTheme
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -87,7 +88,8 @@ class MainActivity : FragmentActivity() {
 
         // Test hooks must run BEFORE setContent so seeded state is visible
         // to the first composition (auth gate reads it immediately).
-        TestHooks.applyIfPresent(intent, settingsRepository)
+        // lifecycleScope is passed so setPin (now suspend) is never on GlobalScope.
+        TestHooks.applyIfPresent(intent, settingsRepository, lifecycleScope)
 
         handleDeepLinkIntent(intent)
 
@@ -107,7 +109,7 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         // Warm-start re-seeding for E2E tests (no-op in release).
-        TestHooks.applyIfPresent(intent, settingsRepository)
+        TestHooks.applyIfPresent(intent, settingsRepository, lifecycleScope)
         handleDeepLinkIntent(intent)
     }
 

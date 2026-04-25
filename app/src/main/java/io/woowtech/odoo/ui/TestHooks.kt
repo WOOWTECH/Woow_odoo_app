@@ -3,6 +3,8 @@ package io.woowtech.odoo.ui
 import android.content.Intent
 import io.woowtech.odoo.BuildConfig
 import io.woowtech.odoo.data.repository.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 /**
@@ -36,7 +38,19 @@ internal object TestHooks {
     private const val EXTRA_RESET = "reset-state"
     private const val EXTRA_LOCATION = "location-enabled"
 
-    fun applyIfPresent(intent: Intent?, settings: SettingsRepository) {
+    /**
+     * Applies E2E-test preconditions from [intent] extras (debug builds only).
+     *
+     * [coroutineScope] must be an activity-lifetime scope (e.g. [androidx.lifecycle.lifecycleScope])
+     * so the suspend [SettingsRepository.setPin] call is never orphaned on [kotlinx.coroutines.GlobalScope].
+     * The scope is cancelled automatically when the Activity is destroyed, which is safe because
+     * in-flight PBKDF2 hashing will just be interrupted.
+     *
+     * All other (non-suspend) settings mutations remain synchronous and execute
+     * immediately before [coroutineScope.launch] returns, preserving the pre-setContent
+     * ordering guarantee for app-lock, biometric, and reset extras.
+     */
+    fun applyIfPresent(intent: Intent?, settings: SettingsRepository, coroutineScope: CoroutineScope) {
         if (!BuildConfig.DEBUG) return
         if (intent == null || intent.extras == null) return
 
@@ -44,8 +58,14 @@ internal object TestHooks {
             val pin = intent.getStringExtra(EXTRA_TEST_PIN)
             if (pin != null) {
                 if (pin.length in 4..6 && pin.all { it.isDigit() }) {
-                    settings.setPin(pin)
-                    Timber.tag(TAG).w("Seeded PIN via test hook (DEBUG only)")
+                    coroutineScope.launch {
+                        try {
+                            settings.setPin(pin)
+                            Timber.tag(TAG).w("Seeded PIN via test hook (DEBUG only)")
+                        } catch (t: Throwable) {
+                            Timber.tag(TAG).e(t, "Test hook setPin threw — ignored to avoid Activity crash")
+                        }
+                    }
                 } else {
                     Timber.tag(TAG).w("Ignored invalid test-pin (must be 4-6 digits)")
                 }

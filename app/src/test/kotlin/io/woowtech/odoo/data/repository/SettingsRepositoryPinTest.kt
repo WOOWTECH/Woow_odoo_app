@@ -5,12 +5,19 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AppSettings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SettingsRepositoryPinTest {
 
     private lateinit var encryptedPrefs: EncryptedPrefs
@@ -24,14 +31,14 @@ class SettingsRepositoryPinTest {
     }
 
     @Test
-    fun `Given valid PIN when setPin then stores PBKDF2 hash with salt separator`() {
+    fun `Given valid PIN when setPin then stores PBKDF2 hash with salt separator`() = runTest {
         repo.setPin("1234")
         // PBKDF2 hash format is "salt:hash" — must contain colon
         verify { encryptedPrefs.updatePinHash(match { it.contains(":") }) }
     }
 
     @Test
-    fun `Given same PIN hashed twice then produces different hashes (random salt)`() {
+    fun `Given same PIN hashed twice then produces different hashes (random salt)`() = runTest {
         // We need to capture the hash values
         val hashes = mutableListOf<String>()
         every { encryptedPrefs.updatePinHash(capture(hashes)) } returns Unit
@@ -47,17 +54,17 @@ class SettingsRepositoryPinTest {
     }
 
     @Test
-    fun `Given PIN too short when setPin then returns false`() {
+    fun `Given PIN too short when setPin then returns false`() = runTest {
         assertFalse(repo.setPin("12"))  // < 4 digits
     }
 
     @Test
-    fun `Given PIN too long when setPin then returns false`() {
+    fun `Given PIN too long when setPin then returns false`() = runTest {
         assertFalse(repo.setPin("1234567"))  // > 6 digits
     }
 
     @Test
-    fun `Given PBKDF2 hash stored when verifyPin correct then returns true`() {
+    fun `Given PBKDF2 hash stored when verifyPin correct then returns true`() = runTest {
         // Set a PIN first to get a real PBKDF2 hash
         val capturedHash = mutableListOf<String>()
         every { encryptedPrefs.updatePinHash(capture(capturedHash)) } returns Unit
@@ -77,7 +84,7 @@ class SettingsRepositoryPinTest {
     }
 
     @Test
-    fun `Given PBKDF2 hash stored when verifyPin wrong then returns false`() {
+    fun `Given PBKDF2 hash stored when verifyPin wrong then returns false`() = runTest {
         val capturedHash = mutableListOf<String>()
         every { encryptedPrefs.updatePinHash(capture(capturedHash)) } returns Unit
         every { encryptedPrefs.incrementFailedPinAttempts() } returns 1
@@ -95,7 +102,7 @@ class SettingsRepositoryPinTest {
     }
 
     @Test
-    fun `Given legacy SHA-256 hash when verifyPin correct then migrates to PBKDF2`() {
+    fun `Given legacy SHA-256 hash when verifyPin correct then migrates to PBKDF2`() = runTest {
         // Legacy SHA-256 hash of "1234" (no colon = old format)
         val legacySha256 = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"
 
@@ -113,7 +120,7 @@ class SettingsRepositoryPinTest {
     }
 
     @Test
-    fun `Given legacy SHA-256 hash when verifyPin wrong then no migration`() {
+    fun `Given legacy SHA-256 hash when verifyPin wrong then no migration`() = runTest {
         val legacySha256 = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"
 
         every { encryptedPrefs.getAppSettings() } returns AppSettings(
@@ -130,7 +137,7 @@ class SettingsRepositoryPinTest {
     }
 
     @Test
-    fun `Given no PIN set when verifyPin then returns false`() {
+    fun `Given no PIN set when verifyPin then returns false`() = runTest {
         every { encryptedPrefs.getAppSettings() } returns AppSettings(pinHash = null)
         val repo2 = SettingsRepository(encryptedPrefs)
         assertFalse(repo2.verifyPin("1234"))
@@ -166,5 +173,52 @@ class SettingsRepositoryPinTest {
     fun `Given 100 failed attempts then lockout caps at 1 hour`() {
         val duration = SettingsRepository.getLockoutDuration(failedAttempts = 100)
         assertTrue(duration == 3_600_000L, "Lockout should cap at 1hr, got ${duration}ms")
+    }
+
+    // ─── Regression: verifyPin must not block the calling dispatcher ─────────
+
+    /**
+     * Regression test: verifyPin dispatches PBKDF2 to [Dispatchers.Default] and must
+     * not block the dispatcher it is called from. We launch verifyPin on a
+     * [StandardTestDispatcher] and simultaneously run a yield loop on the same
+     * dispatcher. If verifyPin blocked the calling thread the yield loop could never
+     * execute and [counter] would remain 0 — which would fail the assertion.
+     *
+     * Removing the [withContext(Dispatchers.Default)] from [SettingsRepository.verifyPin]
+     * causes PBKDF2 to run on the test dispatcher's thread, starving the yield loop and
+     * making [counter] == 0, failing this test.
+     */
+    @Test
+    fun `verifyPin off-loads PBKDF2 to Dispatchers Default`() = runTest {
+        val capturedHash = mutableListOf<String>()
+        every { encryptedPrefs.updatePinHash(capture(capturedHash)) } returns Unit
+        every { encryptedPrefs.resetFailedPinAttempts() } returns Unit
+
+        repo.setPin("1234")
+
+        val storedHash = capturedHash.first()
+        every { encryptedPrefs.getAppSettings() } returns AppSettings(
+            pinEnabled = true,
+            pinHash = storedHash
+        )
+        val repo2 = SettingsRepository(encryptedPrefs)
+
+        // Launch verifyPin as a background Deferred on Dispatchers.Default so it runs
+        // truly off this test dispatcher.
+        val deferred = async(Dispatchers.Default) { repo2.verifyPin("1234") }
+
+        // The test dispatcher coroutine can keep yielding while the Default-dispatcher
+        // coroutine is running. If verifyPin did NOT use withContext(Default), the
+        // PBKDF2 would block this thread and counter would never increment.
+        var counter = 0
+        while (!deferred.isCompleted) {
+            counter++
+            yield()
+        }
+
+        val result = deferred.await()
+        assertTrue(result, "verifyPin should return true for correct PIN")
+        assertTrue(counter > 0, "Main-dispatcher coroutine must have yielded at least once — " +
+                "counter=$counter. If 0, verifyPin blocked the calling thread (withContext removed?)")
     }
 }

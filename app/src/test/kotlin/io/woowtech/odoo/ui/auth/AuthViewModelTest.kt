@@ -1,9 +1,10 @@
 package io.woowtech.odoo.ui.auth
 
 import app.cash.turbine.test
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.domain.model.AppSettings
@@ -115,16 +116,16 @@ class AuthViewModelTest {
     }
 
     @Test
-    fun `Given PIN set when verifyPin correct then returns true`() {
-        every { settingsRepository.verifyPin("1234") } returns true
+    fun `Given PIN set when verifyPin correct then returns true`() = runTest {
+        coEvery { settingsRepository.verifyPin("1234") } returns true
 
         assertTrue(viewModel.verifyPin("1234"))
-        verify { settingsRepository.verifyPin("1234") }
+        coVerify { settingsRepository.verifyPin("1234") }
     }
 
     @Test
-    fun `Given PIN set when verifyPin wrong then returns false`() {
-        every { settingsRepository.verifyPin("0000") } returns false
+    fun `Given PIN set when verifyPin wrong then returns false`() = runTest {
+        coEvery { settingsRepository.verifyPin("0000") } returns false
 
         assertFalse(viewModel.verifyPin("0000"))
     }

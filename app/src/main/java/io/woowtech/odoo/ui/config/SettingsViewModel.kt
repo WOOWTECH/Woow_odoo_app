@@ -54,8 +54,19 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateBiometric(enabled = enabled, canEnable = canUseBiometric)
     }
 
-    fun setPin(pin: String): Boolean {
-        return settingsRepository.setPin(pin)
+    /**
+     * Hashes [pin] with PBKDF2 (600,000 iterations) off the main thread and
+     * persists the result. The computation is dispatched inside [viewModelScope]
+     * so it is automatically cancelled when the ViewModel is cleared.
+     *
+     * Because [SettingsRepository.setPin] is now `suspend`, the return value
+     * is no longer surfaced synchronously; callers in the UI layer should observe
+     * the [settings] flow for the updated [pinEnabled] flag instead.
+     */
+    fun setPin(pin: String) {
+        viewModelScope.launch {
+            settingsRepository.setPin(pin)
+        }
     }
 
     fun removePin() {

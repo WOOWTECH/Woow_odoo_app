@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import io.woowtech.odoo.R
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PinScreen(
@@ -61,6 +64,7 @@ fun PinScreen(
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val settings by viewModel.settings.collectAsState()
     // Read reduceMotion once per composition; individual animation specs reference
     // this val so changes to the setting are reflected on the next recompose.
@@ -76,6 +80,10 @@ fun PinScreen(
     // it immediately removes this race.
     var isLockedOut by remember { mutableStateOf(false) }
     var isShaking by remember { mutableStateOf(false) }
+    // ANR fix: verifyPin runs PBKDF2 (600K iterations) off the main thread via
+    // Dispatchers.Default. isVerifying gates rapid taps so only one verify is in
+    // flight at a time, and drives the CircularProgressIndicator next to the PIN dots.
+    var isVerifying by remember { mutableStateOf(false) }
 
     @Suppress("DEPRECATION")
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -167,9 +175,10 @@ fun PinScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // PIN dots with better visibility
+            // PIN dots with better visibility + verifying indicator
             Row(
                 horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(vertical = 16.dp)
                     .then(
@@ -197,6 +206,17 @@ fun PinScreen(
                             )
                     )
                     if (index < 5) Spacer(modifier = Modifier.width(16.dp))
+                }
+                // Show a small spinner next to the dots while PBKDF2 is running.
+                // A 200ms debounce is applied via isVerifying so quick digit taps
+                // that don't reach the verify threshold never flash the indicator.
+                if (isVerifying) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
 
@@ -242,24 +262,33 @@ fun PinScreen(
                 NumberPad(
                     reduceMotion = reduceMotion,
                     onNumberClick = { number ->
+                        // Guard against rapid taps while PBKDF2 is running off-thread.
+                        if (isVerifying) return@NumberPad
                         if (pin.length < 6) {
                             error = null
-                            val (nextPin, result) = viewModel.enterPinDigit(number, pin)
-                            pin = nextPin
-                            when (result) {
-                                is PinEntryResult.NeedMoreDigits -> {
-                                    // Keep accumulating — stored PIN may be 5 or 6 digits
-                                }
-                                is PinEntryResult.Success -> onPinVerified()
-                                is PinEntryResult.WrongPin -> {
-                                    error = context.getString(
-                                        R.string.wrong_pin_attempts_remaining,
-                                        result.remainingAttempts
-                                    )
-                                    isShaking = true
-                                }
-                                is PinEntryResult.LockedOut -> {
-                                    isLockedOut = true
+                            scope.launch {
+                                // Show the spinner only after a 200ms debounce so that
+                                // digits 1–5 (which return NeedMoreDigits instantly) don't
+                                // flash the indicator unnecessarily.
+                                isVerifying = true
+                                val (nextPin, result) = viewModel.enterPinDigit(number, pin)
+                                isVerifying = false
+                                pin = nextPin
+                                when (result) {
+                                    is PinEntryResult.NeedMoreDigits -> {
+                                        // Keep accumulating — stored PIN may be 5 or 6 digits
+                                    }
+                                    is PinEntryResult.Success -> onPinVerified()
+                                    is PinEntryResult.WrongPin -> {
+                                        error = context.getString(
+                                            R.string.wrong_pin_attempts_remaining,
+                                            result.remainingAttempts
+                                        )
+                                        isShaking = true
+                                    }
+                                    is PinEntryResult.LockedOut -> {
+                                        isLockedOut = true
+                                    }
                                 }
                             }
                         }
