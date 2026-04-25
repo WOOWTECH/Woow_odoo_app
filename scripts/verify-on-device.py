@@ -1189,52 +1189,96 @@ except Exception as e:
     check("V23-C482a7bf", f"Deep-link rejection check error: {e}", False)
 
 # ═══════════════════════════════════════════════════════════
-section("V26-C<sha>: Geolocation grant flow during clock-in")
-# Self-contained verification: pre-grant OS permissions, enable the location toggle
-# via test hook, launch the app, and confirm it starts without crashing.
-# Full hr.attendance E2E (verify lat/lon on server) is in E2E-15 (e2e-production-test.py).
+# V26: Verifies the FOUR things we can confirm without manually tapping
+# inside the OWL Compose dropdown (which is unreliable from uiautomator2
+# because FLAG_SECURE blanks screenshots and Compose nodes don't always
+# expose clickable bounds for nested menu items).
+#
+#   V26a — App launches with setGeolocationEnabled and does not crash
+#   V26b — Manifest declares FINE + COARSE (NOT BACKGROUND)
+#   V26c — TestHook for location-enabled fires (Timber log appears)
+#   V26d — hr_attendance module is installed on the test Odoo server
+#
+# The full E2E flow (real clock-in records non-zero lat/lng on
+# hr.attendance) is in scripts/e2e-production-test.py → E2E-15, which
+# uses a hybrid manual+automated approach: user manually taps the
+# Attendance systray and grants permission, the script then queries
+# Odoo to confirm coordinates landed.
+# ═══════════════════════════════════════════════════════════
+section("V26-Cb1aaa75: Location permission infrastructure (Odoo Attendances)")
 try:
     if not ensure_logged_in():
         check("V26", "baseline failed — not logged in", False)
     else:
-        # Pre-grant FINE + COARSE via adb so checkSelfPermission matches.
-        subprocess.run(
-            ["adb", "shell", "pm", "grant", PKG,
-             "android.permission.ACCESS_FINE_LOCATION"],
-            timeout=5,
-        )
-        subprocess.run(
-            ["adb", "shell", "pm", "grant", PKG,
-             "android.permission.ACCESS_COARSE_LOCATION"],
-            timeout=5,
-        )
-
-        # Enable location toggle via test hook.
-        apply_test_hook(location_enabled=True)
-        time.sleep(2)
-
-        # Relaunch and confirm the app is still running (WebView with
-        # setGeolocationEnabled did not crash).
-        d.app_start(PKG, ACTIVITY)
-        time.sleep(5)
-        running = d.app_current()["package"] == PKG
+        # V26a: app starts cleanly with setGeolocationEnabled in WebSettings
+        d.app_start(PKG, ACTIVITY); time.sleep(5)
         check(
-            "V26-C<sha>",
-            "WebView with geolocation enabled launches without crash",
-            running,
+            "V26a-Cb1aaa75",
+            "WebView with setGeolocationEnabled(true) launches without crash",
+            d.app_current()["package"] == PKG,
         )
 
-        # Cleanup: revoke permissions so subsequent tests start clean.
-        subprocess.run(
-            ["adb", "shell", "pm", "revoke", PKG,
-             "android.permission.ACCESS_FINE_LOCATION"],
-            timeout=5,
+        # V26b: manifest declares the two foreground location permissions
+        pkg_dump = adb_cmd(["dumpsys", "package", PKG])
+        has_fine = "android.permission.ACCESS_FINE_LOCATION" in pkg_dump
+        has_coarse = "android.permission.ACCESS_COARSE_LOCATION" in pkg_dump
+        has_background = "android.permission.ACCESS_BACKGROUND_LOCATION" in pkg_dump
+        check(
+            "V26b-Cb1aaa75",
+            f"FINE+COARSE declared, BACKGROUND NOT declared "
+            f"(fine={has_fine}, coarse={has_coarse}, background={has_background})",
+            has_fine and has_coarse and not has_background,
         )
-        subprocess.run(
-            ["adb", "shell", "pm", "revoke", PKG,
-             "android.permission.ACCESS_COARSE_LOCATION"],
-            timeout=5,
+
+        # V26c: TestHook for location-enabled fires and logs via Timber.
+        # Force-stop first so the intent triggers onCreate (cold start),
+        # which fires Timber.tag(TAG).w(...) reliably. Warm-start
+        # onNewIntent ALSO fires the hook but timing is less deterministic.
+        subprocess.run(["adb", "shell", "am", "force-stop", PKG], timeout=5)
+        time.sleep(1)
+        subprocess.run(["adb", "logcat", "-c"], timeout=5)
+        subprocess.run([
+            "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+            "--ez", "location-enabled", "true",
+        ], timeout=10)
+        time.sleep(6)  # PBKDF2-free path; just need Timber to flush
+        log = subprocess.run(
+            ["adb", "logcat", "-d", "-s", "TestHooks:W"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        hook_fired = "Location preference set via test hook" in log
+        check(
+            "V26c-Cb1aaa75",
+            "TestHooks logged location-enabled extra (hook reachable)",
+            hook_fired,
         )
+
+        # V26d: Odoo server has hr_attendance installed (E2E-15 prerequisite)
+        try:
+            url = "https://monthly-awesome-kernel-immune.trycloudflare.com/jsonrpc"
+            payload = {
+                "jsonrpc": "2.0", "method": "call",
+                "params": {
+                    "service": "object", "method": "execute_kw",
+                    "args": ["odoo18_ecpay", 2, "admin",
+                             "ir.module.module", "search_read",
+                             [[["name", "=", "hr_attendance"]]],
+                             {"fields": ["state"]}],
+                }, "id": 1,
+            }
+            resp = requests.post(url, json=payload, timeout=10).json()
+            installed = (
+                resp.get("result")
+                and len(resp["result"]) > 0
+                and resp["result"][0].get("state") == "installed"
+            )
+            check(
+                "V26d-Cb1aaa75",
+                "hr_attendance module is installed on test Odoo (E2E-15 prereq)",
+                installed,
+            )
+        except Exception as e:
+            check("V26d-Cb1aaa75", f"hr_attendance state check error: {e}", False)
 except Exception as e:
     check("V26", f"error: {e}", False)
 
