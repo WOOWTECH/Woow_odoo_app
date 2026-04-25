@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -164,6 +165,13 @@ fun OdooWebView(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Fix for stale-closure bug — the WebChromeClient is created once at WebView
+    // factory time and captures whatever activeHostSnapshot was at that moment
+    // (typically null because the active-account Flow has not emitted yet).
+    // rememberUpdatedState wraps the parameter so the closure reads the latest
+    // value on every callback invocation. See architect review notes for details.
+    val currentActiveHost by rememberUpdatedState(activeHostSnapshot)
 
     // v1.0.15: File upload support - state for file chooser callback
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
@@ -568,7 +576,7 @@ fun OdooWebView(
                             return
                         }
 
-                        when (val decision = gate.resolve(origin, activeHostSnapshot)) {
+                        when (val decision = gate.resolve(origin, currentActiveHost)) {
                             is LocationPermissionGate.Decision.Grant -> {
                                 // Defense-in-depth: clear any stale per-origin "blocked" cache
                                 // entry that could override this grant.
