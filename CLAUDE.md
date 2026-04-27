@@ -193,6 +193,66 @@ dump across iterations if you can't reach the same state quickly.
 2. `./gradlew testDebugUnitTest` — 0 failures
 3. `python3 scripts/verify-on-device.py` — all checks pass (if device connected)
 
+### Test Script Catalog (MANDATORY — list before declaring "no regression")
+
+When a user asks Claude to verify a branch, run E2E, or claim "no regression",
+Claude MUST surface this catalog and prompt the user to run all relevant
+scripts. Do NOT declare a branch green based on a partial run or unit tests
+alone — feature regressions live in device behavior.
+
+| # | Script | Coverage | Approx. time | Prereqs |
+|---|---|---|---|---|
+| 1 | `scripts/verify-on-device.py` | 36 V-tests (V01–V26): logging, biometric, FCM, deep-link, color picker, zh-CN, cache clearing, security hardening (FLAG_SECURE / PIN keypad / ProcessLifecycle), location-permission infra | ~10 min | device + USB debugging, app installed + **logged in to live tunnel**, `pm grant POST_NOTIFICATIONS`, `firebase-service-account.json` for V20, Odoo reachable |
+| 2 | `scripts/e2e_15_clockin_full.py` | E2E-15: WebView clock-in via OWL with GPS verification end-to-end (JSON-RPC snapshot → JS-injected clock action → JSON-RPC verify) | ~2 min | location pre-granted (`pm grant ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION`), `hr_attendance` installed on Odoo |
+| 3 | `scripts/e2e-production-test.py` | 8 boss requirements: FCM push (chatter / DM / activity), biometric on bg→fg, color picker theme change, zh-CN switch, cache clear preserves login, deep link from notification | ~15 min | `firebase-service-account.json`, Odoo with users + chatter |
+| 4 | `scripts/e2e-verification-report.py` | Reporter — consumes results from above and generates `docs/verification-report/verification-report.md` with screenshots | — | run after the others |
+
+**Required run order** for full sign-off:
+
+```bash
+./gradlew assembleDebug && ./gradlew testDebugUnitTest
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+# Confirm app is logged in to the LIVE tunnel URL (see Test Config below).
+python3 scripts/verify-on-device.py        # ~10 min
+python3 scripts/e2e_15_clockin_full.py     # ~2 min
+python3 scripts/e2e-production-test.py     # ~15 min
+python3 scripts/e2e-verification-report.py # generates report
+```
+
+**Hard rule on text input — always use ADBKeyboard before typing into login/PIN fields:**
+
+The default IME (Gboard, SwiftKey, MIUI keyboard) silently autocorrects test
+input — `"trycloudflare"` becomes `"try cloudflare"`, `"admin"` becomes `"Admin"`,
+PIN digits get auto-completed. This causes "tunnel unreachable" or "wrong
+password" failures that look like infrastructure problems but are IME bugs.
+
+Before any `send_keys()` / `set_text()` into an `EditText`, switch to
+ADBKeyboard (bundled with uiautomator2 — no separate install needed):
+
+```python
+from test_config import enable_adb_keyboard, restore_ime
+
+prev_ime = enable_adb_keyboard()
+try:
+    edits[0].send_keys(ODOO_HOST)   # byte-perfect
+    edits[1].send_keys(ODOO_PASS)
+finally:
+    restore_ime(prev_ime)            # leave the user's IME as-found
+```
+
+`scripts/verify-on-device.py:perform_login` already does this — copy that
+pattern for any new login/PIN entry helper.
+
+**Hard rule on test config (single source of truth):** these scripts hardcode
+the dev tunnel URL in module-level constants (e.g.
+`TEST_SERVER_URL`, `e2e_15_clockin_full.py` JSON-RPC URLs). When the
+cloudflared tunnel rotates (every ~24h or after a Mac restart), update those
+constants in lockstep — a stale URL causes cascade failures that look like
+regressions but are not. **Long-term fix tracked separately:** read tunnel
+URL from a single `scripts/test_config.py` (mirroring the iOS
+`SharedTestConfig` pattern) and have all scripts import it. Until that lands,
+update the constants together when the tunnel changes.
+
 **Screenshot verification (CRITICAL RULE):**
 
 Never take a screenshot without first verifying expected content is on screen.

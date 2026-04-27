@@ -88,5 +88,10 @@ lint/tmp/
 
 # Secrets
 *.env
+.env.test
 secrets/
 app/firebase-service-account.json
+
+# Python (test scripts)
+__pycache__/
+*.pyc

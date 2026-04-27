@@ -8,11 +8,20 @@ import requests
 import uiautomator2 as u2
 from playwright.sync_api import sync_playwright
 
-PKG = "io.woowtech.odoo.debug"
-SS = "/Users/alanlin/Woow_odoo_app/docs/verification-report/screenshots"
-REPORT = "/Users/alanlin/Woow_odoo_app/docs/verification-report/verification-report.md"
-ODOO = "http://localhost:8069"
-DB = "odoo18_ecpay"
+# Single source of truth for test config — see scripts/test_config.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_config import (
+    APP_PACKAGE as PKG,
+    ODOO_DB as DB,
+    ODOO_HOST,
+    ODOO_PASS,
+    ODOO_URL as ODOO,
+    ODOO_USER,
+    VERIFICATION_REPORT_DIR,
+)
+
+SS = os.path.join(VERIFICATION_REPORT_DIR, "screenshots")
+REPORT = os.path.join(VERIFICATION_REPORT_DIR, "verification-report.md")
 STEPS = []
 N = 0
 
@@ -61,25 +70,25 @@ ok("Login screen with server URL field", True, p)
 
 step("Enter server URL")
 f = d(className="android.widget.EditText")
-if f.count >= 1: f[0].set_text("cakes-indices-actions-cube.trycloudflare.com")
+if f.count >= 1: f[0].set_text(ODOO_HOST)
 time.sleep(1); p = phone_ss("02_server_url")
-ok("Server URL: cakes-indices-actions-cube.trycloudflare.com", True, p)
+ok(f"Server URL: {ODOO_HOST}", True, p)
 
-step("Enter database: odoo18_ecpay")
+step(f"Enter database: {DB}")
 f = d(className="android.widget.EditText")
-if f.count >= 2: f[1].set_text("odoo18_ecpay")
+if f.count >= 2: f[1].set_text(DB)
 time.sleep(1); p = phone_ss("03_database")
-ok("Database: odoo18_ecpay", True, p)
+ok(f"Database: {DB}", True, p)
 
 step("Tap Next → credentials")
 (d(textContains="下一步") or d(textContains="Next")).click_exists(timeout=3)
 time.sleep(3); p = phone_ss("04_credentials")
 ok("Credentials screen shown", d(className="android.widget.EditText").count >= 2, p)
 
-step("Enter admin / admin and Login")
+step(f"Enter {ODOO_USER} / *** and Login")
 f = d(className="android.widget.EditText")
-if f.count >= 1: f[0].set_text("admin")
-if f.count >= 2: f[1].set_text("admin")
+if f.count >= 1: f[0].set_text(ODOO_USER)
+if f.count >= 2: f[1].set_text(ODOO_PASS)
 time.sleep(1); (d(textContains="登入") or d(textContains="Login")).click_exists(timeout=3)
 ok("Login tapped, waiting for WebView...", True)
 loaded = wait_webview(d, 60)

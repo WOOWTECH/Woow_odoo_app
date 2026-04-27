@@ -9,15 +9,26 @@ Verification IDs follow format: V{nn}-C{nn} matching commit plan.
 Usage: python3 scripts/verify-on-device.py
 """
 
-import uiautomator2 as u2
-import time
-import subprocess
+import os
 import re
+import subprocess
 import sys
-import requests
+import time
 
-PKG = "io.woowtech.odoo.debug"
-ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
+import requests
+import uiautomator2 as u2
+
+# Single source of truth for test config — see scripts/test_config.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_config import (
+    APP_ACTIVITY as ACTIVITY,
+    APP_PACKAGE as PKG,
+    ODOO_DB,
+    ODOO_HOST,
+    ODOO_PASS,
+    ODOO_URL,
+    ODOO_USER,
+)
 PASS = 0
 FAIL = 0
 RESULTS = []
@@ -178,14 +189,30 @@ check("V04-C04",
 # ═══════════════════════════════════════════════════════════
 section("V05-C04: WebView No Popup Windows (B0.7)")
 
-# V05 fix: count only currently-Resumed MainActivity records, not historical task entries.
+# V05: count UNIQUE currently-resumed MainActivity instances.
+#
+# `dumpsys activity activities` is noisy:
+#   - The currently-resumed activity is reported in 4–8 different lines
+#     (topResumedActivity=, Resumed:, ResumedActivity:, mFocusedApp=, ...).
+#     A naive line grep triple-counts a single instance.
+#   - Historical entries in the `Hist` list and orientation `source=`
+#     lines reference ActivityRecords from prior tasks that are no longer
+#     resumed — those should NOT be counted.
+#
+# Reliable signal: lines with `topResumedActivity=` (one per display),
+# `Resumed: ActivityRecord{...}` (one per active task), or
+# `ResumedActivity: ActivityRecord{...}` (one per task summary). Dedup by
+# the hex ActivityRecord id.
 top_dump = adb_cmd(["dumpsys", "activity", "activities"])
-resumed_main = sum(
-    1 for line in top_dump.splitlines()
-    if "MainActivity" in line and ("Resumed" in line or "mResumed=true" in line)
+_RESUMED_RE = re.compile(
+    r"(?:topResumedActivity=|^\s*Resumed:\s*|^\s*ResumedActivity:\s*)"
+    r"ActivityRecord\{([0-9a-f]+) [^}]*MainActivity",
+    re.MULTILINE,
 )
+ids = set(_RESUMED_RE.findall(top_dump))
+resumed_main = len(ids)
 check("V05-C04",
-      f"Exactly 1 active MainActivity instance (found {resumed_main} Resumed)",
+      f"Exactly 1 active MainActivity instance (found {resumed_main} unique)",
       resumed_main == 1)
 
 # ═══════════════════════════════════════════════════════════
@@ -811,11 +838,11 @@ except Exception as e:
 # Self-contained test helpers (per CLAUDE.md "Test Independence" rule)
 # ═══════════════════════════════════════════════════════════
 
-# Test credentials — same as the rest of the suite assumes
-TEST_SERVER_URL = "monthly-awesome-kernel-immune.trycloudflare.com"
-TEST_DB = "odoo18_ecpay"
-TEST_USER = "admin"
-TEST_PASSWORD = "admin"
+# Test credentials — sourced from test_config (single source of truth).
+TEST_SERVER_URL = ODOO_HOST  # host-only form (no scheme) for the URL field
+TEST_DB = ODOO_DB
+TEST_USER = ODOO_USER
+TEST_PASSWORD = ODOO_PASS
 TEST_PIN = "1234"
 
 
@@ -854,38 +881,50 @@ def is_add_account_visible():
 
 
 def perform_login():
-    """Walk through the Add Account → credentials → WebView flow."""
-    # Server URL screen
-    for _ in range(15):
-        if len(_edits()) >= 2:
-            break
-        time.sleep(1)
-    if not (_type_into(0, TEST_SERVER_URL) and _type_into(1, TEST_DB)):
-        return False
-    subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
-    if d(text="下一步").exists(timeout=10):
-        d(text="下一步").click()
-    elif d(text="Next").exists(timeout=2):
-        d(text="Next").click()
-    time.sleep(8)
-    # Credentials screen
-    for _ in range(15):
-        if len(_edits()) >= 2:
-            break
-        time.sleep(1)
-    if not (_type_into(0, TEST_USER) and _type_into(1, TEST_PASSWORD)):
-        return False
-    subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
-    if d(text="登入").exists(timeout=10):
-        d(text="登入").click()
-    elif d(text="Login").exists(timeout=2):
-        d(text="Login").click()
-    # Wait for WebView
-    for _ in range(25):
-        if is_webview_visible():
-            return True
-        time.sleep(1)
-    return is_webview_visible()
+    """Walk through the Add Account → credentials → WebView flow.
+
+    Switches to ADBKeyboard before typing so the URL/credentials are entered
+    byte-perfect (default IMEs autocorrect tokens like "trycloudflare" or
+    capitalise "admin"). The original IME is restored before returning.
+    """
+    from test_config import enable_adb_keyboard, restore_ime
+    previous_ime = enable_adb_keyboard()
+    try:
+        # Server URL screen
+        for _ in range(15):
+            if len(_edits()) >= 2:
+                break
+            time.sleep(1)
+        if not (_type_into(0, TEST_SERVER_URL) and _type_into(1, TEST_DB)):
+            return False
+        subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
+        if d(text="下一步").exists(timeout=10):
+            d(text="下一步").click()
+        elif d(text="Next").exists(timeout=2):
+            d(text="Next").click()
+        time.sleep(8)
+        # Credentials screen
+        for _ in range(15):
+            if len(_edits()) >= 2:
+                break
+            time.sleep(1)
+        if not (_type_into(0, TEST_USER) and _type_into(1, TEST_PASSWORD)):
+            return False
+        subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
+        if d(text="登入").exists(timeout=10):
+            d(text="登入").click()
+        elif d(text="Login").exists(timeout=2):
+            d(text="Login").click()
+        # Wait for WebView. 60s budget (was 25s) covers a fresh cloudflared
+        # tunnel cold-starting Odoo without a cached session — the path V26's
+        # nuclear fallback exercises after pm clear. Faster paths return early.
+        for _ in range(60):
+            if is_webview_visible():
+                return True
+            time.sleep(1)
+        return is_webview_visible()
+    finally:
+        restore_ime(previous_ime)
 
 
 def is_auth_gate_visible():
@@ -1255,12 +1294,12 @@ try:
 
         # V26d: Odoo server has hr_attendance installed (E2E-15 prerequisite)
         try:
-            url = "https://monthly-awesome-kernel-immune.trycloudflare.com/jsonrpc"
+            url = f"{ODOO_URL}/jsonrpc"
             payload = {
                 "jsonrpc": "2.0", "method": "call",
                 "params": {
                     "service": "object", "method": "execute_kw",
-                    "args": ["odoo18_ecpay", 2, "admin",
+                    "args": [ODOO_DB, 2, ODOO_USER,
                              "ir.module.module", "search_read",
                              [[["name", "=", "hr_attendance"]]],
                              {"fields": ["state"]}],

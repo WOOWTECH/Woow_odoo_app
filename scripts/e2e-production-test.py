@@ -27,20 +27,26 @@ import os
 import re
 import subprocess
 import sys
+import os
+import sys
 import time
 
 import requests
 import uiautomator2 as u2
 
 # ─── Config ──────────────────────────────────────────────
-PKG = "io.woowtech.odoo.debug"
-ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
-ODOO_URL = "http://localhost:8069"
-ODOO_DB = "odoo18_ecpay"
-ODOO_USER = "admin"
-ODOO_PASS = "admin"
-SA_FILE = "/Users/alanlin/Woow_odoo_app/app/firebase-service-account.json"
-PROJECT_ID = "woow-odoo-de2cb"
+# Single source of truth — see scripts/test_config.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_config import (
+    APP_ACTIVITY as ACTIVITY,
+    APP_PACKAGE as PKG,
+    FIREBASE_PROJECT_ID as PROJECT_ID,
+    FIREBASE_SA_FILE as SA_FILE,
+    ODOO_DB,
+    ODOO_PASS,
+    ODOO_URL,
+    ODOO_USER,
+)
 
 PASS = 0
 FAIL = 0

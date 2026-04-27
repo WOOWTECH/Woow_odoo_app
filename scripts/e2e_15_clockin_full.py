@@ -27,18 +27,24 @@ Requires: pip install websocket-client requests
 import json
 import re
 import subprocess
+import os
 import sys
 import time
 
 import requests
 import websocket
 
-PKG = "io.woowtech.odoo.debug"
-ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
-TUNNEL = "https://monthly-awesome-kernel-immune.trycloudflare.com"
-DB = "odoo18_ecpay"
-USER = "admin"
-PASSWORD = "admin"
+# Single source of truth for test config — see scripts/test_config.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_config import (
+    APP_ACTIVITY as ACTIVITY,
+    APP_PACKAGE as PKG,
+    ODOO_DB as DB,
+    ODOO_PASS as PASSWORD,
+    ODOO_URL as TUNNEL,
+    ODOO_USER as USER,
+)
+
 LOCAL_CDP_PORT = 9222
 
 
