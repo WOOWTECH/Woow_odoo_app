@@ -7,6 +7,8 @@ import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -44,6 +46,24 @@ class FcmTokenRepositoryImpl @Inject constructor(
 
     private val gson = Gson()
 
+    /**
+     * Serializes register / unregister calls so that concurrent callers
+     * (`WoowFcmService.onNewToken` and `AccountRepository.authenticate`)
+     * cannot race to write to `woow.fcm.device`.
+     *
+     * Without this, two POSTs in flight on `Dispatchers.IO` (a thread pool)
+     * can resolve out-of-order and the older token can become the
+     * server-side active record. The mutex turns the
+     * `saveFcmToken + accountDao read + per-account register POST` sequence
+     * into a single critical section.
+     *
+     * Granularity: the entire FcmTokenRepositoryImpl serializes its outbound
+     * registrations. This is acceptable: the operations are infrequent
+     * (login, switch, account removal, FCM rotation) and individually
+     * complete in a few hundred ms.
+     */
+    private val registrationMutex = Mutex()
+
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -57,65 +77,106 @@ class FcmTokenRepositoryImpl @Inject constructor(
 
     override suspend fun registerTokenForAllAccounts(token: String): Result<Unit> =
         withContext(Dispatchers.IO) {
-            encryptedPrefs.saveFcmToken(token)
-            val accounts = accountDao.getAllAccountsList()
-            var lastError: Throwable? = null
+            registrationMutex.withLock {
+                encryptedPrefs.saveFcmToken(token)
+                val accounts = accountDao.getAllAccountsList()
 
-            accounts.forEach { account ->
-                registerToken(accountId = account.id, token = token)
-                    .onFailure { error ->
-                        lastError = error
-                        Timber.e(error, "Failed to register FCM token for account %s", account.id)
+                // Empty-collection paranoia (CLAUDE.md "Repository-Event Symmetry").
+                // If called before any account exists (fresh install — onNewToken
+                // fires before login), the token is saved locally but POSTs nothing.
+                // Log this loudly so it's correlatable with missed notifications;
+                // AccountRepository.authenticate() / switchAccount() replay the
+                // saved token via registerSavedFcmToken once an account is present.
+                if (accounts.isEmpty()) {
+                    Timber.w(
+                        "FCM token saved locally but no accounts to register with — " +
+                            "AccountRepository will replay on next login/switch",
+                    )
+                    return@withLock Result.success(Unit)
+                }
+
+                // Aggregate failures across all per-account POSTs so the
+                // caller can see the FULL picture, not just whichever
+                // failed last (which was the prior behaviour and would
+                // hide multi-account fan-out problems). Each individual
+                // failure is logged separately for forensic debugging.
+                val failures = mutableListOf<Pair<String, Throwable>>()
+                accounts.forEach { account ->
+                    registerTokenLocked(accountId = account.id, token = token)
+                        .onFailure { error ->
+                            failures += account.id to error
+                            Timber.e(error, "Failed to register FCM token for account %s", account.id)
+                        }
+                }
+
+                if (failures.isEmpty()) {
+                    Timber.d("FCM token registered with %d accounts", accounts.size)
+                    Result.success(Unit)
+                } else {
+                    val summary = failures.joinToString(separator = "; ") {
+                        "${it.first}=${it.second::class.simpleName}"
                     }
-            }
-
-            if (lastError != null) {
-                Result.failure(lastError!!)
-            } else {
-                Timber.d("FCM token registered with %d accounts", accounts.size)
-                Result.success(Unit)
+                    Result.failure(
+                        IllegalStateException(
+                            "FCM register-for-all failed for ${failures.size}/${accounts.size} accounts: $summary",
+                            failures.first().second,
+                        ),
+                    )
+                }
             }
         }
 
     override suspend fun registerToken(accountId: String, token: String): Result<Unit> =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val account = accountDao.getAccountById(accountId)
-                    ?: error("Account not found: $accountId")
-
-                postToOdoo(
-                    serverUrl = account.fullServerUrl,
-                    path = REGISTER_PATH,
-                    params = mapOf(
-                        PARAM_FCM_TOKEN to token,
-                        PARAM_DEVICE_NAME to Build.MODEL,
-                        PARAM_PLATFORM to PLATFORM_ANDROID,
-                    ),
-                    account = account,
-                )
-                Timber.d("FCM token registered for account %s", accountId)
-            }.onFailure { error ->
-                Timber.e(error, "Failed to register FCM token for account %s", accountId)
+            registrationMutex.withLock {
+                registerTokenLocked(accountId = accountId, token = token)
             }
+        }
+
+    /**
+     * Per-account register POST. **Caller MUST hold [registrationMutex]** —
+     * this method does NOT acquire it, to avoid re-entry deadlock when called
+     * from `registerTokenForAllAccounts` which already holds the lock.
+     */
+    private suspend fun registerTokenLocked(accountId: String, token: String): Result<Unit> =
+        runCatching {
+            val account = accountDao.getAccountById(accountId)
+                ?: error("Account not found: $accountId")
+
+            postToOdoo(
+                serverUrl = account.fullServerUrl,
+                path = REGISTER_PATH,
+                params = mapOf(
+                    PARAM_FCM_TOKEN to token,
+                    PARAM_DEVICE_NAME to Build.MODEL,
+                    PARAM_PLATFORM to PLATFORM_ANDROID,
+                ),
+                account = account,
+            )
+            Timber.d("FCM token registered for account %s", accountId)
+        }.onFailure { error ->
+            Timber.e(error, "Failed to register FCM token for account %s", accountId)
         }
 
     override suspend fun unregisterToken(accountId: String): Result<Unit> =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val account = accountDao.getAccountById(accountId)
-                    ?: error("Account not found: $accountId")
-                val token = encryptedPrefs.getFcmToken()
-                    ?: error("No FCM token stored — nothing to unregister for account $accountId")
+            registrationMutex.withLock {
+                runCatching {
+                    val account = accountDao.getAccountById(accountId)
+                        ?: error("Account not found: $accountId")
+                    val token = encryptedPrefs.getFcmToken()
+                        ?: error("No FCM token stored — nothing to unregister for account $accountId")
 
-                postToOdoo(
-                    serverUrl = account.fullServerUrl,
-                    path = UNREGISTER_PATH,
-                    params = mapOf(PARAM_FCM_TOKEN to token),
-                    account = account,
-                )
-                Timber.d("FCM token unregistered for account %s", accountId)
-            }.onFailure { error ->
-                Timber.w(error, "FCM token unregister failed for account %s — proceeding with logout", accountId)
+                    postToOdoo(
+                        serverUrl = account.fullServerUrl,
+                        path = UNREGISTER_PATH,
+                        params = mapOf(PARAM_FCM_TOKEN to token),
+                        account = account,
+                    )
+                    Timber.d("FCM token unregistered for account %s", accountId)
+                }.onFailure { error ->
+                    Timber.w(error, "FCM token unregister failed for account %s — proceeding with logout", accountId)
+                }
             }
         }
 

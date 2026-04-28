@@ -94,6 +94,85 @@ app/src/main/java/io/woowtech/odoo/
 - **7 Odoo module tests** (TransactionCase)
 - Test naming: `Given X when Y then Z` (Kotlin), `test_{method}_given{X}_returns{Y}` (general)
 
+### Repository-Event Symmetry (CRITICAL RULE)
+
+When a repository wires a side-effect to event X (e.g., `logout → unregisterToken`),
+you MUST verify the symmetric side-effect for the **inverse** event Y is
+reachable. Common inverse pairs:
+
+| Forward event | Inverse event |
+|---|---|
+| `login` → register | `logout` → unregister |
+| `addAccount` → register-with-server | `removeAccount` → unregister-with-server |
+| `acquireResource` → setup | `releaseResource` → cleanup |
+| `subscribe` → wire callback | `unsubscribe` → tear down |
+
+**The bug this rule prevents** (commit `482a7bf`, 2026-04-16): a 32-file
+mega-commit added `logout → unregisterToken` (C3) and `WoowFcmService.onNewToken
+→ register` (C1) but **never wired `login → register`**. After `pm clear` +
+fresh login, the FCM token never reached Odoo because `onNewToken` had fired
+before login (zero accounts → silent no-op) and login had no register hook.
+Detected on 2026-04-28 by E2E-12b. Reference:
+`docs/2026-04-27-e2e-suite-results.md`.
+
+**How to apply** before declaring a feature done:
+1. List the events the repository handles. Pair them up by inverse.
+2. For each pair, write a unit test asserting BOTH directions.
+3. If the forward event has no test asserting the side-effect, the work
+   is not done — even if the inverse is implemented.
+4. **Empty-collection paranoia**: if the side-effect iterates a collection
+   (e.g., `accounts.forEach { register }`), add a test for the empty case
+   that asserts the operation does NOT silently consume a not-yet-replayed
+   value. Either log a warning, set a "pending" flag for replay later, or
+   raise — never `Result.success(Unit)` with empty input.
+
+---
+
+### Verification Checklists Become Automated Tests (MANDATORY)
+
+Every line in a commit's "Requires on-device verification" list MUST
+correspond to a V-ID in `scripts/verify-on-device.py` or an E2E-ID in
+`scripts/e2e-production-test.py`/`e2e_15_clockin_full.py`. The traceability
+matrix in `docs/plans/2026-03-23-test-plan.md` is the source of truth —
+every checklist line maps to a test ID.
+
+**Rationale**: Manual checklists rot. Commit `482a7bf` listed "FCM token
+registers after login (Firebase Console installations)" as item #7 but as
+a manual Firebase Console check, not an automated test. The check was
+either skipped or run in a state that masked the bug. The bug shipped.
+A `verify-on-device.py` test that queries Odoo's `woow.fcm.device` count
+after login would have caught it at PR time.
+
+**How to apply**:
+- Before merging a feature commit, every item in the "verification" list
+  has a corresponding test ID in §3 / §3b of the test plan
+- If an item can't be automated (genuinely device-only, like real
+  Keystore tests), tag it `@OnDevice` and document why in the test plan
+
+---
+
+### Mega-Commit Cap (CRITICAL RULE)
+
+Commits touching **>15 files** OR **>1000 LOC of behavior change** must be
+split into focused commits along feature/responsibility lines.
+
+**Rationale**: Commit `482a7bf` was 32 files, +2,251 / −182 LOC, and
+bundled biometric, lifecycle, FCM, deep-link, color picker, language,
+reduce motion. Reviewers can't spot a missing one-line wiring in that
+volume. The missing FCM register-on-login wiring was invisible in the
+diff noise.
+
+**How to apply**:
+- One commit per "responsibility area" (e.g., FCM lifecycle is one commit;
+  biometric crypto is another)
+- Tests + production code stay in the same commit (so the test asserts
+  the new behavior in the same atomic change)
+- Refactor commits stay separate from feature commits
+- If you find yourself writing more than 3 paragraphs in a single commit
+  body, split it
+
+---
+
 ### Test Independence (CRITICAL RULE)
 
 **Every test must be independently runnable.** A test must pass when run alone,
@@ -192,6 +271,50 @@ dump across iterations if you can't reach the same state quickly.
 1. `./gradlew assembleDebug` — build succeeds
 2. `./gradlew testDebugUnitTest` — 0 failures
 3. `python3 scripts/verify-on-device.py` — all checks pass (if device connected)
+
+### Source Code Change → ALL Tests Must Pass (CRITICAL RULE)
+
+**Whenever production source code (`app/src/main/...`) changes, every suite
+listed in §"Test Script Catalog" must be re-run and ALL must report 0
+failures BEFORE declaring the work done.** This is non-negotiable. The
+rule applies even when:
+
+- The change is "obviously safe" (one-liner, comment-only, formatting).
+- An unrelated test was already known to fail before the change.
+- Time pressure makes a full re-run feel costly.
+
+**Why this rule exists**: in this project we have already shipped a
+silent feature regression (commit `482a7bf`, FCM register-on-login
+missing) because verification was checklist-based, not full-suite-based.
+On 2026-04-28 we shipped a fix for that bug and were tempted to declare
+"done" with `e2e-production-test.py` still red, on the reasoning that
+the failing tests were "script bugs not code regressions." A red test
+is a red test — until the suite is green, you have not proven the fix.
+
+**How to apply**:
+
+1. Before declaring done, run **all four** in order (per §"Test Script
+   Catalog"):
+   ```
+   ./gradlew testDebugUnitTest        # unit
+   python3 scripts/verify-on-device.py        # device V-tests
+   python3 scripts/e2e_15_clockin_full.py     # GPS clock-in
+   python3 scripts/e2e-production-test.py     # 8 boss requirements
+   ```
+2. Show a status table with PASS / FAIL counts for each suite.
+3. If ANY suite has failures, you have two valid responses:
+    - Fix the failure (in production code OR in the test script — both
+      are valid; document which).
+    - Get explicit user agreement to merge with the failure(s)
+      documented as a follow-up ticket.
+4. Do NOT report "ready to merge" while any suite is red, even if the
+   failing tests are categorized as script-level. Categorize after
+   fixing, not instead of fixing.
+
+**A "test script bug" is still a real bug.** If a test is supposed to
+verify a behavior and it's giving a false negative, it has the same
+practical impact as a missing test: the behavior is unverified. Fix the
+test or remove it; do not leave it red.
 
 ### Test Script Catalog (MANDATORY — list before declaring "no regression")
 

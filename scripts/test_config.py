@@ -35,7 +35,7 @@ def _get(key: str, default: str) -> str:
 
 # ─── Odoo server (live cloudflared tunnel) ──────────────────────────────────
 # When the tunnel rotates, change THIS line (or set ODOO_URL env var).
-ODOO_URL = _get("ODOO_URL", "https://similar-assign-proteins-stylus.trycloudflare.com")
+ODOO_URL = _get("ODOO_URL", "https://tanks-urgent-randy-ate.trycloudflare.com")
 
 # Host-only form (no scheme), for scripts that type into the app's URL field.
 ODOO_HOST = ODOO_URL.replace("https://", "").replace("http://", "").rstrip("/")

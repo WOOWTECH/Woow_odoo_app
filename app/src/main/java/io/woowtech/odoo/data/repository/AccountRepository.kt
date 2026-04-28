@@ -62,6 +62,16 @@ class AccountRepository @Inject constructor(
 
             // Save password securely
             encryptedPrefs.savePassword(account.id, password)
+
+            // Register the FCM token with this account so the user starts
+            // receiving chatter / DM / @mention / activity push notifications
+            // immediately. Without this, the saved token in EncryptedPrefs
+            // never reaches Odoo's `woow.fcm.device` table — symptom: silent
+            // notification failures despite all unit tests passing.
+            //
+            // Symmetric counterpart of `logout → unregisterToken` below.
+            // See `CLAUDE.md` § "Repository-Event Symmetry" for why.
+            registerSavedFcmToken(account.id)
         }
 
         return result
@@ -71,7 +81,49 @@ class AccountRepository @Inject constructor(
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
 
-        // Try to re-authenticate
+        // Capture the previously-active account so we can unregister its FCM
+        // token on the server side. Without this, both accounts remain active
+        // in `woow.fcm.device` and the previous user's notifications keep
+        // arriving on the device after switching. Symmetric with the
+        // `logout → unregisterToken` pattern (CLAUDE.md
+        // § "Repository-Event Symmetry").
+        val previousActiveAccountId = accountDao.getActiveAccountOnce()?.id
+
+        // CRITICAL ordering: unregister A BEFORE re-authenticating as B.
+        //
+        // OdooJsonRpcClient's cookie jar is keyed by HOST, not accountId
+        // (see `OdooJsonRpcClient.kt`: `cookieStore.getOrPut(url.host)`).
+        // For multi-account on the same Odoo host, re-authenticating as B
+        // OVERWRITES A's session cookie. If we unregistered A AFTER re-auth,
+        // the unregister POST would carry B's cookie and either silently
+        // no-op (server can't find A's record) or worse, delete B's
+        // brand-new record. So: unregister first, while A's cookie is live.
+        //
+        // Trade-off: if re-auth then fails, A's FCM record is already
+        // deactivated server-side and the user keeps account A locally but
+        // won't receive A's notifications until the next successful login or
+        // FCM token rotation re-registers. This is the lesser of two evils
+        // versus risking a server-side corruption of B's record.
+        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {
+            fcmTokenRepository?.let { repo ->
+                repo.unregisterToken(previousActiveAccountId)
+                    .onSuccess {
+                        Timber.d(
+                            "FCM token unregistered for previous account %s before switching to %s",
+                            previousActiveAccountId, accountId,
+                        )
+                    }
+                    .onFailure { error ->
+                        Timber.w(
+                            error,
+                            "FCM unregister of previous account %s failed during switch — server may keep delivering its notifications until token rotates",
+                            previousActiveAccountId,
+                        )
+                    }
+            }
+        }
+
+        // Try to re-authenticate (this overwrites the cookie jar for the host)
         val result = odooClient.authenticate(
             account.fullServerUrl,
             account.database,
@@ -83,10 +135,42 @@ class AccountRepository @Inject constructor(
             accountDao.deactivateAllAccounts()
             accountDao.activateAccount(accountId)
             accountDao.updateLastLogin(accountId)
+            // Same reason as authenticate(): the FCM token may have been
+            // saved before this account became active. Replay it.
+            registerSavedFcmToken(accountId)
             true
         } else {
             false
         }
+    }
+
+    /**
+     * Register the locally-saved FCM token with the given Odoo account.
+     *
+     * This is the "replay" path for the case where `WoowFcmService.onNewToken`
+     * fired with zero accounts (e.g., fresh install before login) — the token
+     * was saved to `EncryptedPrefs` but never POSTed to any server. Once an
+     * account exists, every login/switch path calls this to push the token
+     * through.
+     *
+     * Failure is non-fatal — the user can still use the app, they just won't
+     * receive push notifications until the next token rotation (which will
+     * fire `onNewToken` again, this time with at least one account present).
+     * A warning is logged so it can be correlated with reports of "missed
+     * notifications".
+     */
+    private suspend fun registerSavedFcmToken(accountId: String) {
+        val repo = fcmTokenRepository ?: return
+        val token = repo.getStoredToken() ?: return
+        repo.registerToken(accountId = accountId, token = token)
+            .onSuccess { Timber.d("FCM token registered for account %s on login", accountId) }
+            .onFailure { error ->
+                Timber.w(
+                    error,
+                    "FCM token register-on-login failed for account %s — user may miss notifications until next token rotation",
+                    accountId,
+                )
+            }
     }
 
     /**
@@ -123,7 +207,39 @@ class AccountRepository @Inject constructor(
         accountDao.deleteAccountById(id)
     }
 
+    /**
+     * Removes the given account from local storage WITHOUT performing a full
+     * logout flow.
+     *
+     * Unlike [logout], `removeAccount` does NOT clear cookies — it is used in
+     * scenarios where the local record is being purged (e.g., user removed
+     * the account from a multi-account drawer) but the session may still
+     * exist for other purposes.
+     *
+     * **FCM cleanup**: same hazard as [logout] — without an unregister POST
+     * to the Odoo server, the server-side `woow.fcm.device` record for this
+     * account stays active. Future pushes for that account would arrive on
+     * this device even though the local record is gone. Best-effort
+     * unregister; failure is logged and the deletion proceeds.
+     *
+     * Symmetric counterpart of [authenticate]'s register-on-login path
+     * (CLAUDE.md § "Repository-Event Symmetry").
+     */
     suspend fun removeAccount(accountId: String) {
+        // Best-effort FCM unregister before local deletion. If the device
+        // is offline we still proceed — the local record removal is the
+        // user-facing intent and must not be blocked by network state.
+        fcmTokenRepository?.let { repo ->
+            repo.unregisterToken(accountId)
+                .onSuccess { Timber.d("FCM token unregistered for account %s before removal", accountId) }
+                .onFailure { error ->
+                    Timber.w(
+                        error,
+                        "FCM unregister failed during removeAccount(%s) — server may keep this device active until token rotates",
+                        accountId,
+                    )
+                }
+        }
         encryptedPrefs.removePassword(accountId)
         accountDao.deleteAccountById(accountId)
     }
