@@ -78,8 +78,31 @@ class FcmTokenRepositoryImpl @Inject constructor(
     override suspend fun registerTokenForAllAccounts(token: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             registrationMutex.withLock {
-                encryptedPrefs.saveFcmToken(token)
+                val oldToken = encryptedPrefs.getFcmToken()
                 val accounts = accountDao.getAllAccountsList()
+
+                // MA-1 rotation-unregister: if Firebase rotated the token, unregister the
+                // OLD token from every account BEFORE overwriting it, so no "ghost" device
+                // row survives in any Odoo DB (FR-MA-4). unregisterToken() reads the current
+                // stored token, so the old value must be unregistered explicitly here, before
+                // saveFcmToken overwrites it. Best-effort per account — never blocks the new
+                // token's registration.
+                if (oldToken != null && oldToken != token) {
+                    accounts.forEach { account ->
+                        runCatching {
+                            postToOdoo(
+                                serverUrl = account.fullServerUrl,
+                                path = UNREGISTER_PATH,
+                                params = mapOf(PARAM_FCM_TOKEN to oldToken),
+                                account = account,
+                            )
+                        }.onFailure { error ->
+                            Timber.w(error, "Failed to unregister rotated token for account %s", account.id)
+                        }
+                    }
+                }
+
+                encryptedPrefs.saveFcmToken(token)
 
                 // Empty-collection paranoia (CLAUDE.md "Repository-Event Symmetry").
                 // If called before any account exists (fresh install — onNewToken
