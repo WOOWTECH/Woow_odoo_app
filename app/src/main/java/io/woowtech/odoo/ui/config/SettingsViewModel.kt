@@ -1,22 +1,35 @@
 package io.woowtech.odoo.ui.config
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.woowtech.odoo.data.repository.CacheRepository
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
 import io.woowtech.odoo.domain.model.ThemeMode
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.io.File
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val cacheRepository: CacheRepository
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
+
+    private val _cacheSizeText = MutableStateFlow("")
+    val cacheSizeText: StateFlow<String> = _cacheSizeText.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _cacheSizeText.value = formatSize(cacheRepository.calculateCacheSize())
+        }
+    }
 
     fun updateThemeColor(color: String) {
         settingsRepository.updateThemeColor(color)
@@ -30,12 +43,30 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateAppLock(enabled)
     }
 
-    fun updateBiometric(enabled: Boolean) {
-        settingsRepository.updateBiometric(enabled)
+    /**
+     * Updates the biometric-unlock preference.
+     *
+     * [canUseBiometric] must reflect the result of a fresh [BiometricManager.canAuthenticate]
+     * call from the UI layer — this prevents the setting from being turned on when the device
+     * has no available strong biometric hardware or no enrolled biometrics.
+     */
+    fun updateBiometric(enabled: Boolean, canUseBiometric: Boolean = true) {
+        settingsRepository.updateBiometric(enabled = enabled, canEnable = canUseBiometric)
     }
 
-    fun setPin(pin: String): Boolean {
-        return settingsRepository.setPin(pin)
+    /**
+     * Hashes [pin] with PBKDF2 (600,000 iterations) off the main thread and
+     * persists the result. The computation is dispatched inside [viewModelScope]
+     * so it is automatically cancelled when the ViewModel is cleared.
+     *
+     * Because [SettingsRepository.setPin] is now `suspend`, the return value
+     * is no longer surfaced synchronously; callers in the UI layer should observe
+     * the [settings] flow for the updated [pinEnabled] flag instead.
+     */
+    fun setPin(pin: String) {
+        viewModelScope.launch {
+            settingsRepository.setPin(pin)
+        }
     }
 
     fun removePin() {
@@ -50,25 +81,24 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateThemeMode(mode)
     }
 
-    fun clearCache(context: Context) {
-        context.cacheDir.deleteRecursively()
+    /**
+     * Updates whether the app shares the device location with the Odoo server
+     * during attendance clock-in.
+     */
+    fun updateLocationEnabled(enabled: Boolean) {
+        settingsRepository.updateLocationEnabled(enabled)
     }
 
-    fun getCacheSize(context: Context): String {
-        val size = getFolderSize(context.cacheDir)
-        return formatSize(size)
-    }
-
-    private fun getFolderSize(folder: File): Long {
-        var length: Long = 0
-        folder.listFiles()?.forEach { file ->
-            length += if (file.isFile) {
-                file.length()
-            } else {
-                getFolderSize(file)
-            }
+    /**
+     * Clears app cache and WebView cache via CacheRepository.
+     * Does not clear login session or user settings.
+     */
+    fun clearCache() {
+        viewModelScope.launch {
+            cacheRepository.clearAppCache()
+            cacheRepository.clearWebViewCache()
+            _cacheSizeText.value = formatSize(cacheRepository.calculateCacheSize())
         }
-        return length
     }
 
     private fun formatSize(size: Long): String {

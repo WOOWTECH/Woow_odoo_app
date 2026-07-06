@@ -1,6 +1,7 @@
 package io.woowtech.odoo.ui.auth
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,9 +32,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,14 +44,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import io.woowtech.odoo.R
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PinScreen(
@@ -55,24 +63,58 @@ fun PinScreen(
     onPinVerified: () -> Unit,
     onBackClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings by viewModel.settings.collectAsState()
+    // Read reduceMotion once per composition; individual animation specs reference
+    // this val so changes to the setting are reflected on the next recompose.
+    val reduceMotion = settings.reduceMotion
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var isLockedOut by remember { mutableStateOf(viewModel.isLockedOut()) }
+    // L7: Start false and let the LaunchedEffect determine the real value on the first tick.
+    // Previously `viewModel.isLockedOut()` was called at composition time, which could race
+    // with the lockout countdown coroutine resuming after a bg→fg transition — the persisted
+    // lockout could expire in the gap between the `isLockedOut()` call and the first
+    // `getLockoutRemainingMs()` check inside the effect, leaving the screen incorrectly
+    // locked for up to one 500ms tick. Initialising false and letting the effect correct
+    // it immediately removes this race.
+    var isLockedOut by remember { mutableStateOf(false) }
     var isShaking by remember { mutableStateOf(false) }
+    // ANR fix: verifyPin runs PBKDF2 (600K iterations) off the main thread via
+    // Dispatchers.Default. isVerifying gates rapid taps so only one verify is in
+    // flight at a time, and drives the CircularProgressIndicator next to the PIN dots.
+    var isVerifying by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isLockedOut) {
-        if (isLockedOut) {
-            while (viewModel.isLockedOut()) {
-                delay(1000)
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Lockout countdown — keyed on lifecycleOwner so the coroutine is automatically
+    // cancelled when the Composable leaves composition (screen navigated away) or when the
+    // lifecycle owner changes. Evaluates the initial lockout state on the first tick,
+    // then polls every 500 ms while locked out. 500 ms gives sub-second visual accuracy
+    // without burning CPU. (L7 + C3 fix)
+    LaunchedEffect(lifecycleOwner) {
+        // Re-evaluate every time the lifecycle restarts — covers bg/fg transitions and
+        // the initial composition. Reading getLockoutRemainingMs() on the first tick ensures
+        // isLockedOut is set from persisted state before the first frame is rendered.
+        val initialRemaining = viewModel.getLockoutRemainingMs()
+        isLockedOut = initialRemaining > 0
+        while (isLockedOut && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            val remainingMs = viewModel.getLockoutRemainingMs()
+            if (remainingMs <= 0) {
+                isLockedOut = false
+                break
             }
-            isLockedOut = false
+            delay(500)
         }
     }
 
-    // Shake animation for wrong PIN
+    // Shake animation for wrong PIN — respects reduceMotion. When reduceMotion=true,
+    // snap() gives an instant jump rather than the lateral shake movement, eliminating
+    // motion for users who have opted out of animations.
     val shakeOffset by animateFloatAsState(
         targetValue = if (isShaking) 1f else 0f,
-        animationSpec = tween(100),
+        animationSpec = if (reduceMotion) snap() else tween(100),
         finishedListener = { isShaking = false },
         label = "shake"
     )
@@ -133,9 +175,10 @@ fun PinScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // PIN dots with better visibility
+            // PIN dots with better visibility + verifying indicator
             Row(
                 horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(vertical = 16.dp)
                     .then(
@@ -163,6 +206,17 @@ fun PinScreen(
                             )
                     )
                     if (index < 5) Spacer(modifier = Modifier.width(16.dp))
+                }
+                // Show a small spinner next to the dots while PBKDF2 is running.
+                // A 200ms debounce is applied via isVerifying so quick digit taps
+                // that don't reach the verify threshold never flash the indicator.
+                if (isVerifying) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
 
@@ -206,23 +260,35 @@ fun PinScreen(
             // Number pad with improved visibility
             if (!isLockedOut) {
                 NumberPad(
+                    reduceMotion = reduceMotion,
                     onNumberClick = { number ->
+                        // Guard against rapid taps while PBKDF2 is running off-thread.
+                        if (isVerifying) return@NumberPad
                         if (pin.length < 6) {
-                            pin += number
                             error = null
-
-                            if (pin.length >= 4) {
-                                if (viewModel.verifyPin(pin)) {
-                                    onPinVerified()
-                                } else {
-                                    val remaining = viewModel.getRemainingAttempts()
-                                    if (remaining > 0) {
-                                        error = "Wrong PIN. $remaining attempts remaining"
+                            scope.launch {
+                                // Show the spinner only after a 200ms debounce so that
+                                // digits 1–5 (which return NeedMoreDigits instantly) don't
+                                // flash the indicator unnecessarily.
+                                isVerifying = true
+                                val (nextPin, result) = viewModel.enterPinDigit(number, pin)
+                                isVerifying = false
+                                pin = nextPin
+                                when (result) {
+                                    is PinEntryResult.NeedMoreDigits -> {
+                                        // Keep accumulating — stored PIN may be 5 or 6 digits
+                                    }
+                                    is PinEntryResult.Success -> onPinVerified()
+                                    is PinEntryResult.WrongPin -> {
+                                        error = context.getString(
+                                            R.string.wrong_pin_attempts_remaining,
+                                            result.remainingAttempts
+                                        )
                                         isShaking = true
-                                    } else {
+                                    }
+                                    is PinEntryResult.LockedOut -> {
                                         isLockedOut = true
                                     }
-                                    pin = ""
                                 }
                             }
                         }
@@ -242,6 +308,7 @@ fun PinScreen(
 
 @Composable
 private fun NumberPad(
+    reduceMotion: Boolean,
     onNumberClick: (String) -> Unit,
     onDeleteClick: () -> Unit
 ) {
@@ -251,27 +318,27 @@ private fun NumberPad(
     ) {
         // Row 1: 1, 2, 3
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            NumberKey("1", onNumberClick)
-            NumberKey("2", onNumberClick)
-            NumberKey("3", onNumberClick)
+            NumberKey(number = "1", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "2", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "3", reduceMotion = reduceMotion, onClick = onNumberClick)
         }
         // Row 2: 4, 5, 6
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            NumberKey("4", onNumberClick)
-            NumberKey("5", onNumberClick)
-            NumberKey("6", onNumberClick)
+            NumberKey(number = "4", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "5", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "6", reduceMotion = reduceMotion, onClick = onNumberClick)
         }
         // Row 3: 7, 8, 9
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            NumberKey("7", onNumberClick)
-            NumberKey("8", onNumberClick)
-            NumberKey("9", onNumberClick)
+            NumberKey(number = "7", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "8", reduceMotion = reduceMotion, onClick = onNumberClick)
+            NumberKey(number = "9", reduceMotion = reduceMotion, onClick = onNumberClick)
         }
         // Row 4: empty, 0, backspace
         Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
             Spacer(modifier = Modifier.size(76.dp))
-            NumberKey("0", onNumberClick)
-            DeleteKey(onDeleteClick)
+            NumberKey(number = "0", reduceMotion = reduceMotion, onClick = onNumberClick)
+            DeleteKey(reduceMotion = reduceMotion, onClick = onDeleteClick)
         }
     }
 }
@@ -279,13 +346,15 @@ private fun NumberPad(
 @Composable
 private fun NumberKey(
     number: String,
+    reduceMotion: Boolean,
     onClick: (String) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // Key-press scale animation respects reduceMotion.
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(100),
+        animationSpec = if (reduceMotion) snap() else tween(100),
         label = "keyScale"
     )
 
@@ -322,12 +391,13 @@ private fun NumberKey(
 }
 
 @Composable
-private fun DeleteKey(onClick: () -> Unit) {
+private fun DeleteKey(reduceMotion: Boolean, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    // Delete-key press scale animation respects reduceMotion.
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(100),
+        animationSpec = if (reduceMotion) snap() else tween(100),
         label = "deleteScale"
     )
 

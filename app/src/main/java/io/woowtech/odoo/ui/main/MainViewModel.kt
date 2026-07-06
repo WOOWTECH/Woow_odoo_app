@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.woowtech.odoo.data.local.EncryptedPrefs
+import io.woowtech.odoo.data.location.LocationPermissionGate
+import io.woowtech.odoo.data.push.DeepLinkManager
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +25,9 @@ data class WebViewCredentials(
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
-    private val encryptedPrefs: EncryptedPrefs
+    private val encryptedPrefs: EncryptedPrefs,
+    private val deepLinkManager: DeepLinkManager,
+    val locationPermissionGate: LocationPermissionGate,
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount
@@ -58,5 +62,13 @@ class MainViewModel @Inject constructor(
 
     fun getSessionId(serverUrl: String): String? {
         return accountRepository.getSessionId(serverUrl)
+    }
+
+    /**
+     * Consumes and returns a pending deep link URL from a notification tap.
+     * Returns null if no deep link is pending.
+     */
+    fun consumePendingDeepLink(): String? {
+        return deepLinkManager.consume()
     }
 }

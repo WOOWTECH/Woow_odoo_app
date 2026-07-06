@@ -17,6 +17,13 @@ import io.woowtech.odoo.ui.config.SettingsScreen
 import io.woowtech.odoo.ui.login.LoginScreen
 import io.woowtech.odoo.ui.main.MainScreen
 
+// L8 NOTE: String-based routes are a known limitation (MASVS-PLATFORM-1). Migrating to
+// type-safe @Serializable data objects (Nav 2.8+ API) would make saved-state restoration
+// of the back-stack auditable at compile time, but requires upgrading
+// androidx.navigation from 2.7.7 to 2.8+. Tracked as a backlog item — the L2 imperative
+// LaunchedEffect guard (added in this commit) mitigates the exploitation path by clearing
+// the back-stack and routing to Auth on any requiresAuth && !isAuthenticated state, making
+// back-stack manipulation via string routes a non-exploitable path.
 sealed class Screen(val route: String) {
     object Splash : Screen("splash")
     object Auth : Screen("auth")
@@ -41,6 +48,22 @@ fun WoowOdooNavHost(
         hasActiveAccount == false -> Screen.Login.route
         requiresAuth && !isAuthenticated -> Screen.Auth.route
         else -> Screen.Main.route
+    }
+
+    // L2: Imperative auth guard — navigates to Auth whenever the auth state transitions
+    // to "requires authentication". This covers the process-restoration path where the
+    // NavController saved-state can restore the back-stack to Screen.Main while
+    // isAuthenticated is false (its in-memory initial value after process death).
+    // The startDestination guard above only controls the *initial* destination; it cannot
+    // pop a restored back-stack. This LaunchedEffect fires on every frame where
+    // requiresAuth=true AND isAuthenticated=false, clearing the entire stack to Auth.
+    LaunchedEffect(isAuthenticated, requiresAuth) {
+        if (requiresAuth && !isAuthenticated) {
+            navController.navigate(Screen.Auth.route) {
+                popUpTo(navController.graph.id) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
     }
 
     NavHost(
@@ -79,13 +102,6 @@ fun WoowOdooNavHost(
                 onUsePinClick = {
                     navController.navigate(Screen.Pin.route)
                 },
-                onSkip = {
-                    // Skip authentication and go to main screen
-                    authViewModel.setAuthenticated(true)
-                    navController.navigate(Screen.Main.route) {
-                        popUpTo(Screen.Auth.route) { inclusive = true }
-                    }
-                }
             )
         }
 

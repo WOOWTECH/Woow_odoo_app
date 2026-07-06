@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.main
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
@@ -7,15 +8,15 @@ import android.net.Uri
 import android.os.Environment
 import android.os.Message
 import android.provider.MediaStore
-import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebResourceResponse
 import android.webkit.WebViewClient
 import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -37,10 +38,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,10 +55,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
+import io.woowtech.odoo.data.location.LocationPermissionGate
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import timber.log.Timber
+
+/** Holds a pending geolocation permission request while the runtime OS dialog is showing. */
+private data class PendingGeolocationRequest(
+    val origin: String?,
+    val callback: GeolocationPermissions.Callback,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,9 +74,18 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
     onMenuClick: () -> Unit
 ) {
-    val account by viewModel.activeAccount.collectAsState(initial = null)
+    val account by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+
+    // Cache the active account host so we never need to suspend on the WebChromeClient
+    // callback thread. Updated whenever the active account changes.
+    var activeHostSnapshot by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(account) {
+        activeHostSnapshot = account?.fullServerUrl?.let { url ->
+            runCatching { Uri.parse(url).host?.lowercase() }.getOrNull()
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -100,14 +122,19 @@ fun MainScreen(
             account?.let { acc ->
                 // Get session ID and sync to WebView's CookieManager
                 val sessionId = viewModel.getSessionId(acc.fullServerUrl)
+                // Consume pending deep link from notification tap
+                val pendingDeepLink = remember { viewModel.consumePendingDeepLink() }
 
                 OdooWebView(
                     serverUrl = acc.fullServerUrl,
                     database = acc.database,
                     sessionId = sessionId,
+                    deepLinkUrl = pendingDeepLink,
+                    locationPermissionGate = viewModel.locationPermissionGate,
+                    activeHostSnapshot = activeHostSnapshot,
                     onWebViewCreated = { webView = it },
                     onLoadingChanged = { isLoading = it },
-                    onSessionExpired = onMenuClick // Navigate to menu/login on session expiry
+                    onSessionExpired = onMenuClick,
                 )
             }
 
@@ -129,15 +156,55 @@ fun OdooWebView(
     serverUrl: String,
     database: String,
     sessionId: String?,
+    deepLinkUrl: String? = null,
+    locationPermissionGate: LocationPermissionGate? = null,
+    activeHostSnapshot: String? = null,
     onWebViewCreated: (WebView) -> Unit,
     onLoadingChanged: (Boolean) -> Unit,
-    onSessionExpired: () -> Unit
+    onSessionExpired: () -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // Fix for stale-closure bug — the WebChromeClient is created once at WebView
+    // factory time and captures whatever activeHostSnapshot was at that moment
+    // (typically null because the active-account Flow has not emitted yet).
+    // rememberUpdatedState wraps the parameter so the closure reads the latest
+    // value on every callback invocation. See architect review notes for details.
+    val currentActiveHost by rememberUpdatedState(activeHostSnapshot)
 
     // v1.0.15: File upload support - state for file chooser callback
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Geolocation: holds an in-flight permission request while the OS dialog is open.
+    var pendingGeolocationRequest by remember { mutableStateOf<PendingGeolocationRequest?>(null) }
+
+    // Runtime permission launcher for ACCESS_FINE_LOCATION + ACCESS_COARSE_LOCATION.
+    // Invoked when LocationPermissionGate returns NeedsRuntimePrompt.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants.values.any { it }
+        pendingGeolocationRequest?.let { req ->
+            if (granted && req.origin?.isNotBlank() == true) {
+                // Clear any stale per-origin "blocked" entry before granting so that
+                // a previously denied WebView database entry cannot override the grant.
+                GeolocationPermissions.getInstance().clear(req.origin)
+                req.callback.invoke(req.origin, true, true)
+                Timber.d("Geolocation: granted after runtime prompt for %s", req.origin)
+            } else {
+                req.callback.invoke(req.origin, false, false)
+                Timber.d("Geolocation: denied at runtime prompt for %s", req.origin)
+            }
+            pendingGeolocationRequest = null
+        }
+    }
+
+    // Null-guard: clear any dangling request when the composable leaves the composition.
+    DisposableEffect(Unit) {
+        onDispose { pendingGeolocationRequest = null }
+    }
 
     // v1.0.15: Create temp file for camera photo
     fun createImageFile(): File {
@@ -150,7 +217,7 @@ fun OdooWebView(
     val fileChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        Log.d("WoowTechOdoo", "File chooser result: ${result.resultCode}")
+        Timber.d("File chooser result: ${result.resultCode}")
 
         val uris = mutableListOf<Uri>()
 
@@ -163,11 +230,11 @@ fun OdooWebView(
                     context.contentResolver.openInputStream(cameraUri)?.use { stream ->
                         if (stream.available() > 0) {
                             uris.add(cameraUri)
-                            Log.d("WoowTechOdoo", "Camera photo captured: $cameraUri")
+                            Timber.d("Camera photo captured: $cameraUri")
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("WoowTechOdoo", "Error reading camera photo: ${e.message}")
+                    Timber.e("Error reading camera photo: ${e.message}")
                 }
             }
 
@@ -177,7 +244,7 @@ fun OdooWebView(
                 intent.data?.let { uri ->
                     if (!uris.contains(uri)) {
                         uris.add(uri)
-                        Log.d("WoowTechOdoo", "Single file selected: $uri")
+                        Timber.d("Single file selected: $uri")
                     }
                 }
 
@@ -187,7 +254,7 @@ fun OdooWebView(
                         val uri = clipData.getItemAt(i).uri
                         if (!uris.contains(uri)) {
                             uris.add(uri)
-                            Log.d("WoowTechOdoo", "Multiple file selected [$i]: $uri")
+                            Timber.d("Multiple file selected [$i]: $uri")
                         }
                     }
                 }
@@ -196,7 +263,7 @@ fun OdooWebView(
 
         // Send result to WebView (must always call, even with empty/null result)
         val resultUris = if (uris.isNotEmpty()) uris.toTypedArray() else null
-        Log.d("WoowTechOdoo", "Sending ${uris.size} URIs to WebView")
+        Timber.d("Sending ${uris.size} URIs to WebView")
         filePathCallback?.onReceiveValue(resultUris)
         filePathCallback = null
         cameraPhotoUri = null
@@ -221,6 +288,9 @@ fun OdooWebView(
                     setSupportZoom(true)
                     builtInZoomControls = true
                     displayZoomControls = false
+                    // Required for navigator.geolocation to fire
+                    // onGeolocationPermissionsShowPrompt in the WebChromeClient.
+                    setGeolocationEnabled(true)
 
                     // v1.0.12: CRITICAL FIX - Disable wide viewport settings
                     // These settings cause Odoo OWL to miscalculate layout dimensions
@@ -228,14 +298,16 @@ fun OdooWebView(
                     loadWithOverviewMode = false
                     useWideViewPort = false
 
-                    allowFileAccess = true
+                    // B0.8: Disable file access for security
+                    allowFileAccess = false
                     allowContentAccess = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-                    // v1.0.10: Additional settings for OWL framework compatibility
+                    // B0.7: Disable popup windows for security, but allow JS window calls
+                    // OWL framework requires javaScriptCanOpenWindowsAutomatically for proper rendering
                     javaScriptCanOpenWindowsAutomatically = true
                     mediaPlaybackRequiresUserGesture = false
-                    setSupportMultipleWindows(true)
+                    setSupportMultipleWindows(false)
 
                     // v1.0.12: Use standard Chrome Mobile User-Agent (no custom suffix)
                     // Some sites check for exact UA match
@@ -245,7 +317,8 @@ fun OdooWebView(
                 // Enable cookies and sync session cookie from OkHttp to WebView
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
-                cookieManager.setAcceptThirdPartyCookies(this, true)
+                // B0.6: Disable third-party cookies for security
+                cookieManager.setAcceptThirdPartyCookies(this, false)
 
                 // Sync session cookie from native authentication to WebView
                 if (sessionId != null) {
@@ -313,11 +386,11 @@ fun OdooWebView(
                         request: WebResourceRequest?
                     ): Boolean {
                         val url = request?.url?.toString() ?: return false
-                        Log.d("WoowTechOdoo", "shouldOverrideUrlLoading: $url")
+                        Timber.d("shouldOverrideUrlLoading: $url")
 
                         // Detect session expiry - if redirected to login page
                         if (url.contains("/web/login")) {
-                            Log.d("WoowTechOdoo", "Session expired, redirecting to login")
+                            Timber.d("Session expired, redirecting to login")
                             onSessionExpired()
                             return true
                         }
@@ -327,23 +400,24 @@ fun OdooWebView(
                         val serverHost = java.net.URI(serverUrl).host
                         val urlHost = try { java.net.URI(url).host } catch (e: Exception) { null }
                         if (urlHost == serverHost) {
-                            Log.d("WoowTechOdoo", "Same host, allowing: $url")
+                            Timber.d("Same host, allowing: $url")
                             return false
                         }
 
-                        // v1.0.13: Allow blob: and data: URLs (used by OWL framework)
-                        if (url.startsWith("blob:") || url.startsWith("data:")) {
-                            Log.d("WoowTechOdoo", "Allowing blob/data URL")
+                        // Allow blob: URLs (used by OWL framework for downloads)
+                        if (url.startsWith("blob:")) {
+                            Timber.d("Allowing blob URL")
                             return false
                         }
 
-                        // Allow HTTPS URLs
-                        if (url.startsWith("https://")) {
-                            Log.d("WoowTechOdoo", "Allowing HTTPS URL: $url")
-                            return false
+                        // B0.5: Block all other URLs — open external URLs in system browser
+                        Timber.d("External URL, opening in browser: $url")
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            view?.context?.startActivity(intent)
+                        } catch (e: android.content.ActivityNotFoundException) {
+                            Timber.e("No browser found to open: $url")
                         }
-
-                        Log.d("WoowTechOdoo", "Blocking URL: $url")
                         return true
                     }
 
@@ -355,7 +429,7 @@ fun OdooWebView(
                         val url = request?.url?.toString() ?: return null
                         // Log failed or important requests
                         if (url.contains(".js") || url.contains(".css") || url.contains("/web/")) {
-                            Log.d("WoowTechOdoo", "Resource request: $url")
+                            Timber.d("Resource request: $url")
                         }
                         return null // Don't intercept, let WebView handle it
                     }
@@ -366,7 +440,7 @@ fun OdooWebView(
                         error: android.webkit.WebResourceError?
                     ) {
                         super.onReceivedError(view, request, error)
-                        Log.e("WoowTechOdoo", "Resource error: ${request?.url} - ${error?.description}")
+                        Timber.e("Resource error: ${request?.url} - ${error?.description}")
                     }
                 }
 
@@ -378,9 +452,9 @@ fun OdooWebView(
                         callback: ValueCallback<Array<Uri>>?,
                         fileChooserParams: FileChooserParams?
                     ): Boolean {
-                        Log.d("WoowTechOdoo", "onShowFileChooser called")
-                        Log.d("WoowTechOdoo", "Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
-                        Log.d("WoowTechOdoo", "Mode: ${fileChooserParams?.mode}")
+                        Timber.d("onShowFileChooser called")
+                        Timber.d("Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
+                        Timber.d("Mode: ${fileChooserParams?.mode}")
 
                         // Cancel any pending callback
                         filePathCallback?.onReceiveValue(null)
@@ -397,7 +471,7 @@ fun OdooWebView(
                             )
                             cameraPhotoUri = photoUri
                             takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-                            Log.d("WoowTechOdoo", "Camera URI: $photoUri")
+                            Timber.d("Camera URI: $photoUri")
 
                             // Create gallery/file intent
                             val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
@@ -426,7 +500,7 @@ fun OdooWebView(
                             return true
 
                         } catch (e: Exception) {
-                            Log.e("WoowTechOdoo", "Error launching file chooser: ${e.message}")
+                            Timber.e("Error launching file chooser: ${e.message}")
                             filePathCallback?.onReceiveValue(null)
                             filePathCallback = null
                             cameraPhotoUri = null
@@ -441,7 +515,7 @@ fun OdooWebView(
                         resultMsg: Message?
                     ): Boolean {
                         // Handle window creation requests from OWL framework
-                        Log.d("WoowTechOdoo", "onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
+                        Timber.d("onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
                         // Create a new WebView for the popup and pass it back
                         val newWebView = WebView(view?.context ?: return false)
                         newWebView.settings.javaScriptEnabled = true
@@ -452,24 +526,103 @@ fun OdooWebView(
                     }
 
                     override fun onCloseWindow(window: WebView?) {
-                        Log.d("WoowTechOdoo", "onCloseWindow called")
+                        Timber.d("onCloseWindow called")
                         window?.destroy()
                     }
 
                     override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                         consoleMessage?.let {
-                            Log.d(
-                                "WoowTechOdoo",
-                                "[${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})"
+                            Timber.d(
+                                "[%s] %s (%s:%d)",
+                                it.messageLevel(),
+                                it.message(),
+                                it.sourceId(),
+                                it.lineNumber()
                             )
                         }
                         return true
                     }
+
+                    /**
+                     * Called by the WebView when a page requests geolocation permission.
+                     *
+                     * The resolution order is:
+                     * 1. Activity-resumed guard — if the Activity is not RESUMED the OS dialog
+                     *    cannot be shown, so we deny immediately and let Odoo's error callback
+                     *    fire the no-coords clock-in path.
+                     * 2. [LocationPermissionGate.resolve] — checks origin, user preference,
+                     *    and OS permission state.
+                     *
+                     * Every code path invokes [callback] exactly once, satisfying the
+                     * WebView's contract of calling the callback within the 30s timeout.
+                     */
+                    override fun onGeolocationPermissionsShowPrompt(
+                        origin: String?,
+                        callback: GeolocationPermissions.Callback?,
+                    ) {
+                        if (callback == null) return
+
+                        // Guard: OS runtime dialog cannot be shown unless Activity is RESUMED.
+                        if (lifecycleOwner.lifecycle.currentState < Lifecycle.State.RESUMED) {
+                            callback.invoke(origin, false, false)
+                            Timber.w("Geolocation: Activity not RESUMED — denied for %s", origin)
+                            return
+                        }
+
+                        val gate = locationPermissionGate
+                        if (gate == null) {
+                            // Gate unavailable (e.g. previews, tests without Hilt) — deny safely.
+                            callback.invoke(origin, false, false)
+                            return
+                        }
+
+                        when (val decision = gate.resolve(origin, currentActiveHost)) {
+                            is LocationPermissionGate.Decision.Grant -> {
+                                // Defense-in-depth: clear any stale per-origin "blocked" cache
+                                // entry that could override this grant.
+                                if (!origin.isNullOrBlank()) {
+                                    GeolocationPermissions.getInstance().clear(origin)
+                                }
+                                callback.invoke(origin, true, true)
+                                Timber.d("Geolocation: granted for %s", origin)
+                            }
+                            is LocationPermissionGate.Decision.Reject -> {
+                                callback.invoke(origin, false, false)
+                                Timber.d("Geolocation: rejected (%s)", decision.reason)
+                            }
+                            is LocationPermissionGate.Decision.NeedsRuntimePrompt -> {
+                                pendingGeolocationRequest = PendingGeolocationRequest(
+                                    origin = origin,
+                                    callback = callback,
+                                )
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    override fun onGeolocationPermissionsHidePrompt() {
+                        super.onGeolocationPermissionsHidePrompt()
+                    }
                 }
 
-                // v1.0.12: Load Odoo with standard URL (no debug parameter)
-                // Debug parameter can cause slower loading and is not needed
-                loadUrl("$serverUrl/web?db=$database")
+                // Load deep link URL if present, otherwise default Odoo page
+                val initialUrl = if (deepLinkUrl != null) {
+                    val safeUrl = Uri.parse(serverUrl).buildUpon()
+                        .encodedPath(deepLinkUrl.substringBefore("?").substringBefore("#"))
+                        .encodedFragment(Uri.parse(deepLinkUrl).encodedFragment)
+                        .build()
+                        .toString()
+                    Timber.d("Loading deep link URL: %s", safeUrl)
+                    safeUrl
+                } else {
+                    "$serverUrl/web?db=$database"
+                }
+                loadUrl(initialUrl)
             }
         },
         modifier = Modifier.fillMaxSize(),

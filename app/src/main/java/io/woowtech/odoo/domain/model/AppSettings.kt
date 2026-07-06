@@ -10,7 +10,8 @@ data class AppSettings(
     val pinHash: String? = null,
     val language: AppLanguage = AppLanguage.SYSTEM,
     val failedPinAttempts: Int = 0,
-    val pinLockoutUntil: Long? = null
+    val pinLockoutUntil: Long? = null,
+    val locationEnabled: Boolean = true,
 )
 
 enum class ThemeMode(val code: String) {
@@ -22,5 +23,6 @@ enum class ThemeMode(val code: String) {
 enum class AppLanguage(val code: String, val displayName: String) {
     SYSTEM("system", "System Default"),
     ENGLISH("en", "English"),
-    CHINESE_TW("zh-TW", "繁體中文")
+    CHINESE_TW("zh-TW", "繁體中文"),
+    CHINESE_CN("zh-CN", "简体中文")
 }
