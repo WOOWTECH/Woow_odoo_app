@@ -28,6 +28,16 @@ class AccountRepository @Inject constructor(
 
     suspend fun getActiveAccountOnce(): OdooAccount? = accountDao.getActiveAccountOnce()
 
+    /** Returns a one-shot snapshot of all locally known accounts (most-recent login first). */
+    suspend fun getAllAccountsOnce(): List<OdooAccount> = accountDao.getAllAccountsList()
+
+    /**
+     * Returns true when the account has stored credentials and can therefore be treated as
+     * "logged in" for deep-link routing. A resolved-but-not-logged-in account causes the deep
+     * link to be dropped rather than applied.
+     */
+    fun isLoggedIn(accountId: String): Boolean = encryptedPrefs.getPassword(accountId) != null
+
     suspend fun authenticate(
         serverUrl: String,
         database: String,

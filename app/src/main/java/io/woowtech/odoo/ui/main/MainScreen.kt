@@ -75,6 +75,7 @@ fun MainScreen(
     onMenuClick: () -> Unit
 ) {
     val account by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
+    val pendingDeepLink by viewModel.pendingDeepLink.collectAsStateWithLifecycle(initialValue = null)
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
@@ -85,6 +86,9 @@ fun MainScreen(
         activeHostSnapshot = account?.fullServerUrl?.let { url ->
             runCatching { Uri.parse(url).host?.lowercase() }.getOrNull()
         }
+        // Defence in depth: as soon as an account becomes active, drop any pending deep link that
+        // was queued for a different account so it can never leak into this one.
+        account?.id?.let { viewModel.dropForeignPendingDeepLink(it) }
     }
 
     DisposableEffect(Unit) {
@@ -122,14 +126,20 @@ fun MainScreen(
             account?.let { acc ->
                 // Get session ID and sync to WebView's CookieManager
                 val sessionId = viewModel.getSessionId(acc.fullServerUrl)
-                // Consume pending deep link from notification tap
-                val pendingDeepLink = remember { viewModel.consumePendingDeepLink() }
+
+                // Only surface the pending deep link to the WebView when it belongs to the
+                // currently active account. It is NOT consumed here (that would be a state-set
+                // apply) — the WebView consumes it once, after the target page finishes loading.
+                val deepLinkUrl = pendingDeepLink
+                    ?.takeIf { it.accountId == acc.id }
+                    ?.url
 
                 OdooWebView(
                     serverUrl = acc.fullServerUrl,
                     database = acc.database,
                     sessionId = sessionId,
-                    deepLinkUrl = pendingDeepLink,
+                    deepLinkUrl = deepLinkUrl,
+                    onDeepLinkConsumed = { viewModel.consumePendingDeepLink(acc.id) },
                     locationPermissionGate = viewModel.locationPermissionGate,
                     activeHostSnapshot = activeHostSnapshot,
                     onWebViewCreated = { webView = it },
@@ -157,6 +167,7 @@ fun OdooWebView(
     database: String,
     sessionId: String?,
     deepLinkUrl: String? = null,
+    onDeepLinkConsumed: () -> Unit = {},
     locationPermissionGate: LocationPermissionGate? = null,
     activeHostSnapshot: String? = null,
     onWebViewCreated: (WebView) -> Unit,
@@ -172,6 +183,22 @@ fun OdooWebView(
     // rememberUpdatedState wraps the parameter so the closure reads the latest
     // value on every callback invocation. See architect review notes for details.
     val currentActiveHost by rememberUpdatedState(activeHostSnapshot)
+
+    // The WebViewClient and update{} block are created once but must read the LATEST params on
+    // every callback / recomposition, so wrap the deep-link inputs the same way.
+    val currentServerUrl by rememberUpdatedState(serverUrl)
+    val currentDeepLinkUrl by rememberUpdatedState(deepLinkUrl)
+    val currentOnDeepLinkConsumed by rememberUpdatedState(onDeepLinkConsumed)
+
+    // Tracks which server the single WebView last (re)loaded, so update{} can detect an
+    // account switch (serverUrl change) and drive a full reload. Seeded in the factory.
+    var lastLoadedServerUrl by remember { mutableStateOf(serverUrl) }
+    // The deep link already applied to the current page, so it is applied exactly once whether
+    // it arrives via onPageFinished (cold / switch) or via warm fragment navigation.
+    var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
+    // True once the current server's page has finished loading. Gates warm fragment navigation so
+    // a hash change is never fired at a page that is still loading (cold start / mid switch).
+    var currentPageLoaded by remember { mutableStateOf(false) }
 
     // v1.0.15: File upload support - state for file chooser callback
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
@@ -314,21 +341,23 @@ fun OdooWebView(
                     userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                 }
 
-                // Enable cookies and sync session cookie from OkHttp to WebView
+                // Enable cookies for this WebView.
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
                 // B0.6: Disable third-party cookies for security
                 cookieManager.setAcceptThirdPartyCookies(this, false)
 
-                // Sync session cookie from native authentication to WebView
-                if (sessionId != null) {
-                    cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure")
-                    cookieManager.flush()
-                }
+                // Per-account cookie isolation: the CookieManager is process-global, so before the
+                // first load we clear every cookie and set ONLY the active account's session
+                // cookie. This guarantees account A's cookies can never load under account B.
+                isolateCookiesForAccount(serverUrl = serverUrl, sessionId = sessionId)
 
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
+                        // A fresh document load begins — warm fragment navigation must wait until
+                        // it finishes. (Same-document hash changes do not trigger this callback.)
+                        currentPageLoaded = false
                         onLoadingChanged(true)
                     }
 
@@ -378,6 +407,28 @@ fun OdooWebView(
                             """.trimIndent(),
                             null
                         )
+
+                        // Load-gated deep-link apply: only navigate to the pending link once a
+                        // page from the TARGET account's own host has finished loading. This is
+                        // the point that guarantees a link is never applied while the WebView is
+                        // still showing the previous account's host.
+                        currentPageLoaded = DeepLinkWebPlanner.hostMatches(
+                            loadedUrl = url,
+                            targetServerUrl = currentServerUrl,
+                        )
+
+                        val pending = currentDeepLinkUrl
+                        if (view != null &&
+                            pending != null &&
+                            appliedDeepLinkUrl != pending &&
+                            currentPageLoaded
+                        ) {
+                            applyDeepLink(view, currentServerUrl, pending)
+                            appliedDeepLinkUrl = pending
+                            currentOnDeepLinkConsumed()
+                            Timber.d("Applied pending deep link after page load")
+                        }
+
                         onLoadingChanged(false)
                     }
 
@@ -610,24 +661,79 @@ fun OdooWebView(
                     }
                 }
 
-                // Load deep link URL if present, otherwise default Odoo page
-                val initialUrl = if (deepLinkUrl != null) {
-                    val safeUrl = Uri.parse(serverUrl).buildUpon()
-                        .encodedPath(deepLinkUrl.substringBefore("?").substringBefore("#"))
-                        .encodedFragment(Uri.parse(deepLinkUrl).encodedFragment)
-                        .build()
-                        .toString()
-                    Timber.d("Loading deep link URL: %s", safeUrl)
-                    safeUrl
-                } else {
-                    "$serverUrl/web?db=$database"
-                }
-                loadUrl(initialUrl)
+                // Always load the account's base page; any pending deep link is applied in
+                // onPageFinished once this host has finished loading (load-gated apply). This
+                // keeps the "apply only after load" invariant identical across cold start and
+                // account switch.
+                lastLoadedServerUrl = serverUrl
+                loadUrl("$serverUrl/web?db=$database")
             }
         },
         modifier = Modifier.fillMaxSize(),
         update = { webView ->
-            // Handle updates if needed
+            if (serverUrl != lastLoadedServerUrl) {
+                // Single-view account switch: when the active account changes, serverUrl changes.
+                // Re-isolate cookies for the new account and reload its base page. The pending deep
+                // link is then applied in onPageFinished (host-gated).
+                Timber.d("Account switched — reloading WebView for new server")
+                appliedDeepLinkUrl = null
+                currentPageLoaded = false
+                isolateCookiesForAccount(serverUrl = serverUrl, sessionId = sessionId)
+                lastLoadedServerUrl = serverUrl
+                webView.loadUrl("$serverUrl/web?db=$database")
+            } else {
+                // Warm case: already loaded on the target host (no reload happens) and a new deep
+                // link is pending for it. A plain loadUrl of a fragment is a no-op inside the Odoo
+                // SPA, so drive it via JavaScript (set location.hash + dispatch hashchange). Gated
+                // on currentPageLoaded so it never fires at a page that is still loading.
+                val pending = deepLinkUrl
+                if (currentPageLoaded &&
+                    pending != null &&
+                    appliedDeepLinkUrl != pending &&
+                    DeepLinkWebPlanner.fragmentOf(pending) != null
+                ) {
+                    applyDeepLink(webView, serverUrl, pending)
+                    appliedDeepLinkUrl = pending
+                    onDeepLinkConsumed()
+                    Timber.d("Applied pending deep link via warm fragment navigation")
+                }
+                // Path-only links (no fragment) are handled by the onPageFinished path after the
+                // next natural load; nothing to do here.
+            }
         }
     )
+}
+
+/**
+ * Applies a pending deep link to [view]. Fragment-based Odoo links (the common case, e.g.
+ * `/web#active_id=mail.channel_7`) are driven via JavaScript so the change works both on a fresh
+ * page and warm (in-SPA); path-based links fall back to a validated full load.
+ */
+private fun applyDeepLink(view: WebView, serverUrl: String, deepLinkUrl: String) {
+    val fragment = DeepLinkWebPlanner.fragmentOf(deepLinkUrl)
+    if (fragment != null) {
+        view.evaluateJavascript(DeepLinkWebPlanner.buildFragmentNavJs(fragment), null)
+    } else {
+        val safeUrl = Uri.parse(serverUrl).buildUpon()
+            .encodedPath(deepLinkUrl.substringBefore("?").substringBefore("#"))
+            .build()
+            .toString()
+        view.loadUrl(safeUrl)
+    }
+}
+
+/**
+ * Enforces per-account cookie isolation on the process-global [CookieManager]: clears every cookie
+ * and then sets only [serverUrl]'s session cookie. Called before each account's first load and on
+ * every account switch so one account's cookies can never be presented to another account's server.
+ */
+private fun isolateCookiesForAccount(serverUrl: String, sessionId: String?) {
+    val cookieManager = CookieManager.getInstance()
+    cookieManager.setAcceptCookie(true)
+    // Clear ALL cookies — this is the isolation crux for the same-and-different-host cases.
+    cookieManager.removeAllCookies(null)
+    if (sessionId != null) {
+        cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure")
+    }
+    cookieManager.flush()
 }

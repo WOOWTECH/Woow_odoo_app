@@ -166,7 +166,7 @@ class FcmTokenRepositoryImpl @Inject constructor(
             val account = accountDao.getAccountById(accountId)
                 ?: error("Account not found: $accountId")
 
-            postToOdoo(
+            val responseBody = postToOdoo(
                 serverUrl = account.fullServerUrl,
                 path = REGISTER_PATH,
                 params = mapOf(
@@ -177,6 +177,16 @@ class FcmTokenRepositoryImpl @Inject constructor(
                 account = account,
             )
             Timber.d("FCM token registered for account %s", accountId)
+
+            // Persist the opaque tenant id the server returns for this account so future push
+            // notifications can be routed to it (multi-account deep-link isolation). Best-effort:
+            // an older server that does not return a tenant id leaves the column null and the
+            // account simply keeps current-behaviour routing until a newer server responds.
+            val tenantId = FcmRegistrationResponse.parseTenantId(responseBody)
+            if (tenantId != null && tenantId != account.tenantId) {
+                accountDao.updateTenantId(id = accountId, tenantId = tenantId)
+                Timber.d("Persisted tenant id for account %s", accountId)
+            }
         }.onFailure { error ->
             Timber.e(error, "Failed to register FCM token for account %s", accountId)
         }
@@ -216,7 +226,7 @@ class FcmTokenRepositoryImpl @Inject constructor(
         path: String,
         params: Map<String, String>,
         account: OdooAccount,
-    ) {
+    ): String {
         val url = "$serverUrl$path"
         val requestBody = JsonObject().apply {
             addProperty("jsonrpc", "2.0")
@@ -254,6 +264,8 @@ class FcmTokenRepositoryImpl @Inject constructor(
             // JSON parse failure is non-fatal — server returned 2xx which is enough
             Timber.w(parseError, "Could not parse Odoo response from %s", url)
         }
+
+        return responseBody
     }
 
     companion object {
@@ -275,4 +287,36 @@ class FcmTokenRepositoryImpl @Inject constructor(
 interface SessionCookieProvider {
     /** Returns the session cookies that should be sent to the given Odoo host. */
     fun getCookiesForHost(host: String): List<Cookie>
+}
+
+/**
+ * Parses the opaque tenant id out of an Odoo FCM device-registration response. Isolated as a pure
+ * function so it can be unit-tested without any network layer.
+ */
+object FcmRegistrationResponse {
+
+    private val tenantIdKeys = listOf("tenant_id", "odoo_tenant_id")
+    private val parser = Gson()
+
+    /**
+     * Returns the tenant id from a JSON-RPC registration [responseBody], or null if the response is
+     * malformed or carries no tenant id (older server). The id is read from the `result` object,
+     * accepting either a `tenant_id` or `odoo_tenant_id` key, and only non-blank string/number
+     * values are accepted.
+     */
+    fun parseTenantId(responseBody: String?): String? {
+        if (responseBody.isNullOrBlank()) return null
+        return runCatching {
+            val root = parser.fromJson(responseBody, JsonObject::class.java) ?: return null
+            val result = root.getAsJsonObject("result") ?: return null
+            for (key in tenantIdKeys) {
+                val element = result.get(key)
+                if (element != null && element.isJsonPrimitive) {
+                    val value = element.asString
+                    if (value.isNotBlank()) return value
+                }
+            }
+            null
+        }.getOrNull()
+    }
 }

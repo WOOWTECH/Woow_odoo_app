@@ -30,6 +30,21 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE serverUrl = :serverUrl AND database = :database AND username = :username LIMIT 1")
     suspend fun findAccount(serverUrl: String, database: String, username: String): OdooAccount?
 
+    /**
+     * Resolves the local account that owns the given opaque [tenantId]. Returns null when no
+     * account has registered that tenant id yet, which the deep-link router treats as an
+     * unresolved tenant (the notification is dropped, never mis-routed to the active account).
+     */
+    @Query("SELECT * FROM accounts WHERE tenantId = :tenantId LIMIT 1")
+    suspend fun getAccountByTenantId(tenantId: String): OdooAccount?
+
+    /**
+     * Persists the [tenantId] returned by the Odoo server for the account with [id]. Called
+     * after a successful FCM device registration so future notifications can be routed.
+     */
+    @Query("UPDATE accounts SET tenantId = :tenantId WHERE id = :id")
+    suspend fun updateTenantId(id: String, tenantId: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAccount(account: OdooAccount)
 

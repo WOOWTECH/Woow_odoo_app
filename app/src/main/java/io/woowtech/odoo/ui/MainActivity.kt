@@ -16,8 +16,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import dagger.hilt.android.AndroidEntryPoint
 import io.woowtech.odoo.data.push.DeepLinkManager
+import io.woowtech.odoo.data.push.DeepLinkRoute
+import io.woowtech.odoo.data.push.DeepLinkRouter
 import io.woowtech.odoo.data.push.DeepLinkValidator
 import io.woowtech.odoo.data.push.NotificationHelper
+import io.woowtech.odoo.data.push.RoutableAccount
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.ui.auth.AuthViewModel
@@ -124,41 +127,90 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * Extracts and validates deep link URL from notification tap intent.
-     * Stores validated URL in DeepLinkManager for consumption after auth.
+     * Extracts a notification-tap deep link, resolves which account it belongs to, switches to
+     * that account if needed, and queues the link bound to that account for the WebView to apply.
      *
-     * C2: Reads the active account's server host from [AccountRepository] to prevent
-     * external-host URLs from being accepted. If no account is active, all deep links
-     * are rejected because we cannot establish what host is trusted.
+     * Multi-account routing (P0 cross-tenant isolation):
+     * - The FCM payload carries an opaque `odoo_tenant_id`. [DeepLinkRouter] matches it against the
+     *   locally persisted tenant ids to find the owning account.
+     * - **Present-but-unresolved tenant id, or a target account that is not logged in, is dropped**
+     *   — the link is never applied to the currently active account.
+     * - **Missing tenant id (old plugin)** falls back to the previous behaviour: validate the URL
+     *   against the active account's host and queue it for that account.
      *
-     * Resolution is async (Room query) so validation happens off the main thread.
-     * The [activityScope] coroutine runs on the IO dispatcher and dispatches back to
-     * main to update [deepLinkManager]. The intent is stored before the async resolution
-     * so it cannot be missed if the Activity finishes before the coroutine completes.
+     * Resolution is async (Room query) so it happens off the main thread. The intent is read
+     * synchronously before the coroutine launches so it cannot be missed if the Activity finishes
+     * before the coroutine completes.
      */
     private fun handleDeepLinkIntent(intent: Intent?) {
         val actionUrl = intent?.getStringExtra(NotificationHelper.EXTRA_ACTION_URL) ?: return
+        val tenantId = intent.getStringExtra(NotificationHelper.EXTRA_TENANT_ID)
 
         activityScope.launch(Dispatchers.IO) {
-            // C2: Read actual active account host — never pass empty string to validator.
-            val serverHost = accountRepository.activeAccount.firstOrNull()
-                ?.serverUrl
-                ?.removePrefix("https://")
-                ?.removePrefix("http://")
-                ?.split("/")
-                ?.firstOrNull()
-
-            if (serverHost == null) {
-                Timber.w("Rejecting deep link — no active account to validate against")
-                return@launch
+            val accounts = accountRepository.getAllAccountsOnce()
+            val routableAccounts = accounts.map { account ->
+                RoutableAccount(
+                    id = account.id,
+                    tenantId = account.tenantId,
+                    serverHost = account.serverHost(),
+                )
             }
 
-            if (DeepLinkValidator.isValid(url = actionUrl, serverHost = serverHost)) {
-                deepLinkManager.setPending(actionUrl)
-                Timber.d("Deep link pending: %s", actionUrl)
-            } else {
-                Timber.w("Rejected invalid deep link: %s", actionUrl)
+            when (
+                val route = DeepLinkRouter.route(
+                    tenantId = tenantId,
+                    actionUrl = actionUrl,
+                    accounts = routableAccounts,
+                    isLoggedIn = { accountRepository.isLoggedIn(it) },
+                )
+            ) {
+                is DeepLinkRoute.SwitchAndApply -> applyResolvedDeepLink(route.accountId, route.url)
+                is DeepLinkRoute.ApplyToActive -> applyOldPayloadDeepLink(route.url)
+                is DeepLinkRoute.Drop ->
+                    // No user data is logged — only the reason category.
+                    Timber.w("Dropping notification deep link: %s", route.reason)
             }
         }
     }
+
+    /**
+     * Switches to the [accountId] that owns the notification (if it is not already active) and then
+     * queues [url] bound to that account. The pending link is set only after the switch succeeds so
+     * a failed switch cannot leave a link primed against the wrong account.
+     */
+    private suspend fun applyResolvedDeepLink(accountId: String, url: String) {
+        val activeId = accountRepository.getActiveAccountOnce()?.id
+        if (activeId != accountId) {
+            val switched = accountRepository.switchAccount(accountId)
+            if (!switched) {
+                Timber.w("Dropping notification deep link: switch to target account failed")
+                return
+            }
+        }
+        deepLinkManager.setPending(url = url, accountId = accountId)
+        Timber.d("Deep link pending for resolved account")
+    }
+
+    /**
+     * Old-plugin fallback: the payload carried no tenant id. Validate [url] against the active
+     * account's host (as before) and, if valid, queue it bound to the active account.
+     */
+    private suspend fun applyOldPayloadDeepLink(url: String) {
+        val active = accountRepository.activeAccount.firstOrNull()
+        if (active == null) {
+            Timber.w("Rejecting deep link — no active account to validate against")
+            return
+        }
+
+        if (DeepLinkValidator.isValid(url = url, serverHost = active.serverHost())) {
+            deepLinkManager.setPending(url = url, accountId = active.id)
+            Timber.d("Deep link pending for active account (old-payload path)")
+        } else {
+            Timber.w("Rejected invalid deep link")
+        }
+    }
+
+    /** Bare host of this account's server, with scheme and path stripped. */
+    private fun io.woowtech.odoo.domain.model.OdooAccount.serverHost(): String =
+        serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
 }

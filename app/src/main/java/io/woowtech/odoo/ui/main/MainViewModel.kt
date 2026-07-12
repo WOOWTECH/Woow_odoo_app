@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.data.location.LocationPermissionGate
 import io.woowtech.odoo.data.push.DeepLinkManager
+import io.woowtech.odoo.data.push.PendingDeepLink
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,13 @@ class MainViewModel @Inject constructor(
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount
+
+    /**
+     * The pending notification deep link, bound to the account that must display it. The UI passes
+     * its `url` to the WebView only when [PendingDeepLink.accountId] matches the active account, and
+     * calls [consumePendingDeepLink] once the load has finished — never on mere state emission.
+     */
+    val pendingDeepLink: StateFlow<PendingDeepLink?> = deepLinkManager.pending
 
     private val _credentials = MutableStateFlow<WebViewCredentials?>(null)
     val credentials: StateFlow<WebViewCredentials?> = _credentials.asStateFlow()
@@ -65,10 +73,19 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * Consumes and returns a pending deep link URL from a notification tap.
-     * Returns null if no deep link is pending.
+     * Consumes and returns the pending deep link URL for [accountId], or null if there is none for
+     * that account (or it has expired). Single-consume: a link is returned at most once. Call this
+     * only once the WebView has finished loading a page on the account's own host.
      */
-    fun consumePendingDeepLink(): String? {
-        return deepLinkManager.consume()
+    fun consumePendingDeepLink(accountId: String): String? {
+        return deepLinkManager.consumeFor(accountId)
+    }
+
+    /**
+     * Drops any pending deep link that does not belong to [activeAccountId]. Called when the active
+     * account changes so a link queued for another account can never leak into this one.
+     */
+    fun dropForeignPendingDeepLink(activeAccountId: String) {
+        deepLinkManager.dropIfNotTarget(activeAccountId)
     }
 }

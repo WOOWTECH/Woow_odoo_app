@@ -55,12 +55,16 @@ class WoowFcmService : FirebaseMessagingService() {
         val body = data["body"] ?: return
         val actionUrl = data["odoo_action_url"]
         val eventType = data["event_type"]
+        // Opaque originating tenant id (added by the version-gated plugin). Absent for old
+        // senders — the tap then falls back to current active-account behaviour.
+        val tenantId = data["odoo_tenant_id"]
 
         notificationHelper.showNotification(
             title = title,
             body = body,
             actionUrl = actionUrl,
-            eventType = eventType
+            eventType = eventType,
+            tenantId = tenantId,
         )
     }
 
