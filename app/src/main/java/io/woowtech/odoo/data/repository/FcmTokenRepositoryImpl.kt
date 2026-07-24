@@ -20,8 +20,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import timber.log.Timber
 import java.io.IOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -45,12 +49,29 @@ import javax.inject.Singleton
  * caller can apply retry logic if needed.
  */
 @Singleton
-class FcmTokenRepositoryImpl @Inject constructor(
+class FcmTokenRepositoryImpl(
     private val encryptedPrefs: EncryptedPrefs,
     private val accountDao: AccountDao,
-    private val sessionCookieProvider: SessionCookieProvider,
-    private val sessionReauthInterceptor: SessionReauthInterceptor,
+    private val httpClient: OkHttpClient,
 ) : FcmTokenRepository {
+
+    /**
+     * Production entry point. Hilt injects the collaborators; we build the hardened OkHttp client
+     * (cookie jar + WI-3 re-auth interceptor). The primary constructor takes the client directly so
+     * unit tests can inject a [okhttp3.mockwebserver.MockWebServer]-backed client and drive real
+     * success / hard-failure / unreachable outcomes hermetically.
+     */
+    @Inject
+    constructor(
+        encryptedPrefs: EncryptedPrefs,
+        accountDao: AccountDao,
+        sessionCookieProvider: SessionCookieProvider,
+        sessionReauthInterceptor: SessionReauthInterceptor,
+    ) : this(
+        encryptedPrefs = encryptedPrefs,
+        accountDao = accountDao,
+        httpClient = buildFcmHttpClient(sessionCookieProvider, sessionReauthInterceptor),
+    )
 
     private val gson = Gson()
 
@@ -71,24 +92,6 @@ class FcmTokenRepositoryImpl @Inject constructor(
      * complete in a few hundred ms.
      */
     private val registrationMutex = Mutex()
-
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .cookieJar(object : CookieJar {
-            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
-            override fun loadForRequest(url: HttpUrl): List<Cookie> =
-                sessionCookieProvider.getCookiesForHost(url.host)
-        })
-        // WI-3: on an expired Odoo session during register/unregister — signalled as an HTTP 200
-        // JSON-RPC SessionExpiredException envelope (type='json' routes never return 401) or a genuine
-        // 401 — transparently re-authenticate once with the account's stored credentials and replay the
-        // request. All safety guardrails (https-only + exact host, one retry, bad-credential stop,
-        // circuit breaker, single-flight, no credential logging) live in SessionReauthenticator, driven
-        // by SessionReauthInterceptor.
-        .addInterceptor(sessionReauthInterceptor)
-        .build()
 
     override suspend fun registerTokenForAllAccounts(token: String): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -142,24 +145,62 @@ class FcmTokenRepositoryImpl @Inject constructor(
                 accounts.forEach { account ->
                     registerTokenLocked(accountId = account.id, token = token)
                         .onFailure { error ->
+                            // Coroutine cancellation must propagate, never be collected as a
+                            // per-account failure (CLAUDE.md: "Never catch CancellationException").
+                            if (error is CancellationException) throw error
                             failures += account.id to error
-                            Timber.e(error, "Failed to register FCM token for account %s", account.id)
                         }
                 }
 
-                if (failures.isEmpty()) {
-                    Timber.d("FCM token registered with %d accounts", accounts.size)
-                    Result.success(Unit)
-                } else {
-                    val summary = failures.joinToString(separator = "; ") {
-                        "${it.first}=${it.second::class.simpleName}"
+                // Classify by whether the SERVER WAS REACHED. A genuine connectivity failure — DNS
+                // no longer resolves (retired tenant), connection refused, or a connect/read timeout —
+                // is best-effort: registration self-heals on the next launch / onNewToken, so it must
+                // NOT poison the whole fan-out (a dead account lingering in the DB otherwise turned
+                // every reconcile into a scary IllegalStateException).
+                //
+                // Everything else is a HARD failure the caller SHOULD see: postToOdoo maps HTTP 401,
+                // non-2xx, and Odoo error envelopes to IOException too, and those mean the server WAS
+                // reached and rejected us — swallowing them would hide real auth/server problems. So
+                // the classifier is the specific unreachable exception types, NOT `is IOException`.
+                val (unreachable, hard) = failures.partition { it.second.isUnreachable() }
+                unreachable.forEach { (id, error) ->
+                    Timber.w(error, "FCM register skipped for unreachable account %s — best-effort, will retry", id)
+                }
+                hard.forEach { (id, error) ->
+                    Timber.e(error, "Failed to register FCM token for account %s", id)
+                }
+                val okCount = accounts.size - failures.size
+
+                when {
+                    hard.isNotEmpty() -> {
+                        val summary = hard.joinToString(separator = "; ") {
+                            "${it.first}=${it.second::class.simpleName}"
+                        }
+                        Result.failure(
+                            IllegalStateException(
+                                "FCM register-for-all failed for ${hard.size}/${accounts.size} accounts: $summary",
+                                hard.first().second,
+                            ),
+                        )
                     }
-                    Result.failure(
-                        IllegalStateException(
-                            "FCM register-for-all failed for ${failures.size}/${accounts.size} accounts: $summary",
-                            failures.first().second,
-                        ),
-                    )
+                    okCount == 0 && unreachable.isNotEmpty() -> {
+                        // Nothing registered anywhere — every account was unreachable (e.g. the app
+                        // launched offline). Not a hard error, but the caller must know zero accounts
+                        // got the token so it retries rather than treating this as done.
+                        Timber.w("FCM token registered with 0 accounts — all %d unreachable; will retry", unreachable.size)
+                        Result.failure(
+                            IOException("all ${unreachable.size} account(s) unreachable — token not registered anywhere"),
+                        )
+                    }
+                    else -> {
+                        Timber.d(
+                            "FCM token registered (%d ok, %d unreachable) of %d accounts",
+                            okCount,
+                            unreachable.size,
+                            accounts.size,
+                        )
+                        Result.success(Unit)
+                    }
                 }
             }
         }
@@ -177,7 +218,7 @@ class FcmTokenRepositoryImpl @Inject constructor(
      * from `registerTokenForAllAccounts` which already holds the lock.
      */
     private suspend fun registerTokenLocked(accountId: String, token: String): Result<Unit> =
-        runCatching {
+        try {
             val account = accountDao.getAccountById(accountId)
                 ?: error("Account not found: $accountId")
 
@@ -202,9 +243,23 @@ class FcmTokenRepositoryImpl @Inject constructor(
                 accountDao.updateTenantId(id = accountId, tenantId = tenantId)
                 Timber.d("Persisted tenant id for account %s", accountId)
             }
-        }.onFailure { error ->
-            Timber.e(error, "Failed to register FCM token for account %s", accountId)
+            Result.success(Unit)
+        } catch (cancellation: CancellationException) {
+            // Never swallow cancellation — let it propagate so the coroutine cancels cleanly.
+            throw cancellation
+        } catch (error: Throwable) {
+            // The caller classifies (reachable vs hard) and logs at the appropriate level.
+            Result.failure(error)
         }
+
+    /**
+     * True only when [this] means the server could not be reached at all — so registration is
+     * genuinely best-effort and self-heals on the next retry. [postToOdoo] maps HTTP 401, non-2xx,
+     * and Odoo error envelopes to a plain [IOException] (the server WAS reached and rejected us),
+     * so those are deliberately EXCLUDED here and treated as hard failures the caller must see.
+     */
+    private fun Throwable.isUnreachable(): Boolean =
+        this is UnknownHostException || this is ConnectException || this is SocketTimeoutException
 
     override suspend fun unregisterToken(accountId: String): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -303,6 +358,28 @@ class FcmTokenRepositoryImpl @Inject constructor(
         private const val PLATFORM_ANDROID = "android"
         private const val TIMEOUT_SECONDS = 15L
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /**
+         * Builds the hardened OkHttp client used for register/unregister POSTs: per-account session
+         * cookies via [sessionCookieProvider], and the WI-3 [SessionReauthInterceptor] that
+         * transparently re-authenticates an expired Odoo session (HTTP 200 JSON-RPC
+         * SessionExpiredException envelope, or a genuine 401) once and replays the request — all
+         * safety guardrails live in SessionReauthenticator.
+         */
+        private fun buildFcmHttpClient(
+            sessionCookieProvider: SessionCookieProvider,
+            sessionReauthInterceptor: SessionReauthInterceptor,
+        ): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .cookieJar(object : CookieJar {
+                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
+                override fun loadForRequest(url: HttpUrl): List<Cookie> =
+                    sessionCookieProvider.getCookiesForHost(url.host)
+            })
+            .addInterceptor(sessionReauthInterceptor)
+            .build()
     }
 }
 

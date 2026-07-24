@@ -11,11 +11,19 @@ import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.test.runTest
 import okhttp3.Cookie
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.net.UnknownHostException
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * FcmTokenRegistrationTest and FcmTokenUnregistrationTest combined.
@@ -88,6 +96,107 @@ class FcmTokenRepositoryTest {
         repo.registerTokenForAllAccounts("tok_multi")
 
         verify { encryptedPrefs.saveFcmToken("tok_multi") }
+    }
+
+    // ── hermetic reconcile-classification tests ──────────────────────────────────────────────
+    // These inject a fake OkHttp client whose single interceptor fabricates a response or throws a
+    // chosen exception PER REQUEST — no real DNS/network, so they are deterministic and fast (unlike
+    // hitting a real host). They pin the exact behaviour the "unreachable must not poison" fix added.
+
+    /** A repo wired to [client] via the test-only primary constructor (bypasses the real network). */
+    private fun repoWith(client: OkHttpClient): FcmTokenRepositoryImpl =
+        FcmTokenRepositoryImpl(encryptedPrefs = encryptedPrefs, accountDao = accountDao, httpClient = client)
+
+    /** Builds a client whose interceptor delegates each request to [handler] (which may throw). */
+    private fun fakeClient(handler: (Request) -> Response): OkHttpClient =
+        OkHttpClient.Builder().addInterceptor { chain -> handler(chain.request()) }.build()
+
+    private fun jsonResponse(request: Request, code: Int, body: String = "{\"result\":{}}"): Response =
+        Response.Builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .code(code)
+            .message(if (code < 400) "OK" else "Error")
+            .body(body.toResponseBody("application/json".toMediaType()))
+            .build()
+
+    @Test
+    fun `Given a reachable account when registerTokenForAllAccounts then success and token saved`() = runTest {
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200) }).registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isSuccess)
+        verify { encryptedPrefs.saveFcmToken("tok") }
+    }
+
+    @Test
+    fun `Given one live and one unreachable account when register then success and the live account is still POSTed`() = runTest {
+        // The demo444 incident: a retired tenant (DNS gone) lingers next to a live account. The dead
+        // sibling must NOT fail the batch, and the live account MUST still be registered.
+        val live = makeAccount("live", serverUrl = "https://live.test")
+        val dead = makeAccount("dead", serverUrl = "https://dead.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(live, dead)
+        coEvery { accountDao.getAccountById("live") } returns live
+        coEvery { accountDao.getAccountById("dead") } returns dead
+        val postedHosts = mutableListOf<String>()
+
+        val result = repoWith(
+            fakeClient { req ->
+                postedHosts += req.url.host
+                if (req.url.host == "dead.test") throw UnknownHostException("dead.test")
+                jsonResponse(req, 200)
+            },
+        ).registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isSuccess, "an unreachable sibling must not fail the batch")
+        assertTrue(postedHosts.contains("live.test"), "the live account must still be POSTed")
+    }
+
+    @Test
+    fun `Given a reachable server returning HTTP 500 when register then a hard failure surfaces`() = runTest {
+        // A live server that responds with an error was REACHED — it must NOT be swallowed as a
+        // best-effort "unreachable" skip. This is the classifier-narrowing regression guard.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 500) }).registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isFailure, "a reachable server's 500 is a hard failure, not a best-effort skip")
+    }
+
+    @Test
+    fun `Given every account is unreachable when register then failure (nothing registered anywhere)`() = runTest {
+        // Zero accounts got the token (e.g. launched offline). Reporting success would let the caller
+        // treat it as done and never retry, so it must be a (retryable) failure.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+
+        val result = repoWith(fakeClient { throw UnknownHostException("a.test") }).registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isFailure, "zero accounts registered must not report success")
+    }
+
+    @Test
+    fun `Given the per-account POST throws CancellationException when register then it propagates (never swallowed)`() = runTest {
+        // CLAUDE.md hard rule: cancellation must never be caught as a per-account failure.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        val repo = repoWith(fakeClient { throw CancellationException("cancelled") })
+
+        var propagated = false
+        try {
+            repo.registerTokenForAllAccounts("tok")
+        } catch (e: CancellationException) {
+            propagated = true
+        }
+
+        assertTrue(propagated, "CancellationException must propagate, not be collected as a Result.failure")
     }
 
     @Test
