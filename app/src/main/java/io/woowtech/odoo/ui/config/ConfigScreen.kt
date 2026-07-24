@@ -61,7 +61,9 @@ fun ConfigScreen(
     onBackClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onAddAccountClick: () -> Unit,
-    onLogout: () -> Unit
+    /** Called after the current account is logged out. `true` = another account was promoted (stay
+     * on the main screen); `false` = no accounts remain (go to login). */
+    onLogout: (stayAuthenticated: Boolean) -> Unit
 ) {
     val activeAccount by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
     val allAccounts by viewModel.allAccounts.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -136,6 +138,14 @@ fun ConfigScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            // Show the server host so accounts with the same username (e.g. two
+                            // "admin" logins on different servers) are distinguishable — you can
+                            // always tell WHICH server the active account is on.
+                            Text(
+                                text = serverHostLabel(account.serverUrl),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         // v1.0.20: Removed ChevronRight icon - profile card is no longer clickable
                     }
@@ -190,6 +200,7 @@ fun ConfigScreen(
                             AccountItem(
                                 displayName = account.displayName,
                                 username = account.username,
+                                serverUrl = account.serverUrl,
                                 onClick = {
                                     viewModel.switchAccount(account.id)
                                 }
@@ -242,8 +253,9 @@ fun ConfigScreen(
                 TextButton(
                     onClick = {
                         showLogoutDialog = false
-                        viewModel.logout()
-                        onLogout()
+                        // Navigate only AFTER logout completes (no async race), and conditionally:
+                        // stay on the main screen if a remaining account was promoted, else go to login.
+                        viewModel.logout { stayAuthenticated -> onLogout(stayAuthenticated) }
                     }
                 ) {
                     Text(stringResource(R.string.confirm))
@@ -256,6 +268,23 @@ fun ConfigScreen(
             }
         )
     }
+}
+
+/**
+ * Renders a server URL as a compact host label for display under an account name, so two accounts
+ * with the same username (e.g. two "admin" logins) can be told apart by their server. Strips the
+ * scheme and any path/port, e.g. "https://demo777-odoo.woowtech.io/web" -> "demo777-odoo.woowtech.io".
+ * Falls back to the raw value if it cannot be parsed.
+ */
+private fun serverHostLabel(serverUrl: String): String {
+    if (serverUrl.isBlank()) return serverUrl
+    // Strip scheme and path, but KEEP the port — for dev/self-hosted servers the port (e.g.
+    // "host:8069") can be the only thing distinguishing two instances, which is exactly what this
+    // label is for. Falls back to the raw value if the result is blank.
+    return serverUrl
+        .substringAfter("://", serverUrl)
+        .substringBefore('/')
+        .ifBlank { serverUrl }
 }
 
 @Composable
@@ -305,6 +334,7 @@ private fun ConfigMenuItem(
 private fun AccountItem(
     displayName: String,
     username: String,
+    serverUrl: String,
     onClick: () -> Unit
 ) {
     Row(
@@ -337,6 +367,12 @@ private fun AccountItem(
             )
             Text(
                 text = username,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // Server host so same-username accounts on different servers are distinguishable.
+            Text(
+                text = serverHostLabel(serverUrl),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

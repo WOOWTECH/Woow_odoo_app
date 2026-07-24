@@ -36,9 +36,9 @@
     <string name="switch_accounts">切换账号</string>
     <string name="switch_accounts_subtitle">管理和切换账号</string>
     <string name="add_account">添加账号</string>
-    <string name="logout">退出登录</string>
+    <string name="logout">登出当前账号</string>
     <string name="logout_subtitle">从此设备退出登录</string>
-    <string name="logout_confirm_title">退出登录</string>
+    <string name="logout_confirm_title">登出当前账号</string>
     <string name="logout_confirm_message">确定要退出登录吗？</string>
     <string name="cancel">取消</string>
     <string name="confirm">确认</string>
@@ -175,6 +175,11 @@
     <!-- Notification Channels -->
     <string name="notification_channel_messages">Odoo 消息</string>
     <string name="notification_channel_messages_desc">Odoo 消息、提及和活动的通知</string>
+
+    <!-- Notification Permission Banner (Android 13+) -->
+    <string name="notification_permission_banner_message">通知已关闭。开启后即可接收 Odoo 消息与提及。</string>
+    <string name="notification_permission_banner_action">开启通知</string>
+    <string name="notification_permission_banner_dismiss">关闭</string>
 
     <!-- Location / Privacy -->
     <string name="settings_location_section">隐私</string>

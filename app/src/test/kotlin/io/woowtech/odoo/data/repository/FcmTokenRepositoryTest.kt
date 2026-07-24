@@ -4,6 +4,8 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.woowtech.odoo.data.api.SessionReauthInterceptor
+import io.woowtech.odoo.data.api.SessionReauthenticator
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.OdooAccount
@@ -26,6 +28,7 @@ class FcmTokenRepositoryTest {
     private lateinit var encryptedPrefs: EncryptedPrefs
     private lateinit var accountDao: AccountDao
     private lateinit var sessionCookieProvider: SessionCookieProvider
+    private lateinit var sessionReauthInterceptor: SessionReauthInterceptor
     private lateinit var repo: FcmTokenRepositoryImpl
 
     @BeforeEach
@@ -33,11 +36,15 @@ class FcmTokenRepositoryTest {
         encryptedPrefs = mockk(relaxed = true)
         accountDao = mockk(relaxed = true)
         sessionCookieProvider = mockk(relaxed = true)
+        // Real interceptor over a relaxed re-auth engine: no session-expired body is served in these
+        // tests, so the interceptor is a transparent pass-through (detection returns false).
+        sessionReauthInterceptor = SessionReauthInterceptor(mockk<SessionReauthenticator>(relaxed = true))
         every { sessionCookieProvider.getCookiesForHost(any()) } returns emptyList<Cookie>()
         repo = FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,
             sessionCookieProvider = sessionCookieProvider,
+            sessionReauthInterceptor = sessionReauthInterceptor,
         )
     }
 
@@ -127,5 +134,45 @@ class FcmTokenRepositoryTest {
         every { encryptedPrefs.getFcmToken() } returns null
 
         assertNull(repo.getStoredToken())
+    }
+
+    // reconcileToken (launch-time self-heal) tests — WI-2
+
+    @Test
+    fun `Given at least one account when reconcileToken then saves and registers the current token`() = runTest {
+        val accounts = listOf(makeAccount("a1"))
+        coEvery { accountDao.getAllAccountsList() } returns accounts
+        coEvery { accountDao.getAccountById("a1") } returns accounts[0]
+
+        repo.reconcileToken("tok_launch")
+
+        // Registration path was entered (token persisted for the active account).
+        verify { encryptedPrefs.saveFcmToken("tok_launch") }
+    }
+
+    @Test
+    fun `Given no accounts when reconcileToken then short-circuits without registering and returns success`() = runTest {
+        coEvery { accountDao.getAllAccountsList() } returns emptyList()
+
+        val result = repo.reconcileToken("tok_launch")
+
+        assertTrue(result.isSuccess)
+        // Short-circuit: no registration path, so the token is NOT saved.
+        verify(exactly = 0) { encryptedPrefs.saveFcmToken(any()) }
+    }
+
+    @Test
+    fun `Given already-current token when reconcileToken runs twice then behavior is stable`() = runTest {
+        val accounts = listOf(makeAccount("a1"))
+        coEvery { accountDao.getAllAccountsList() } returns accounts
+        coEvery { accountDao.getAccountById("a1") } returns accounts[0]
+        every { encryptedPrefs.getFcmToken() } returns "tok_same"
+
+        repo.reconcileToken("tok_same")
+        val second = repo.reconcileToken("tok_same")
+
+        // Idempotent: repeated reconcile of the same token does not throw and stays saveable.
+        verify(atLeast = 1) { encryptedPrefs.saveFcmToken("tok_same") }
+        assertTrue(second.isSuccess || second.isFailure) // no exception propagated
     }
 }

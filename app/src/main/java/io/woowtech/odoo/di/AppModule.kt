@@ -8,6 +8,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionReauthInterceptor
+import io.woowtech.odoo.data.api.SessionReauthenticator
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.AppDatabase
 import io.woowtech.odoo.data.local.EncryptedPrefs
@@ -16,6 +18,7 @@ import io.woowtech.odoo.data.location.PermissionChecker
 import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.data.repository.FcmTokenRepository
 import io.woowtech.odoo.data.repository.FcmTokenRepositoryImpl
+import io.woowtech.odoo.data.repository.ReloginSignal
 import io.woowtech.odoo.data.repository.SessionCookieProvider
 import io.woowtech.odoo.data.repository.SettingsRepository
 import okhttp3.Cookie
@@ -107,17 +110,56 @@ object AppModule {
         @ApplicationContext context: Context,
     ): PermissionChecker = ContextPermissionChecker(context)
 
+    /**
+     * Provides the guardrail'd [SessionReauthenticator] re-auth engine (WI-3). It is invoked by
+     * [SessionReauthInterceptor] once an expired Odoo session is detected on the FCM register/unregister
+     * responses. Exposed as a singleton so any manual re-login handler can share the same
+     * circuit-breaker state via [SessionReauthenticator.onManualReloginSucceeded].
+     */
+    @Provides
+    @Singleton
+    fun provideSessionReauthenticator(
+        odooClient: OdooJsonRpcClient,
+        accountDao: AccountDao,
+        encryptedPrefs: EncryptedPrefs,
+        reloginSignal: ReloginSignal,
+    ): SessionReauthenticator {
+        return SessionReauthenticator(
+            accountDao = accountDao,
+            encryptedPrefs = encryptedPrefs,
+            odooClient = odooClient,
+            reloginSignal = reloginSignal,
+        )
+    }
+
+    /**
+     * Provides the OkHttp [SessionReauthInterceptor] that detects an expired Odoo session — whether
+     * signalled as an HTTP 200 JSON-RPC `SessionExpiredException` envelope (the real Odoo `type='json'`
+     * contract) or a transport-level 401 — and drives a single guardrail'd re-auth + retry via
+     * [SessionReauthenticator]. Replaces the previous [okhttp3.Authenticator] wiring, which never fired
+     * because Odoo returns session expiry as HTTP 200.
+     */
+    @Provides
+    @Singleton
+    fun provideSessionReauthInterceptor(
+        reauthenticator: SessionReauthenticator,
+    ): SessionReauthInterceptor {
+        return SessionReauthInterceptor(reauthenticator = reauthenticator)
+    }
+
     @Provides
     @Singleton
     fun provideFcmTokenRepository(
         encryptedPrefs: EncryptedPrefs,
         accountDao: AccountDao,
         sessionCookieProvider: SessionCookieProvider,
+        sessionReauthInterceptor: SessionReauthInterceptor,
     ): FcmTokenRepository {
         return FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,
             sessionCookieProvider = sessionCookieProvider,
+            sessionReauthInterceptor = sessionReauthInterceptor,
         )
     }
 }

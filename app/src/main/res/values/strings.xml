@@ -36,9 +36,9 @@
     <string name="switch_accounts">Switch Accounts</string>
     <string name="switch_accounts_subtitle">Manage and switch between accounts</string>
     <string name="add_account">Add Account</string>
-    <string name="logout">Logout</string>
+    <string name="logout">Log out current account</string>
     <string name="logout_subtitle">Sign out from this device</string>
-    <string name="logout_confirm_title">Logout</string>
+    <string name="logout_confirm_title">Log out current account</string>
     <string name="logout_confirm_message">Are you sure you want to logout?</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
@@ -169,6 +169,11 @@
     <string name="content_description_avatar">User avatar</string>
     <string name="content_description_visibility_on">Show password</string>
     <string name="content_description_visibility_off">Hide password</string>
+
+    <!-- Notification Permission Banner (Android 13+) -->
+    <string name="notification_permission_banner_message">Notifications are turned off. Enable them to receive Odoo messages and mentions.</string>
+    <string name="notification_permission_banner_action">Enable notifications</string>
+    <string name="notification_permission_banner_dismiss">Dismiss</string>
 
     <!-- Notification Channels -->
     <string name="notification_channel_messages">Odoo Messages</string>

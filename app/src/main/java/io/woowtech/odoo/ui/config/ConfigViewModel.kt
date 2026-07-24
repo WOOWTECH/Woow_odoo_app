@@ -23,9 +23,17 @@ class ConfigViewModel @Inject constructor(
         }
     }
 
-    fun logout() {
+    /**
+     * Logs out the CURRENT (active) account, then invokes [onComplete] with whether the app should
+     * STAY authenticated: `true` when another account was promoted (multi-account fallback) and the
+     * caller should return to the main screen, `false` when no accounts remain and the caller should
+     * navigate to login. [onComplete] runs AFTER logout finishes (on the main dispatcher), which
+     * fixes the previous async race where navigation fired before logout completed.
+     */
+    fun logout(onComplete: (stayAuthenticated: Boolean) -> Unit) {
         viewModelScope.launch {
-            accountRepository.logout()
+            val stayAuthenticated = accountRepository.logout()
+            onComplete(stayAuthenticated)
         }
     }
 

@@ -7,9 +7,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Tests for [DeepLinkWebPlanner] — the pure host-gating and warm-fragment logic used by the
+ * Tests for [DeepLinkWebPlanner] — the pure host-gating and full-load planning logic used by the
  * single-view WebView. These encode the load-gate ("apply only on the target host") and the
- * warm-start hash-navigation behaviour.
+ * always-full-load navigation behaviour (with apply-layer re-validation).
  */
 class DeepLinkWebPlannerTest {
 
@@ -55,68 +55,125 @@ class DeepLinkWebPlannerTest {
         )
     }
 
-    // ── fragment extraction (warm navigation trigger) ─────────────────────────
+    // ── path parsing ──────────────────────────────────────────────────────────
 
     @Test
-    fun `Given fragment url when fragmentOf then returns fragment`() {
+    fun `Given absolute odoo url when pathOf then returns odoo path`() {
+        assertEquals("/odoo", DeepLinkWebPlanner.pathOf("https://b-odoo.woowtech.io/odoo"))
+    }
+
+    @Test
+    fun `Given relative deep link when pathOf then returns path before fragment`() {
+        assertEquals("/web", DeepLinkWebPlanner.pathOf("/web#action=mail.action_discuss"))
+    }
+
+    @Test
+    fun `Given validated deep link when fullLoadUrl then preserves fragment`() {
         assertEquals(
-            "active_id=mail.channel_7",
-            DeepLinkWebPlanner.fragmentOf("/web#active_id=mail.channel_7"),
+            "https://b-odoo.woowtech.io/web#action=mail.action_discuss&active_id=discuss.channel_10",
+            DeepLinkWebPlanner.fullLoadUrl(serverB, "/web#action=mail.action_discuss&active_id=discuss.channel_10"),
+        )
+    }
+
+    // ── navigation plan: Odoo ≤16 hash router vs ≥17/18 path router ────────────
+
+    @Test
+    fun `Given Odoo18 SPA on odoo and web deep link then plan is FullLoad carrying the fragment`() {
+        // The reported bug: on Odoo 18 the running SPA is on /odoo while the deep link targets /web.
+        // Different paths -> must be a full load (Odoo 18's path router ignores a location.hash poke).
+        val plan = DeepLinkWebPlanner.plan(
+            currentUrl = "https://b-odoo.woowtech.io/odoo",
+            serverUrl = serverB,
+            deepLink = "/web#action=mail.action_discuss&active_id=discuss.channel_10",
+        )
+        assertTrue(plan is DeepLinkWebPlanner.NavPlan.FullLoad, "Odoo 18 (current /odoo, target /web) must be a full load, not a hash-poke")
+        assertTrue(
+            (plan as DeepLinkWebPlanner.NavPlan.FullLoad).url.contains("discuss.channel_10"),
+            "the full-load URL must carry the channel fragment so Odoo migrates it at boot",
         )
     }
 
     @Test
-    fun `Given url without fragment when fragmentOf then null`() {
-        assertNull(DeepLinkWebPlanner.fragmentOf("/web/login"))
+    fun `Given form deep link on Odoo18 then plan is FullLoad to the record`() {
+        val plan = DeepLinkWebPlanner.plan(
+            currentUrl = "https://b-odoo.woowtech.io/odoo",
+            serverUrl = serverB,
+            deepLink = "/web#id=3&model=res.partner&view_type=form",
+        )
+        assertTrue(plan is DeepLinkWebPlanner.NavPlan.FullLoad)
+        assertTrue((plan as DeepLinkWebPlanner.NavPlan.FullLoad).url.endsWith("/web#id=3&model=res.partner&view_type=form"))
     }
 
     @Test
-    fun `Given url with empty fragment when fragmentOf then null`() {
-        assertNull(DeepLinkWebPlanner.fragmentOf("/web#"))
-    }
-
-    // ── warm-start navigation JS ──────────────────────────────────────────────
-
-    @Test
-    fun `Given fragment when buildFragmentNavJs then sets hash and dispatches hashchange`() {
-        val js = DeepLinkWebPlanner.buildFragmentNavJs("active_id=mail.channel_7")
-
-        assertTrue(js.contains("location.hash"), "must set location.hash")
-        assertTrue(js.contains("hashchange"), "must dispatch hashchange for the warm SPA case")
-        assertTrue(js.contains("active_id=mail.channel_7"), "must carry the target fragment")
-    }
-
-    @Test
-    fun `Given fragment with quotes when buildFragmentNavJs then value is escaped`() {
-        val js = DeepLinkWebPlanner.buildFragmentNavJs("id=1\"; alert('x')//")
-
-        // The double-quote from the payload must be escaped (backslash-quote), so it cannot close
-        // the JS string literal and break out into executable code.
-        assertTrue(js.contains("\\\""), "payload double-quote must be JSON-escaped as \\\"")
+    fun `Given already on same web path then plan is still FullLoad (no fragment-poke race)`() {
+        // Even when the WebView appears to be on the same /web path, we must NOT hash-poke: that
+        // path is a timing race (the /web->/odoo redirect may not have completed) and Odoo 18's
+        // path router ignores the hash. Always a full load — Odoo migrates the hash at boot.
+        val plan = DeepLinkWebPlanner.plan(
+            currentUrl = "https://b-odoo.woowtech.io/web?db=dbB",
+            serverUrl = serverB,
+            deepLink = "/web#action=mail.action_discuss&active_id=discuss.channel_9",
+        )
+        assertTrue(plan is DeepLinkWebPlanner.NavPlan.FullLoad, "must always full-load, never hash-poke")
+        assertTrue((plan as DeepLinkWebPlanner.NavPlan.FullLoad).url.contains("discuss.channel_9"))
     }
 
     @Test
-    fun `Given fragment with angle brackets when buildFragmentNavJs then they are unicode-escaped`() {
-        val js = DeepLinkWebPlanner.buildFragmentNavJs("id=<script>")
+    fun `Given no current url when plan then FullLoad (cold start)`() {
+        val plan = DeepLinkWebPlanner.plan(currentUrl = null, serverUrl = serverB, deepLink = "/web#active_id=discuss.channel_9")
+        assertTrue(plan is DeepLinkWebPlanner.NavPlan.FullLoad)
+    }
 
-        assertFalse(js.contains("<script>"), "angle brackets must be unicode-escaped, not raw")
-        assertTrue(js.contains("\\u003C"), "'<' must be escaped to \\u003C")
+    @Test
+    fun `Given path-only deep link when plan then FullLoad`() {
+        val plan = DeepLinkWebPlanner.plan(
+            currentUrl = "https://b-odoo.woowtech.io/odoo",
+            serverUrl = serverB,
+            deepLink = "/web/login",
+        )
+        assertTrue(plan is DeepLinkWebPlanner.NavPlan.FullLoad)
     }
 
     /**
-     * Warm-start scenario decomposed to its two pure decisions: the loaded page is already on the
-     * target host, and the deep link is fragment-based -> a warm hash navigation is warranted
-     * (rather than a full reload, which is a no-op inside the SPA).
+     * Warm path-only link (no `#fragment`) must still yield a full load. Regression guard for the
+     * bug where the warm branch gated on a fragment being present and silently dropped path-only
+     * links like "/web/login".
      */
     @Test
-    fun `Given already on target host and fragment link then warm fragment nav is warranted`() {
-        val loaded = "https://b-odoo.woowtech.io/web#active_id=mail.channel_1"
-        val pending = "/web#active_id=mail.channel_9"
+    fun `Given warm path-only link with no fragment when plan then FullLoad`() {
+        val plan = DeepLinkWebPlanner.plan(
+            // Warm: WebView already on the target host, same account, no reload.
+            currentUrl = "https://b-odoo.woowtech.io/odoo",
+            serverUrl = serverB,
+            deepLink = "/web/login",
+        )
+        assertTrue(plan is DeepLinkWebPlanner.NavPlan.FullLoad, "warm path-only link must full-load, not be dropped")
+        assertTrue((plan as DeepLinkWebPlanner.NavPlan.FullLoad).url.endsWith("/web/login"))
+    }
 
-        val onTargetHost = DeepLinkWebPlanner.hostMatches(loadedUrl = loaded, targetServerUrl = serverB)
-        val fragment = DeepLinkWebPlanner.fragmentOf(pending)
+    // ── apply-layer re-validation (parity with iOS deepLinkApplyPlan) ──────────
 
-        assertTrue(onTargetHost)
-        assertEquals("active_id=mail.channel_9", fragment)
+    @Test
+    fun `Given prefix-spoofing host link when plan then null (rejected, no load)`() {
+        // "/web@evil.com" merely shares the "/web" prefix; it is NOT the /web path segment and must
+        // be rejected at the apply layer rather than concatenated onto the server URL.
+        assertNull(
+            DeepLinkWebPlanner.plan(
+                currentUrl = "https://b-odoo.woowtech.io/odoo",
+                serverUrl = serverB,
+                deepLink = "/web@evil.com",
+            ),
+        )
+    }
+
+    @Test
+    fun `Given path traversal link when plan then null (rejected, no load)`() {
+        assertNull(
+            DeepLinkWebPlanner.plan(
+                currentUrl = "https://b-odoo.woowtech.io/odoo",
+                serverUrl = serverB,
+                deepLink = "/web/../secret",
+            ),
+        )
     }
 }

@@ -192,9 +192,19 @@ class AccountRepository @Inject constructor(
      * failure is logged as a warning and logout proceeds — the user must not be blocked
      * by a network failure when attempting to sign out.
      */
-    suspend fun logout(accountId: String? = null) {
-        val id = accountId ?: accountDao.getActiveAccountOnce()?.id ?: return
-        val account = accountDao.getAccountById(id) ?: return
+    /**
+     * Logs out the given (or active) account. Returns whether the app should STAY authenticated:
+     * `true` when another account was promoted to active (multi-account fallback), `false` when no
+     * accounts remain and the caller should navigate to the login screen.
+     *
+     * Fix (multi-account parity with iOS): previously logout deleted the active account without
+     * promoting a remaining one, so the app dropped to the login screen even though another valid
+     * account was still signed in.
+     */
+    suspend fun logout(accountId: String? = null): Boolean {
+        val id = accountId ?: accountDao.getActiveAccountOnce()?.id ?: return false
+        val account = accountDao.getAccountById(id) ?: return false
+        val wasActive = account.isActive
 
         // C3: Attempt to unregister FCM token before session is cleared. Non-fatal if it
         // fails — the token will eventually be cleaned up server-side when it bounces.
@@ -215,6 +225,20 @@ class AccountRepository @Inject constructor(
 
         // Delete account from database
         accountDao.deleteAccountById(id)
+
+        // Multi-account fallback: if other accounts remain and we logged out the ACTIVE one (or none
+        // is active), promote the most-recently-used remaining account so the app stays authenticated
+        // instead of stranding the user on the login screen. getAllAccountsList() is ORDER BY
+        // lastLogin DESC, so the first entry is the most recent.
+        val remaining = accountDao.getAllAccountsList()
+        if (remaining.isEmpty()) {
+            return false
+        }
+        if (wasActive || remaining.none { it.isActive }) {
+            accountDao.deactivateAllAccounts()
+            accountDao.activateAccount(remaining.first().id)
+        }
+        return true
     }
 
     /**

@@ -12,6 +12,13 @@ import java.net.URI
 object DeepLinkValidator {
 
     /**
+     * Anchored match for a safe relative Odoo path: "/web" followed by a path/query/fragment
+     * delimiter or end-of-string. Mirrors iOS's `^/web([/?#]|$)`. The remainder after the delimiter
+     * is intentionally unconstrained here — traversal is rejected separately by the `..` check.
+     */
+    private val RELATIVE_WEB_PATH = Regex("^/web([/?#].*)?$")
+
+    /**
      * Validates that an action URL is safe to load in the WebView.
      *
      * @param url the URL from a notification deep link
@@ -28,8 +35,15 @@ object DeepLinkValidator {
             return false
         }
 
-        // Allow relative paths starting with /web
-        if (url.startsWith("/web")) {
+        // Reject path traversal anywhere in the URL (parity with iOS DeepLinkValidator).
+        if (url.contains("..")) {
+            return false
+        }
+
+        // Allow relative Odoo paths, but only when "/web" is a real path segment. Anchored match
+        // equivalent to iOS's ^/web([/?#]|$): accepts "/web", "/web/...", "/web?...", "/web#...";
+        // rejects "/website/", "/webhook", "/web@evil.com" that merely share the "/web" prefix.
+        if (RELATIVE_WEB_PATH.matches(url)) {
             return true
         }
 

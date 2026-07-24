@@ -3,9 +3,12 @@ package io.woowtech.odoo.ui.main
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import android.os.Message
 import android.provider.MediaStore
 import android.webkit.ConsoleMessage
@@ -21,8 +24,10 @@ import android.webkit.WebViewClient
 import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,7 +38,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -41,6 +48,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,7 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
@@ -97,6 +108,58 @@ fun MainScreen(
         }
     }
 
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    // WI-1: Tracks whether the app is currently allowed to display notifications. Re-checked on
+    // every ON_RESUME so the denial banner disappears the moment the user enables notifications
+    // from system settings (below API 33 this is always true once the channel exists).
+    var notificationsEnabled by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    // Allows the user to dismiss the denial banner for the current session.
+    var notificationBannerDismissed by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsEnabled =
+                    NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // WI-1: Runtime POST_NOTIFICATIONS launcher (Android 13+ / API 33). Mirrors the location
+    // launcher idiom below. Refreshes the enabled state on the result so the banner reflects the
+    // user's choice immediately.
+    val postNotificationsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        notificationsEnabled =
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+        Timber.d("POST_NOTIFICATIONS result: granted=%s", granted)
+    }
+
+    // WI-1: On first composition only, auto-launch the OS permission dialog at most once per
+    // install — only on API 33+, only when the permission is not already granted, and only when the
+    // persisted "already asked" flag is false. Below API 33 this is a no-op (permission does not
+    // exist; notifications work without it).
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
+
+        val alreadyGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!alreadyGranted && !viewModel.wasNotificationPermissionRequested()) {
+            viewModel.markNotificationPermissionRequested()
+            postNotificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // Top toolbar
         TopAppBar(
@@ -120,6 +183,21 @@ fun MainScreen(
                 actionIconContentColor = MaterialTheme.colorScheme.onPrimary
             )
         )
+
+        // WI-1: Denial affordance. Shown only while notifications are blocked at the app level and
+        // the user has not dismissed it this session. Its action deep-links to the system
+        // app-notification settings so a denied user can still enable notifications.
+        if (!notificationsEnabled && !notificationBannerDismissed) {
+            NotificationPermissionBanner(
+                onEnableClick = {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                    context.startActivity(intent)
+                },
+                onDismissClick = { notificationBannerDismissed = true },
+            )
+        }
 
         // WebView
         Box(modifier = Modifier.fillMaxSize()) {
@@ -160,6 +238,41 @@ fun MainScreen(
     }
 }
 
+/**
+ * WI-1 denial banner shown at the top of [MainScreen] while notifications are blocked at the app
+ * level. [onEnableClick] opens the system app-notification settings; [onDismissClick] hides it for
+ * the current session. All text comes from string resources (localized).
+ */
+@Composable
+private fun NotificationPermissionBanner(
+    onEnableClick: () -> Unit,
+    onDismissClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(
+                text = stringResource(R.string.notification_permission_banner_message),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onDismissClick) {
+                    Text(text = stringResource(R.string.notification_permission_banner_dismiss))
+                }
+                TextButton(onClick = onEnableClick) {
+                    Text(text = stringResource(R.string.notification_permission_banner_action))
+                }
+            }
+        }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun OdooWebView(
@@ -194,10 +307,10 @@ fun OdooWebView(
     // account switch (serverUrl change) and drive a full reload. Seeded in the factory.
     var lastLoadedServerUrl by remember { mutableStateOf(serverUrl) }
     // The deep link already applied to the current page, so it is applied exactly once whether
-    // it arrives via onPageFinished (cold / switch) or via warm fragment navigation.
+    // it arrives via onPageFinished (cold / switch) or via the warm full-reload path.
     var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
-    // True once the current server's page has finished loading. Gates warm fragment navigation so
-    // a hash change is never fired at a page that is still loading (cold start / mid switch).
+    // True once the current server's page has finished loading. Gates the warm apply so a
+    // full reload is never fired at a page that is still loading (cold start / mid switch).
     var currentPageLoaded by remember { mutableStateOf(false) }
 
     // v1.0.15: File upload support - state for file chooser callback
@@ -355,8 +468,8 @@ fun OdooWebView(
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        // A fresh document load begins — warm fragment navigation must wait until
-                        // it finishes. (Same-document hash changes do not trigger this callback.)
+                        // A fresh document load begins — the warm deep-link apply must wait until
+                        // it finishes before it may trigger another full reload.
                         currentPageLoaded = false
                         onLoadingChanged(true)
                     }
@@ -683,42 +796,36 @@ fun OdooWebView(
                 webView.loadUrl("$serverUrl/web?db=$database")
             } else {
                 // Warm case: already loaded on the target host (no reload happens) and a new deep
-                // link is pending for it. A plain loadUrl of a fragment is a no-op inside the Odoo
-                // SPA, so drive it via JavaScript (set location.hash + dispatch hashchange). Gated
-                // on currentPageLoaded so it never fires at a page that is still loading.
+                // link is pending for it. Every warm same-account pending link — with OR without a
+                // `#fragment` (e.g. "/web/login") — is routed through applyDeepLink -> plan() ->
+                // FullLoad (a full cross-document reload), matching iOS which routes every warm tap
+                // with no fragment precondition. Gated on currentPageLoaded so it never fires at a
+                // page that is still loading.
                 val pending = deepLinkUrl
                 if (currentPageLoaded &&
                     pending != null &&
-                    appliedDeepLinkUrl != pending &&
-                    DeepLinkWebPlanner.fragmentOf(pending) != null
+                    appliedDeepLinkUrl != pending
                 ) {
                     applyDeepLink(webView, serverUrl, pending)
                     appliedDeepLinkUrl = pending
                     onDeepLinkConsumed()
-                    Timber.d("Applied pending deep link via warm fragment navigation")
+                    Timber.d("Applied pending deep link via full reload (warm)")
                 }
-                // Path-only links (no fragment) are handled by the onPageFinished path after the
-                // next natural load; nothing to do here.
             }
         }
     )
 }
 
 /**
- * Applies a pending deep link to [view]. Fragment-based Odoo links (the common case, e.g.
- * `/web#active_id=mail.channel_7`) are driven via JavaScript so the change works both on a fresh
- * page and warm (in-SPA); path-based links fall back to a validated full load.
+ * Applies a pending deep link to [view] as a full cross-document load of the account's server plus
+ * the relative link (fragment preserved). The decision is delegated to the pure, unit-tested
+ * [DeepLinkWebPlanner.plan], which re-validates the link against the account host; an invalid link
+ * (e.g. `javascript:`, path traversal, foreign host) yields a null plan and is a safe no-op.
  */
 private fun applyDeepLink(view: WebView, serverUrl: String, deepLinkUrl: String) {
-    val fragment = DeepLinkWebPlanner.fragmentOf(deepLinkUrl)
-    if (fragment != null) {
-        view.evaluateJavascript(DeepLinkWebPlanner.buildFragmentNavJs(fragment), null)
-    } else {
-        val safeUrl = Uri.parse(serverUrl).buildUpon()
-            .encodedPath(deepLinkUrl.substringBefore("?").substringBefore("#"))
-            .build()
-            .toString()
-        view.loadUrl(safeUrl)
+    when (val plan = DeepLinkWebPlanner.plan(currentUrl = view.url, serverUrl = serverUrl, deepLink = deepLinkUrl)) {
+        is DeepLinkWebPlanner.NavPlan.FullLoad -> view.loadUrl(plan.url)
+        null -> Timber.d("Ignored invalid pending deep link at apply layer")
     }
 }
 

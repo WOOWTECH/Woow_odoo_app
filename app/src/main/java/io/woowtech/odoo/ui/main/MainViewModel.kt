@@ -8,6 +8,8 @@ import io.woowtech.odoo.data.location.LocationPermissionGate
 import io.woowtech.odoo.data.push.DeepLinkManager
 import io.woowtech.odoo.data.push.PendingDeepLink
 import io.woowtech.odoo.data.repository.AccountRepository
+import io.woowtech.odoo.data.repository.ReloginRequest
+import io.woowtech.odoo.data.repository.ReloginSignal
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,10 +30,19 @@ class MainViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val encryptedPrefs: EncryptedPrefs,
     private val deepLinkManager: DeepLinkManager,
+    private val reloginSignal: ReloginSignal,
     val locationPermissionGate: LocationPermissionGate,
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount
+
+    /**
+     * Outstanding request to re-authenticate an account after a background session re-auth failed
+     * unrecoverably (stored password rejected, or the per-account circuit breaker tripped). Null when
+     * nothing is pending. The UI observes this to prompt the user; it must call [clearReloginRequest]
+     * once handled. No credential is ever carried in this signal.
+     */
+    val reloginRequest: StateFlow<ReloginRequest?> = reloginSignal.pending
 
     /**
      * The pending notification deep link, bound to the account that must display it. The UI passes
@@ -66,6 +77,27 @@ class MainViewModel @Inject constructor(
 
     fun refreshCredentials() {
         loadCredentials()
+    }
+
+    /**
+     * Returns whether the POST_NOTIFICATIONS runtime dialog has already been auto-launched once for
+     * this install. Used by the main screen to guarantee the OS dialog auto-launches at most once.
+     */
+    fun wasNotificationPermissionRequested(): Boolean {
+        return encryptedPrefs.wasPostNotificationPermissionRequested()
+    }
+
+    /**
+     * Records that the app has auto-launched the POST_NOTIFICATIONS runtime dialog, so it is never
+     * triggered automatically again for this install.
+     */
+    fun markNotificationPermissionRequested() {
+        encryptedPrefs.setPostNotificationPermissionRequested()
+    }
+
+    /** Clears the outstanding re-login request once the UI has surfaced it (or the user re-logged in). */
+    fun clearReloginRequest() {
+        reloginSignal.clear()
     }
 
     fun getSessionId(serverUrl: String): String? {

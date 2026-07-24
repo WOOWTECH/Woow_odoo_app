@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.main
 
+import io.woowtech.odoo.data.push.DeepLinkValidator
 import java.net.URI
 
 /**
@@ -7,12 +8,12 @@ import java.net.URI
  * WebView. Extracted from [OdooWebView] so the routing rules can be unit-tested without a real
  * WebView (which needs instrumentation).
  *
- * The two shapes of navigation:
- * - **Reload** — used when switching accounts / on a fresh page: load the target server, then let
- *   `onPageFinished` apply the fragment once the host matches.
- * - **FragmentNav** — used for the *warm* case (already on the target host, only the
- *   `#...active_id=mail.channel_N` fragment changes): a plain `loadUrl` is a no-op inside the SPA,
- *   so the hash must be set via JavaScript and a `hashchange` event dispatched.
+ * Navigation is always a **full cross-document load** of the account's `serverUrl` plus the
+ * relative deep link (preserving any `#fragment`). There is no in-SPA hash-poke strategy: Odoo 18's
+ * path router (`/odoo/...`) ignores `location.hash`/`hashchange`, and Odoo migrates the legacy hash
+ * (e.g. `/web#action=…&active_id=discuss.channel_N`) to the correct `/odoo/...` route at boot. A
+ * full load of `/web#…` is therefore correct everywhere; the only cost is a page reload in the rare
+ * warm same-thread case, which the app already does on account switches.
  */
 object DeepLinkWebPlanner {
 
@@ -42,58 +43,60 @@ object DeepLinkWebPlanner {
     }
 
     /**
-     * Extracts the URL fragment (everything after the first `#`) from a deep link, or null when
-     * there is none. Odoo client-action deep links are fragment-based
-     * (e.g. `/web#active_id=mail.channel_7`), which is what enables warm hash navigation.
+     * Returns the path component of [url] (e.g. "/web", "/odoo"). Absolute URLs are parsed; a
+     * relative deep link returns everything before its `#`/`?`. Null when blank/unparseable.
      */
-    fun fragmentOf(deepLink: String?): String? {
-        if (deepLink.isNullOrBlank()) return null
-        val hashIndex = deepLink.indexOf('#')
-        if (hashIndex < 0) return null
-        val fragment = deepLink.substring(hashIndex + 1)
-        return fragment.ifBlank { null }
-    }
-
-    /**
-     * Builds the JavaScript that performs a warm, in-SPA fragment navigation: it sets
-     * `location.hash` (only if it actually changed) and dispatches a `hashchange` event so the
-     * Odoo web client reacts, because assigning an unchanged hash fires nothing on its own.
-     *
-     * [fragment] is embedded as a JSON string literal so quotes / backslashes cannot break out of
-     * the script.
-     */
-    fun buildFragmentNavJs(fragment: String): String {
-        val encoded = encodeJsString(fragment)
-        return """
-            (function() {
-                var target = $encoded;
-                if (location.hash.replace(/^#/, '') !== target) {
-                    location.hash = target;
-                }
-                window.dispatchEvent(new HashChangeEvent('hashchange'));
-            })();
-        """.trimIndent()
-    }
-
-    /**
-     * Minimal JSON string encoder for the small, controlled fragment values that reach the
-     * WebView. Escapes the characters that would otherwise let a value break out of the string
-     * literal or inject markup.
-     */
-    private fun encodeJsString(value: String): String {
-        val sb = StringBuilder("\"")
-        for (ch in value) {
-            when (ch) {
-                '\\' -> sb.append("\\\\")
-                '"' -> sb.append("\\\"")
-                '\n' -> sb.append("\\n")
-                '\r' -> sb.append("\\r")
-                '<' -> sb.append("\\u003C")
-                '>' -> sb.append("\\u003E")
-                else -> sb.append(ch)
+    fun pathOf(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        return runCatching {
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                URI(url).path
+            } else {
+                url.substringBefore('#').substringBefore('?')
             }
+        }.getOrNull()?.ifBlank { "/" }
+    }
+
+    /**
+     * Builds the absolute URL for a full-page deep-link navigation: the account's server plus the
+     * validated relative deep link, preserving its `#fragment`.
+     *
+     * Used for the Odoo ≥17/18 path-router case where a `location.hash` poke is ignored: a full load
+     * of `/web#…` redirects to `/odoo` (the URL fragment is preserved across the redirect), and Odoo
+     * parses+migrates the legacy `#action=…&active_id=discuss.channel_<id>` hash to the correct path
+     * route at boot. [serverUrl] is the account's own validated server and [deepLink] has already
+     * passed `DeepLinkValidator` (begins with `/web`), so the concatenation is safe.
+     */
+    fun fullLoadUrl(serverUrl: String, deepLink: String): String {
+        return serverUrl.trimEnd('/') + deepLink
+    }
+
+    /** How a pending deep link should be driven into the WebView currently showing a page. */
+    sealed interface NavPlan {
+        /** Full cross-document navigation to this URL (the only navigation shape). */
+        data class FullLoad(val url: String) : NavPlan
+    }
+
+    /**
+     * Decides how to apply [deepLink] to a WebView currently on [currentUrl], for account server
+     * [serverUrl]. Always a [NavPlan.FullLoad] of `serverUrl` + the relative deep link (fragment
+     * preserved): Odoo 18's path router (`/odoo/...`) ignores `location.hash`, and Odoo migrates the
+     * legacy hash to the correct `/odoo/...` route at boot, so a full cross-document load is correct
+     * everywhere. Returns null when [deepLink] fails [DeepLinkValidator] against [serverUrl]'s host —
+     * the WebView-apply layer re-validates rather than blindly trusting its caller (parity with iOS
+     * `deepLinkApplyPlan`), so a caller-supplied `javascript:`/`data:`/traversal/foreign-host URL is
+     * a safe no-op instead of being concatenated onto the server URL.
+     *
+     * [currentUrl] is unused for the routing decision (kept for call-site symmetry and future use).
+     * Pure and unit-tested so the routing decision is verifiable without a real WebView.
+     */
+    fun plan(currentUrl: String?, serverUrl: String, deepLink: String): NavPlan? {
+        // Re-validate at the apply layer: do not trust the caller. The host is derived from the
+        // account's own serverUrl so only same-host (or safe relative /web) links are accepted.
+        val serverHost = hostOf(serverUrl) ?: return null
+        if (!DeepLinkValidator.isValid(url = deepLink, serverHost = serverHost)) {
+            return null
         }
-        sb.append("\"")
-        return sb.toString()
+        return NavPlan.FullLoad(fullLoadUrl(serverUrl, deepLink))
     }
 }

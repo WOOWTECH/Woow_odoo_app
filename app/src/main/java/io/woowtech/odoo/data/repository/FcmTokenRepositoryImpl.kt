@@ -3,6 +3,7 @@ package io.woowtech.odoo.data.repository
 import android.os.Build
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import io.woowtech.odoo.data.api.SessionReauthInterceptor
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.OdooAccount
@@ -30,9 +31,15 @@ import javax.inject.Singleton
  * Stores token locally in EncryptedPrefs.
  *
  * Registration uses the current Odoo session cookie for authentication — the Odoo
- * module requires `auth='user'` so the cookie must be present. If the session has
- * expired (HTTP 401 / Odoo `{"error": ...}` response) the failure is logged but
- * not propagated — the token will be re-registered on the next successful auth.
+ * module requires `auth='user'` so the cookie must be present. The register/unregister
+ * routes are `type='json'`, so Odoo signals an expired session as **HTTP 200 with a
+ * JSON-RPC `SessionExpiredException` error envelope**, not HTTP 401. The injected
+ * [SessionReauthInterceptor] detects that envelope (and a genuine 401), transparently
+ * re-authenticates once with the account's stored credentials against its own https
+ * host, refreshes the cookie, and replays the request (WI-3, see
+ * [io.woowtech.odoo.data.api.SessionReauthenticator]). Only a *persistent* session
+ * expiry that survives that single re-auth+retry surfaces here as an [IOException]; the
+ * failure is then logged and the token is re-registered on the next successful auth.
  *
  * Transient errors (5xx, network timeout) are returned as [Result.failure] so the
  * caller can apply retry logic if needed.
@@ -42,6 +49,7 @@ class FcmTokenRepositoryImpl @Inject constructor(
     private val encryptedPrefs: EncryptedPrefs,
     private val accountDao: AccountDao,
     private val sessionCookieProvider: SessionCookieProvider,
+    private val sessionReauthInterceptor: SessionReauthInterceptor,
 ) : FcmTokenRepository {
 
     private val gson = Gson()
@@ -73,6 +81,13 @@ class FcmTokenRepositoryImpl @Inject constructor(
             override fun loadForRequest(url: HttpUrl): List<Cookie> =
                 sessionCookieProvider.getCookiesForHost(url.host)
         })
+        // WI-3: on an expired Odoo session during register/unregister — signalled as an HTTP 200
+        // JSON-RPC SessionExpiredException envelope (type='json' routes never return 401) or a genuine
+        // 401 — transparently re-authenticate once with the account's stored credentials and replay the
+        // request. All safety guardrails (https-only + exact host, one retry, bad-credential stop,
+        // circuit breaker, single-flight, no credential logging) live in SessionReauthenticator, driven
+        // by SessionReauthInterceptor.
+        .addInterceptor(sessionReauthInterceptor)
         .build()
 
     override suspend fun registerTokenForAllAccounts(token: String): Result<Unit> =
@@ -214,6 +229,17 @@ class FcmTokenRepositoryImpl @Inject constructor(
         }
 
     override fun getStoredToken(): String? = encryptedPrefs.getFcmToken()
+
+    override suspend fun reconcileToken(token: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            // Short-circuit when no account is logged in: nothing to register the token against.
+            // AccountRepository replays the saved token on the next login/switch. No server call.
+            if (accountDao.getAllAccountsList().isEmpty()) {
+                Timber.d("FCM reconcile: no active accounts — nothing to register")
+                return@withContext Result.success(Unit)
+            }
+            registerTokenForAllAccounts(token)
+        }
 
     /**
      * Posts a JSON-RPC-style request to the Odoo push endpoint. The session cookie is

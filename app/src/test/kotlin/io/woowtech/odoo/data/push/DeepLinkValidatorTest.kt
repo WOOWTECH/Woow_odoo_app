@@ -42,4 +42,19 @@ class DeepLinkValidatorTest {
     fun `Given external host URL when validate then rejected`(url: String) {
         assertFalse(DeepLinkValidator.isValid(url = url, serverHost = serverHost))
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = [
+        // Prefix-spoofing: share the "/web" prefix but "/web" is not a real path segment.
+        "/website/attacker",
+        "/webhook",
+        "/web@evil.com",
+        // Path traversal must be rejected anywhere in the URL.
+        "/web/../secret",
+        "/web/..%2fsecret",
+        "/web#../../etc/passwd"
+    ])
+    fun `Given prefix-spoof or traversal relative path when validate then rejected`(url: String) {
+        assertFalse(DeepLinkValidator.isValid(url = url, serverHost = serverHost))
+    }
 }
