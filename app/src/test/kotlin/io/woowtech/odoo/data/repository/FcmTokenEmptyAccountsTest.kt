@@ -36,6 +36,7 @@ class FcmTokenEmptyAccountsTest {
     private lateinit var encryptedPrefs: io.woowtech.odoo.data.local.EncryptedPrefs
     private lateinit var accountDao: io.woowtech.odoo.data.local.AccountDao
     private lateinit var sessionCookieProvider: SessionCookieProvider
+    private lateinit var sessionReauthInterceptor: io.woowtech.odoo.data.api.SessionReauthInterceptor
     private lateinit var repo: FcmTokenRepositoryImpl
 
     @BeforeEach
@@ -43,11 +44,15 @@ class FcmTokenEmptyAccountsTest {
         encryptedPrefs = mockk(relaxed = true)
         accountDao = mockk(relaxed = true)
         sessionCookieProvider = mockk(relaxed = true)
+        sessionReauthInterceptor = io.woowtech.odoo.data.api.SessionReauthInterceptor(
+            mockk<io.woowtech.odoo.data.api.SessionReauthenticator>(relaxed = true),
+        )
         every { sessionCookieProvider.getCookiesForHost(any()) } returns emptyList<Cookie>()
         repo = FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,
             sessionCookieProvider = sessionCookieProvider,
+            sessionReauthInterceptor = sessionReauthInterceptor,
         )
     }
 

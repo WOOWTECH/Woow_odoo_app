@@ -32,18 +32,23 @@ class NotificationHelper @Inject constructor(
      * @param body message preview text
      * @param actionUrl relative Odoo URL (e.g. "/web#id=42&model=sale.order&view_type=form")
      * @param eventType category for notification grouping
+     * @param tenantId opaque tenant id of the account that sent this notification, used on tap to
+     *   route the deep link to the correct account. Null for old-plugin payloads, in which case the
+     *   tap falls back to current (active-account) behaviour.
      */
     fun showNotification(
         title: String,
         body: String,
         actionUrl: String? = null,
-        eventType: String? = null
+        eventType: String? = null,
+        tenantId: String? = null,
     ) {
         val notificationId = System.currentTimeMillis().toInt()
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             actionUrl?.let { putExtra(EXTRA_ACTION_URL, it) }
+            tenantId?.let { putExtra(EXTRA_TENANT_ID, it) }
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -74,6 +79,7 @@ class NotificationHelper @Inject constructor(
 
     companion object {
         const val EXTRA_ACTION_URL = "odoo_action_url"
+        const val EXTRA_TENANT_ID = "odoo_tenant_id"
         private const val GROUP_DEFAULT = "odoo_messages"
     }
 }

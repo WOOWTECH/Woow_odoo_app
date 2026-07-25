@@ -7,7 +7,6 @@ import io.woowtech.odoo.data.api.OdooJsonRpcClient
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
-import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -15,16 +14,18 @@ import org.junit.jupiter.api.Test
 /**
  * Symmetric counterpart of [LogoutUnregisterTest].
  *
- * Verifies that AccountRepository.authenticate() and switchAccount() trigger
- * an FCM token registration POST after successful login. This is the
- * register-on-login wiring that was missing from commit 482a7bf — see
- * docs/2026-04-27-e2e-suite-results.md and CLAUDE.md
- * § "Repository-Event Symmetry".
+ * Verifies that AccountRepository.authenticate() fires the event-driven FCM reconcile after a
+ * successful login (S2 / AC8.b — account-added event). Login now upserts the CURRENT token for
+ * EACH logged-in account via [FcmTokenRepository.reconcileOnAccountAvailable] rather than
+ * registering only the one new account, so a token that arrived before any account existed is
+ * registered as soon as the account appears (the token-arrived-before-account race). The switch
+ * path keeps its per-account register (see [SwitchAccountUnregisterTest]) because it must not undo
+ * the deliberate unregister of the previously-active account.
  *
- * The bug this prevents: WoowFcmService.onNewToken fires BEFORE login
- * (zero accounts → silent no-op) → token saved to EncryptedPrefs but
- * never POSTed to Odoo → user receives no push notifications. Without
- * a register-on-login replay, the saved token sits idle forever.
+ * The bug this prevents: WoowFcmService.onNewToken fires BEFORE login (zero accounts → silent
+ * no-op) → token saved to EncryptedPrefs but never POSTed to Odoo → user receives no push
+ * notifications. The account-available reconcile replays the saved token once an account is present.
+ * FCM is best-effort: a reconcile failure must never fail the login.
  */
 class LoginRegisterTest {
 
@@ -37,7 +38,7 @@ class LoginRegisterTest {
     // Test fixture: generic, non-production-mirroring data so this test does
     // not appear to assert anything about real usernames. The auth identity
     // values here are arbitrary mock returns — the test asserts only the FCM
-    // register call shape, not who logged in.
+    // reconcile call shape, not who logged in.
     private val authSuccess = AuthResult.Success(
         userId = 42,
         sessionId = "test-session",
@@ -56,6 +57,7 @@ class LoginRegisterTest {
         coEvery {
             accountDao.findAccount(any(), any(), any())
         } returns null
+        coEvery { fcmTokenRepository.reconcileOnAccountAvailable() } returns Result.success(Unit)
 
         accountRepository = AccountRepository(
             accountDao = accountDao,
@@ -67,14 +69,10 @@ class LoginRegisterTest {
     }
 
     @Test
-    fun `Given saved FCM token when authenticate succeeds then registerToken is called for new account`() = runTest {
+    fun `Given authenticate succeeds then the account-available reconcile is fired exactly once`() = runTest {
         coEvery {
             odooClient.authenticate(any(), any(), any(), any())
         } returns authSuccess
-        coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-abc"
-        coEvery {
-            fcmTokenRepository.registerToken(any(), "fcm-token-abc")
-        } returns Result.success(Unit)
 
         accountRepository.authenticate(
             serverUrl = "https://odoo.example.com",
@@ -83,37 +81,15 @@ class LoginRegisterTest {
             password = "test-password",
         )
 
-        coVerify(exactly = 1) {
-            fcmTokenRepository.registerToken(any(), "fcm-token-abc")
-        }
+        // AC8.b: login triggers the event-driven reconcile (upsert current token for each account).
+        coVerify(exactly = 1) { fcmTokenRepository.reconcileOnAccountAvailable() }
     }
 
     @Test
-    fun `Given no saved FCM token when authenticate succeeds then registerToken is not called`() = runTest {
-        coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
-        } returns authSuccess
-        // The realistic case where the device hasn't received a token yet.
-        coEvery { fcmTokenRepository.getStoredToken() } returns null
-
-        accountRepository.authenticate(
-            serverUrl = "https://odoo.example.com",
-            database = "db",
-            username = "testuser",
-            password = "test-password",
-        )
-
-        coVerify(exactly = 0) {
-            fcmTokenRepository.registerToken(any(), any())
-        }
-    }
-
-    @Test
-    fun `Given saved FCM token when authenticate fails then registerToken is not called`() = runTest {
+    fun `Given authenticate fails then the account-available reconcile is not fired`() = runTest {
         coEvery {
             odooClient.authenticate(any(), any(), any(), any())
         } returns AuthResult.Error("bad password", AuthResult.ErrorType.INVALID_CREDENTIALS)
-        coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-abc"
 
         accountRepository.authenticate(
             serverUrl = "https://odoo.example.com",
@@ -122,19 +98,16 @@ class LoginRegisterTest {
             password = "wrong-test-password",
         )
 
-        coVerify(exactly = 0) {
-            fcmTokenRepository.registerToken(any(), any())
-        }
+        coVerify(exactly = 0) { fcmTokenRepository.reconcileOnAccountAvailable() }
     }
 
     @Test
-    fun `Given register POST fails when authenticate succeeds then login still completes`() = runTest {
+    fun `Given the reconcile fails when authenticate succeeds then login still completes`() = runTest {
         coEvery {
             odooClient.authenticate(any(), any(), any(), any())
         } returns authSuccess
-        coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-abc"
         coEvery {
-            fcmTokenRepository.registerToken(any(), "fcm-token-abc")
+            fcmTokenRepository.reconcileOnAccountAvailable()
         } returns Result.failure(RuntimeException("Network failure"))
 
         val result = accountRepository.authenticate(
@@ -144,10 +117,10 @@ class LoginRegisterTest {
             password = "test-password",
         )
 
-        // Login completes — register failure is non-fatal (logged warning)
+        // Login completes — the reconcile failure is non-fatal (logged warning).
         coVerify(exactly = 1) { accountDao.insertAccount(any()) }
         coVerify(exactly = 1) { encryptedPrefs.savePassword(any(), "test-password") }
-        // The auth result is still Success (FCM is best-effort)
+        // The auth result is still Success (FCM is best-effort).
         assert(result is AuthResult.Success)
     }
 

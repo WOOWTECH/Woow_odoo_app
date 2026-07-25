@@ -28,6 +28,16 @@ class AccountRepository @Inject constructor(
 
     suspend fun getActiveAccountOnce(): OdooAccount? = accountDao.getActiveAccountOnce()
 
+    /** Returns a one-shot snapshot of all locally known accounts (most-recent login first). */
+    suspend fun getAllAccountsOnce(): List<OdooAccount> = accountDao.getAllAccountsList()
+
+    /**
+     * Returns true when the account has stored credentials and can therefore be treated as
+     * "logged in" for deep-link routing. A resolved-but-not-logged-in account causes the deep
+     * link to be dropped rather than applied.
+     */
+    fun isLoggedIn(accountId: String): Boolean = encryptedPrefs.getPassword(accountId) != null
+
     suspend fun authenticate(
         serverUrl: String,
         database: String,
@@ -63,15 +73,23 @@ class AccountRepository @Inject constructor(
             // Save password securely
             encryptedPrefs.savePassword(account.id, password)
 
-            // Register the FCM token with this account so the user starts
-            // receiving chatter / DM / @mention / activity push notifications
-            // immediately. Without this, the saved token in EncryptedPrefs
-            // never reaches Odoo's `woow.fcm.device` table — symptom: silent
-            // notification failures despite all unit tests passing.
+            // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
+            // token is upserted for EACH logged-in account (not only this one). This starts push
+            // delivery immediately and, by re-reading the stored token, also self-heals the
+            // token-arrived-before-account race — a token saved by onNewToken before any account
+            // existed is registered as soon as this account appears. Idempotent server-side, so
+            // re-firing is cheap; best-effort, so a failure never blocks login.
             //
             // Symmetric counterpart of `logout → unregisterToken` below.
             // See `CLAUDE.md` § "Repository-Event Symmetry" for why.
-            registerSavedFcmToken(account.id)
+            fcmTokenRepository?.reconcileOnAccountAvailable()
+                ?.onSuccess { Timber.d("FCM account-available reconcile completed after login") }
+                ?.onFailure { error ->
+                    Timber.w(
+                        error,
+                        "FCM account-available reconcile after login partially failed — user may miss notifications until the next trigger",
+                    )
+                }
         }
 
         return result
@@ -147,11 +165,15 @@ class AccountRepository @Inject constructor(
     /**
      * Register the locally-saved FCM token with the given Odoo account.
      *
-     * This is the "replay" path for the case where `WoowFcmService.onNewToken`
+     * Used by [switchAccount] to register ONLY the switched-to account under the currently-active
+     * session cookie. Switch must not register the other accounts here: it has just unregistered the
+     * previously-active account on purpose (see [switchAccount]), and re-registering all accounts
+     * would undo that. (Login instead uses [FcmTokenRepository.reconcileOnAccountAvailable], which
+     * upserts the token for every logged-in account — there is no prior unregister to preserve.)
+     *
+     * This is also the "replay" path for the case where `WoowFcmService.onNewToken`
      * fired with zero accounts (e.g., fresh install before login) — the token
-     * was saved to `EncryptedPrefs` but never POSTed to any server. Once an
-     * account exists, every login/switch path calls this to push the token
-     * through.
+     * was saved to `EncryptedPrefs` but never POSTed to any server.
      *
      * Failure is non-fatal — the user can still use the app, they just won't
      * receive push notifications until the next token rotation (which will
@@ -182,9 +204,19 @@ class AccountRepository @Inject constructor(
      * failure is logged as a warning and logout proceeds — the user must not be blocked
      * by a network failure when attempting to sign out.
      */
-    suspend fun logout(accountId: String? = null) {
-        val id = accountId ?: accountDao.getActiveAccountOnce()?.id ?: return
-        val account = accountDao.getAccountById(id) ?: return
+    /**
+     * Logs out the given (or active) account. Returns whether the app should STAY authenticated:
+     * `true` when another account was promoted to active (multi-account fallback), `false` when no
+     * accounts remain and the caller should navigate to the login screen.
+     *
+     * Fix (multi-account parity with iOS): previously logout deleted the active account without
+     * promoting a remaining one, so the app dropped to the login screen even though another valid
+     * account was still signed in.
+     */
+    suspend fun logout(accountId: String? = null): Boolean {
+        val id = accountId ?: accountDao.getActiveAccountOnce()?.id ?: return false
+        val account = accountDao.getAccountById(id) ?: return false
+        val wasActive = account.isActive
 
         // C3: Attempt to unregister FCM token before session is cleared. Non-fatal if it
         // fails — the token will eventually be cleaned up server-side when it bounces.
@@ -205,6 +237,20 @@ class AccountRepository @Inject constructor(
 
         // Delete account from database
         accountDao.deleteAccountById(id)
+
+        // Multi-account fallback: if other accounts remain and we logged out the ACTIVE one (or none
+        // is active), promote the most-recently-used remaining account so the app stays authenticated
+        // instead of stranding the user on the login screen. getAllAccountsList() is ORDER BY
+        // lastLogin DESC, so the first entry is the most recent.
+        val remaining = accountDao.getAllAccountsList()
+        if (remaining.isEmpty()) {
+            return false
+        }
+        if (wasActive || remaining.none { it.isActive }) {
+            accountDao.deactivateAllAccounts()
+            accountDao.activateAccount(remaining.first().id)
+        }
+        return true
     }
 
     /**

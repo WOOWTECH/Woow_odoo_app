@@ -155,6 +155,22 @@ class EncryptedPrefs @Inject constructor(
         return prefs.getString(KEY_FCM_TOKEN, null)
     }
 
+    /**
+     * Records that the app has already auto-launched the POST_NOTIFICATIONS runtime dialog once,
+     * so it is never triggered again automatically for this install (Android 13+).
+     */
+    fun setPostNotificationPermissionRequested() {
+        prefs.edit().putBoolean(KEY_POST_NOTIF_PERMISSION_REQUESTED, true).apply()
+    }
+
+    /**
+     * Returns whether the POST_NOTIFICATIONS runtime dialog has already been auto-launched once for
+     * this install. Used to guarantee the OS dialog auto-launches at most once per install.
+     */
+    fun wasPostNotificationPermissionRequested(): Boolean {
+        return prefs.getBoolean(KEY_POST_NOTIF_PERMISSION_REQUESTED, false)
+    }
+
     companion object {
         private const val KEY_THEME_COLOR = "theme_color"
         private const val KEY_THEME_MODE = "theme_mode"
@@ -168,5 +184,6 @@ class EncryptedPrefs @Inject constructor(
         private const val KEY_PIN_LOCKOUT_UNTIL = "pin_lockout_until"
         private const val KEY_FCM_TOKEN = "fcm_token"
         private const val KEY_LOCATION_ENABLED = "location_enabled"
+        private const val KEY_POST_NOTIF_PERMISSION_REQUESTED = "post_notif_permission_requested"
     }
 }

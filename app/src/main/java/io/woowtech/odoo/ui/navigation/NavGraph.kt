@@ -142,9 +142,18 @@ fun WoowOdooNavHost(
                 onAddAccountClick = {
                     navController.navigate(Screen.Login.route)
                 },
-                onLogout = {
-                    navController.navigate(Screen.Login.route) {
-                        popUpTo(Screen.Main.route) { inclusive = true }
+                onLogout = { stayAuthenticated ->
+                    if (stayAuthenticated) {
+                        // Multi-account fallback: another account was promoted to active. Return to a
+                        // fresh Main screen (showing the promoted account) instead of forcing login.
+                        navController.navigate(Screen.Main.route) {
+                            popUpTo(Screen.Main.route) { inclusive = true }
+                        }
+                    } else {
+                        // Last account logged out — no account remains, go to login.
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(Screen.Main.route) { inclusive = true }
+                        }
                     }
                 }
             )

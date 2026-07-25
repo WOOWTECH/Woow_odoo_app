@@ -41,12 +41,14 @@ class WoowFcmServiceTest {
         val body = data["body"] ?: return
         val actionUrl = data["odoo_action_url"]
         val eventType = data["event_type"]
+        val tenantId = data["odoo_tenant_id"]
 
         notificationHelper.showNotification(
             title = title,
             body = body,
             actionUrl = actionUrl,
-            eventType = eventType
+            eventType = eventType,
+            tenantId = tenantId,
         )
     }
 
@@ -73,7 +75,8 @@ class WoowFcmServiceTest {
                     title = "New Sale Order",
                     body = "SO001 has been confirmed",
                     actionUrl = "/web#id=42&model=sale.order&view_type=form",
-                    eventType = "chatter"
+                    eventType = "chatter",
+                    tenantId = null,
                 )
             }
         }
@@ -94,7 +97,8 @@ class WoowFcmServiceTest {
                     title = "Direct Message",
                     body = "Hey, check this out",
                     actionUrl = "/web#action=discuss.action_discuss",
-                    eventType = "discuss"
+                    eventType = "discuss",
+                    tenantId = null,
                 )
             }
         }
@@ -121,7 +125,8 @@ class WoowFcmServiceTest {
                     title = "Reminder",
                     body = "Activity due today",
                     actionUrl = null,
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -141,7 +146,8 @@ class WoowFcmServiceTest {
                     title = "Alert",
                     body = "Stock level low",
                     actionUrl = "/web#id=5&model=stock.picking",
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -160,7 +166,8 @@ class WoowFcmServiceTest {
                     title = "Simple",
                     body = "Just a message",
                     actionUrl = null,
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -183,7 +190,7 @@ class WoowFcmServiceTest {
 
             simulateOnMessageReceived(data)
 
-            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any()) }
+            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any(), any()) }
         }
 
         @Test
@@ -196,7 +203,7 @@ class WoowFcmServiceTest {
 
             simulateOnMessageReceived(data)
 
-            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any()) }
+            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any(), any()) }
         }
 
         @Test
@@ -205,7 +212,7 @@ class WoowFcmServiceTest {
 
             simulateOnMessageReceived(data)
 
-            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any()) }
+            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any(), any()) }
         }
 
         @Test
@@ -216,7 +223,7 @@ class WoowFcmServiceTest {
 
             simulateOnMessageReceived(data)
 
-            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any()) }
+            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any(), any()) }
         }
 
         @Test
@@ -227,7 +234,7 @@ class WoowFcmServiceTest {
 
             simulateOnMessageReceived(data)
 
-            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any()) }
+            verify(exactly = 0) { notificationHelper.showNotification(any(), any(), any(), any(), any()) }
         }
     }
 
@@ -253,7 +260,8 @@ class WoowFcmServiceTest {
                     title = "",
                     body = "Body is here",
                     actionUrl = null,
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -272,7 +280,8 @@ class WoowFcmServiceTest {
                     title = "新訂單通知",
                     body = "订单 SO001 已确认 ✅",
                     actionUrl = null,
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -292,7 +301,8 @@ class WoowFcmServiceTest {
                     title = "Alert",
                     body = longBody,
                     actionUrl = null,
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -313,7 +323,8 @@ class WoowFcmServiceTest {
                     title = "Order",
                     body = "New order",
                     actionUrl = complexUrl,
-                    eventType = null
+                    eventType = null,
+                    tenantId = null,
                 )
             }
         }
@@ -336,7 +347,8 @@ class WoowFcmServiceTest {
                     title = "Order",
                     body = "Confirmed",
                     actionUrl = null,
-                    eventType = "mention"
+                    eventType = "mention",
+                    tenantId = null,
                 )
             }
         }

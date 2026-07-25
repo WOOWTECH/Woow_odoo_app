@@ -3,6 +3,7 @@ package io.woowtech.odoo.data.repository
 import android.os.Build
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import io.woowtech.odoo.data.api.SessionReauthInterceptor
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.OdooAccount
@@ -19,8 +20,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import timber.log.Timber
 import java.io.IOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,19 +35,43 @@ import javax.inject.Singleton
  * Stores token locally in EncryptedPrefs.
  *
  * Registration uses the current Odoo session cookie for authentication — the Odoo
- * module requires `auth='user'` so the cookie must be present. If the session has
- * expired (HTTP 401 / Odoo `{"error": ...}` response) the failure is logged but
- * not propagated — the token will be re-registered on the next successful auth.
+ * module requires `auth='user'` so the cookie must be present. The register/unregister
+ * routes are `type='json'`, so Odoo signals an expired session as **HTTP 200 with a
+ * JSON-RPC `SessionExpiredException` error envelope**, not HTTP 401. The injected
+ * [SessionReauthInterceptor] detects that envelope (and a genuine 401), transparently
+ * re-authenticates once with the account's stored credentials against its own https
+ * host, refreshes the cookie, and replays the request (WI-3, see
+ * [io.woowtech.odoo.data.api.SessionReauthenticator]). Only a *persistent* session
+ * expiry that survives that single re-auth+retry surfaces here as an [IOException]; the
+ * failure is then logged and the token is re-registered on the next successful auth.
  *
  * Transient errors (5xx, network timeout) are returned as [Result.failure] so the
  * caller can apply retry logic if needed.
  */
 @Singleton
-class FcmTokenRepositoryImpl @Inject constructor(
+class FcmTokenRepositoryImpl(
     private val encryptedPrefs: EncryptedPrefs,
     private val accountDao: AccountDao,
-    private val sessionCookieProvider: SessionCookieProvider,
+    private val httpClient: OkHttpClient,
 ) : FcmTokenRepository {
+
+    /**
+     * Production entry point. Hilt injects the collaborators; we build the hardened OkHttp client
+     * (cookie jar + WI-3 re-auth interceptor). The primary constructor takes the client directly so
+     * unit tests can inject a [okhttp3.mockwebserver.MockWebServer]-backed client and drive real
+     * success / hard-failure / unreachable outcomes hermetically.
+     */
+    @Inject
+    constructor(
+        encryptedPrefs: EncryptedPrefs,
+        accountDao: AccountDao,
+        sessionCookieProvider: SessionCookieProvider,
+        sessionReauthInterceptor: SessionReauthInterceptor,
+    ) : this(
+        encryptedPrefs = encryptedPrefs,
+        accountDao = accountDao,
+        httpClient = buildFcmHttpClient(sessionCookieProvider, sessionReauthInterceptor),
+    )
 
     private val gson = Gson()
 
@@ -63,17 +92,6 @@ class FcmTokenRepositoryImpl @Inject constructor(
      * complete in a few hundred ms.
      */
     private val registrationMutex = Mutex()
-
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .cookieJar(object : CookieJar {
-            override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
-            override fun loadForRequest(url: HttpUrl): List<Cookie> =
-                sessionCookieProvider.getCookiesForHost(url.host)
-        })
-        .build()
 
     override suspend fun registerTokenForAllAccounts(token: String): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -127,24 +145,62 @@ class FcmTokenRepositoryImpl @Inject constructor(
                 accounts.forEach { account ->
                     registerTokenLocked(accountId = account.id, token = token)
                         .onFailure { error ->
+                            // Coroutine cancellation must propagate, never be collected as a
+                            // per-account failure (CLAUDE.md: "Never catch CancellationException").
+                            if (error is CancellationException) throw error
                             failures += account.id to error
-                            Timber.e(error, "Failed to register FCM token for account %s", account.id)
                         }
                 }
 
-                if (failures.isEmpty()) {
-                    Timber.d("FCM token registered with %d accounts", accounts.size)
-                    Result.success(Unit)
-                } else {
-                    val summary = failures.joinToString(separator = "; ") {
-                        "${it.first}=${it.second::class.simpleName}"
+                // Classify by whether the SERVER WAS REACHED. A genuine connectivity failure — DNS
+                // no longer resolves (retired tenant), connection refused, or a connect/read timeout —
+                // is best-effort: registration self-heals on the next launch / onNewToken, so it must
+                // NOT poison the whole fan-out (a dead account lingering in the DB otherwise turned
+                // every reconcile into a scary IllegalStateException).
+                //
+                // Everything else is a HARD failure the caller SHOULD see: postToOdoo maps HTTP 401,
+                // non-2xx, and Odoo error envelopes to IOException too, and those mean the server WAS
+                // reached and rejected us — swallowing them would hide real auth/server problems. So
+                // the classifier is the specific unreachable exception types, NOT `is IOException`.
+                val (unreachable, hard) = failures.partition { it.second.isUnreachable() }
+                unreachable.forEach { (id, error) ->
+                    Timber.w(error, "FCM register skipped for unreachable account %s — best-effort, will retry", id)
+                }
+                hard.forEach { (id, error) ->
+                    Timber.e(error, "Failed to register FCM token for account %s", id)
+                }
+                val okCount = accounts.size - failures.size
+
+                when {
+                    hard.isNotEmpty() -> {
+                        val summary = hard.joinToString(separator = "; ") {
+                            "${it.first}=${it.second::class.simpleName}"
+                        }
+                        Result.failure(
+                            IllegalStateException(
+                                "FCM register-for-all failed for ${hard.size}/${accounts.size} accounts: $summary",
+                                hard.first().second,
+                            ),
+                        )
                     }
-                    Result.failure(
-                        IllegalStateException(
-                            "FCM register-for-all failed for ${failures.size}/${accounts.size} accounts: $summary",
-                            failures.first().second,
-                        ),
-                    )
+                    okCount == 0 && unreachable.isNotEmpty() -> {
+                        // Nothing registered anywhere — every account was unreachable (e.g. the app
+                        // launched offline). Not a hard error, but the caller must know zero accounts
+                        // got the token so it retries rather than treating this as done.
+                        Timber.w("FCM token registered with 0 accounts — all %d unreachable; will retry", unreachable.size)
+                        Result.failure(
+                            IOException("all ${unreachable.size} account(s) unreachable — token not registered anywhere"),
+                        )
+                    }
+                    else -> {
+                        Timber.d(
+                            "FCM token registered (%d ok, %d unreachable) of %d accounts",
+                            okCount,
+                            unreachable.size,
+                            accounts.size,
+                        )
+                        Result.success(Unit)
+                    }
                 }
             }
         }
@@ -162,11 +218,11 @@ class FcmTokenRepositoryImpl @Inject constructor(
      * from `registerTokenForAllAccounts` which already holds the lock.
      */
     private suspend fun registerTokenLocked(accountId: String, token: String): Result<Unit> =
-        runCatching {
+        try {
             val account = accountDao.getAccountById(accountId)
                 ?: error("Account not found: $accountId")
 
-            postToOdoo(
+            val responseBody = postToOdoo(
                 serverUrl = account.fullServerUrl,
                 path = REGISTER_PATH,
                 params = mapOf(
@@ -177,9 +233,33 @@ class FcmTokenRepositoryImpl @Inject constructor(
                 account = account,
             )
             Timber.d("FCM token registered for account %s", accountId)
-        }.onFailure { error ->
-            Timber.e(error, "Failed to register FCM token for account %s", accountId)
+
+            // Persist the opaque tenant id the server returns for this account so future push
+            // notifications can be routed to it (multi-account deep-link isolation). Best-effort:
+            // an older server that does not return a tenant id leaves the column null and the
+            // account simply keeps current-behaviour routing until a newer server responds.
+            val tenantId = FcmRegistrationResponse.parseTenantId(responseBody)
+            if (tenantId != null && tenantId != account.tenantId) {
+                accountDao.updateTenantId(id = accountId, tenantId = tenantId)
+                Timber.d("Persisted tenant id for account %s", accountId)
+            }
+            Result.success(Unit)
+        } catch (cancellation: CancellationException) {
+            // Never swallow cancellation — let it propagate so the coroutine cancels cleanly.
+            throw cancellation
+        } catch (error: Throwable) {
+            // The caller classifies (reachable vs hard) and logs at the appropriate level.
+            Result.failure(error)
         }
+
+    /**
+     * True only when [this] means the server could not be reached at all — so registration is
+     * genuinely best-effort and self-heals on the next retry. [postToOdoo] maps HTTP 401, non-2xx,
+     * and Odoo error envelopes to a plain [IOException] (the server WAS reached and rejected us),
+     * so those are deliberately EXCLUDED here and treated as hard failures the caller must see.
+     */
+    private fun Throwable.isUnreachable(): Boolean =
+        this is UnknownHostException || this is ConnectException || this is SocketTimeoutException
 
     override suspend fun unregisterToken(accountId: String): Result<Unit> =
         withContext(Dispatchers.IO) {
@@ -205,6 +285,35 @@ class FcmTokenRepositoryImpl @Inject constructor(
 
     override fun getStoredToken(): String? = encryptedPrefs.getFcmToken()
 
+    override suspend fun reconcileToken(token: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            // Short-circuit when no account is logged in: nothing to register the token against.
+            // AccountRepository replays the saved token on the next login/switch. No server call.
+            if (accountDao.getAllAccountsList().isEmpty()) {
+                Timber.d("FCM reconcile: no active accounts — nothing to register")
+                return@withContext Result.success(Unit)
+            }
+            registerTokenForAllAccounts(token)
+        }
+
+    override suspend fun reconcileOnAccountAvailable(): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            // Account-restored/added event (S2 / AC8.b). Read the CURRENT stored token and upsert it
+            // for every logged-in account. No token yet (onNewToken has not fired) → no-op success;
+            // the token-arrived event will register once a token exists. This closes the
+            // token-arrived-before-account race: a token saved before any account existed is
+            // registered here as soon as the account appears.
+            val token = getStoredToken()
+            if (token.isNullOrBlank()) {
+                Timber.d("FCM account-available reconcile skipped — no token yet; token-arrived will register")
+                return@withContext Result.success(Unit)
+            }
+            // Delegates to the existing upsert-per-account path. Idempotent server-side (register
+            // early-returns an unchanged pair), so re-firing on every account event is cheap — no
+            // diff-set / tri-state / canonical-state reconcile is kept.
+            registerTokenForAllAccounts(token)
+        }
+
     /**
      * Posts a JSON-RPC-style request to the Odoo push endpoint. The session cookie is
      * automatically attached by the [httpClient]'s CookieJar via [sessionCookieProvider].
@@ -216,7 +325,7 @@ class FcmTokenRepositoryImpl @Inject constructor(
         path: String,
         params: Map<String, String>,
         account: OdooAccount,
-    ) {
+    ): String {
         val url = "$serverUrl$path"
         val requestBody = JsonObject().apply {
             addProperty("jsonrpc", "2.0")
@@ -254,6 +363,8 @@ class FcmTokenRepositoryImpl @Inject constructor(
             // JSON parse failure is non-fatal — server returned 2xx which is enough
             Timber.w(parseError, "Could not parse Odoo response from %s", url)
         }
+
+        return responseBody
     }
 
     companion object {
@@ -265,6 +376,28 @@ class FcmTokenRepositoryImpl @Inject constructor(
         private const val PLATFORM_ANDROID = "android"
         private const val TIMEOUT_SECONDS = 15L
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /**
+         * Builds the hardened OkHttp client used for register/unregister POSTs: per-account session
+         * cookies via [sessionCookieProvider], and the WI-3 [SessionReauthInterceptor] that
+         * transparently re-authenticates an expired Odoo session (HTTP 200 JSON-RPC
+         * SessionExpiredException envelope, or a genuine 401) once and replays the request — all
+         * safety guardrails live in SessionReauthenticator.
+         */
+        private fun buildFcmHttpClient(
+            sessionCookieProvider: SessionCookieProvider,
+            sessionReauthInterceptor: SessionReauthInterceptor,
+        ): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .cookieJar(object : CookieJar {
+                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
+                override fun loadForRequest(url: HttpUrl): List<Cookie> =
+                    sessionCookieProvider.getCookiesForHost(url.host)
+            })
+            .addInterceptor(sessionReauthInterceptor)
+            .build()
     }
 }
 
@@ -275,4 +408,36 @@ class FcmTokenRepositoryImpl @Inject constructor(
 interface SessionCookieProvider {
     /** Returns the session cookies that should be sent to the given Odoo host. */
     fun getCookiesForHost(host: String): List<Cookie>
+}
+
+/**
+ * Parses the opaque tenant id out of an Odoo FCM device-registration response. Isolated as a pure
+ * function so it can be unit-tested without any network layer.
+ */
+object FcmRegistrationResponse {
+
+    private val tenantIdKeys = listOf("tenant_id", "odoo_tenant_id")
+    private val parser = Gson()
+
+    /**
+     * Returns the tenant id from a JSON-RPC registration [responseBody], or null if the response is
+     * malformed or carries no tenant id (older server). The id is read from the `result` object,
+     * accepting either a `tenant_id` or `odoo_tenant_id` key, and only non-blank string/number
+     * values are accepted.
+     */
+    fun parseTenantId(responseBody: String?): String? {
+        if (responseBody.isNullOrBlank()) return null
+        return runCatching {
+            val root = parser.fromJson(responseBody, JsonObject::class.java) ?: return null
+            val result = root.getAsJsonObject("result") ?: return null
+            for (key in tenantIdKeys) {
+                val element = result.get(key)
+                if (element != null && element.isJsonPrimitive) {
+                    val value = element.asString
+                    if (value.isNotBlank()) return value
+                }
+            }
+            null
+        }.getOrNull()
+    }
 }

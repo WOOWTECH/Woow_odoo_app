@@ -36,9 +36,9 @@
     <string name="switch_accounts">切換帳號</string>
     <string name="switch_accounts_subtitle">管理和切換帳號</string>
     <string name="add_account">新增帳號</string>
-    <string name="logout">登出</string>
+    <string name="logout">登出目前帳號</string>
     <string name="logout_subtitle">從此裝置登出</string>
-    <string name="logout_confirm_title">登出</string>
+    <string name="logout_confirm_title">登出目前帳號</string>
     <string name="logout_confirm_message">確定要登出嗎？</string>
     <string name="cancel">取消</string>
     <string name="confirm">確認</string>
@@ -169,6 +169,11 @@
     <string name="content_description_avatar">使用者頭像</string>
     <string name="content_description_visibility_on">顯示密碼</string>
     <string name="content_description_visibility_off">隱藏密碼</string>
+
+    <!-- Notification Permission Banner (Android 13+) -->
+    <string name="notification_permission_banner_message">通知已關閉。開啟後即可接收 Odoo 訊息與提及。</string>
+    <string name="notification_permission_banner_action">開啟通知</string>
+    <string name="notification_permission_banner_dismiss">關閉</string>
 
     <!-- Location / Privacy -->
     <string name="settings_location_section">隱私</string>
