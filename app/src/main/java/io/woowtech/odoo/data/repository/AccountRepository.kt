@@ -73,15 +73,23 @@ class AccountRepository @Inject constructor(
             // Save password securely
             encryptedPrefs.savePassword(account.id, password)
 
-            // Register the FCM token with this account so the user starts
-            // receiving chatter / DM / @mention / activity push notifications
-            // immediately. Without this, the saved token in EncryptedPrefs
-            // never reaches Odoo's `woow.fcm.device` table — symptom: silent
-            // notification failures despite all unit tests passing.
+            // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
+            // token is upserted for EACH logged-in account (not only this one). This starts push
+            // delivery immediately and, by re-reading the stored token, also self-heals the
+            // token-arrived-before-account race — a token saved by onNewToken before any account
+            // existed is registered as soon as this account appears. Idempotent server-side, so
+            // re-firing is cheap; best-effort, so a failure never blocks login.
             //
             // Symmetric counterpart of `logout → unregisterToken` below.
             // See `CLAUDE.md` § "Repository-Event Symmetry" for why.
-            registerSavedFcmToken(account.id)
+            fcmTokenRepository?.reconcileOnAccountAvailable()
+                ?.onSuccess { Timber.d("FCM account-available reconcile completed after login") }
+                ?.onFailure { error ->
+                    Timber.w(
+                        error,
+                        "FCM account-available reconcile after login partially failed — user may miss notifications until the next trigger",
+                    )
+                }
         }
 
         return result
@@ -157,11 +165,15 @@ class AccountRepository @Inject constructor(
     /**
      * Register the locally-saved FCM token with the given Odoo account.
      *
-     * This is the "replay" path for the case where `WoowFcmService.onNewToken`
+     * Used by [switchAccount] to register ONLY the switched-to account under the currently-active
+     * session cookie. Switch must not register the other accounts here: it has just unregistered the
+     * previously-active account on purpose (see [switchAccount]), and re-registering all accounts
+     * would undo that. (Login instead uses [FcmTokenRepository.reconcileOnAccountAvailable], which
+     * upserts the token for every logged-in account — there is no prior unregister to preserve.)
+     *
+     * This is also the "replay" path for the case where `WoowFcmService.onNewToken`
      * fired with zero accounts (e.g., fresh install before login) — the token
-     * was saved to `EncryptedPrefs` but never POSTed to any server. Once an
-     * account exists, every login/switch path calls this to push the token
-     * through.
+     * was saved to `EncryptedPrefs` but never POSTed to any server.
      *
      * Failure is non-fatal — the user can still use the app, they just won't
      * receive push notifications until the next token rotation (which will

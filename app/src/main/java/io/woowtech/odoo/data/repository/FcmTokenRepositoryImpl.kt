@@ -296,6 +296,24 @@ class FcmTokenRepositoryImpl(
             registerTokenForAllAccounts(token)
         }
 
+    override suspend fun reconcileOnAccountAvailable(): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            // Account-restored/added event (S2 / AC8.b). Read the CURRENT stored token and upsert it
+            // for every logged-in account. No token yet (onNewToken has not fired) → no-op success;
+            // the token-arrived event will register once a token exists. This closes the
+            // token-arrived-before-account race: a token saved before any account existed is
+            // registered here as soon as the account appears.
+            val token = getStoredToken()
+            if (token.isNullOrBlank()) {
+                Timber.d("FCM account-available reconcile skipped — no token yet; token-arrived will register")
+                return@withContext Result.success(Unit)
+            }
+            // Delegates to the existing upsert-per-account path. Idempotent server-side (register
+            // early-returns an unchanged pair), so re-firing on every account event is cheap — no
+            // diff-set / tri-state / canonical-state reconcile is kept.
+            registerTokenForAllAccounts(token)
+        }
+
     /**
      * Posts a JSON-RPC-style request to the Odoo push endpoint. The session cookie is
      * automatically attached by the [httpClient]'s CookieJar via [sessionCookieProvider].

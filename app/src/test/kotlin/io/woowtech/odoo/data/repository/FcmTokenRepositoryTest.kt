@@ -284,4 +284,125 @@ class FcmTokenRepositoryTest {
         verify(atLeast = 1) { encryptedPrefs.saveFcmToken("tok_same") }
         assertTrue(second.isSuccess || second.isFailure) // no exception propagated
     }
+
+    // ── reconcileOnAccountAvailable (S2 / AC8.b — account-restored/added event) ─────────────────
+    // These drive the event-driven reconcile against the hermetic fake-OkHttp seam (no real DNS).
+    // They pin: (a) an account-restore upserts the CURRENT token for EACH account; (b) the
+    // token-arrived-before-account race is fixed (a token saved before any account is registered as
+    // soon as the account appears); (c) no token yet → cheap no-op; (d) redundant triggers are safe.
+
+    @Test
+    fun `Given a stored token and two accounts when reconcileOnAccountAvailable then a register is POSTed for each account`() = runTest {
+        val a1 = makeAccount("a1", serverUrl = "https://one.test")
+        val a2 = makeAccount("a2", serverUrl = "https://two.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a1, a2)
+        coEvery { accountDao.getAccountById("a1") } returns a1
+        coEvery { accountDao.getAccountById("a2") } returns a2
+        every { encryptedPrefs.getFcmToken() } returns "tok_restore"
+        val postedHosts = mutableListOf<String>()
+
+        val result = repoWith(
+            fakeClient { req ->
+                postedHosts += req.url.host
+                jsonResponse(req, 200)
+            },
+        ).reconcileOnAccountAvailable()
+
+        assertTrue(result.isSuccess)
+        // AC8.b: one register per logged-in account (each account's own host was POSTed).
+        assertTrue(postedHosts.contains("one.test"), "account a1 must be registered")
+        assertTrue(postedHosts.contains("two.test"), "account a2 must be registered")
+    }
+
+    @Test
+    fun `Given a token arrived before any account when the account later appears then reconcileOnAccountAvailable registers it`() = runTest {
+        // Phase 1 — the race: onNewToken fires with ZERO accounts. The token is saved locally but
+        // nothing is POSTed anywhere.
+        coEvery { accountDao.getAllAccountsList() } returns emptyList()
+        val postedHosts = mutableListOf<String>()
+        val racyRepo = repoWith(
+            fakeClient { req ->
+                postedHosts += req.url.host
+                jsonResponse(req, 200)
+            },
+        )
+        racyRepo.registerTokenForAllAccounts("tok_race")
+        verify { encryptedPrefs.saveFcmToken("tok_race") }
+        assertTrue(postedHosts.isEmpty(), "no POST should happen while there are zero accounts")
+
+        // Phase 2 — the account now appears (cold-start restore / login) and the stored token is the
+        // one saved in phase 1. The account-available reconcile must now register it.
+        val account = makeAccount("late", serverUrl = "https://late.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(account)
+        coEvery { accountDao.getAccountById("late") } returns account
+        every { encryptedPrefs.getFcmToken() } returns "tok_race"
+
+        val result = racyRepo.reconcileOnAccountAvailable()
+
+        assertTrue(result.isSuccess)
+        assertTrue(postedHosts.contains("late.test"), "the token that arrived before the account must now be registered")
+    }
+
+    @Test
+    fun `Given no token has arrived yet when reconcileOnAccountAvailable then it is a no-op success with no POST`() = runTest {
+        val account = makeAccount("a1", serverUrl = "https://one.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(account)
+        coEvery { accountDao.getAccountById("a1") } returns account
+        every { encryptedPrefs.getFcmToken() } returns null
+        val postedHosts = mutableListOf<String>()
+
+        val result = repoWith(
+            fakeClient { req ->
+                postedHosts += req.url.host
+                jsonResponse(req, 200)
+            },
+        ).reconcileOnAccountAvailable()
+
+        // No token yet → nothing to register; token-arrived (onNewToken) will drive it later.
+        assertTrue(result.isSuccess)
+        assertTrue(postedHosts.isEmpty(), "no register may be POSTed before a token exists")
+    }
+
+    @Test
+    fun `Given reconcileOnAccountAvailable fired twice when redundant then both succeed and re-register (idempotent)`() = runTest {
+        val account = makeAccount("a1", serverUrl = "https://one.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(account)
+        coEvery { accountDao.getAccountById("a1") } returns account
+        every { encryptedPrefs.getFcmToken() } returns "tok_same"
+        val postCount = intArrayOf(0)
+        val repo = repoWith(
+            fakeClient { req ->
+                postCount[0]++
+                jsonResponse(req, 200)
+            },
+        )
+
+        val first = repo.reconcileOnAccountAvailable()
+        val second = repo.reconcileOnAccountAvailable()
+
+        // The client keeps no diff-set: it simply re-calls register on each event. The server
+        // early-returns an unchanged pair, so re-firing is harmless — both calls succeed.
+        assertTrue(first.isSuccess)
+        assertTrue(second.isSuccess)
+        assertEquals(2, postCount[0], "each trigger re-POSTs register (server-side early-return makes it cheap)")
+    }
+
+    @Test
+    fun `Given the register POST throws CancellationException when reconcileOnAccountAvailable then it propagates`() = runTest {
+        // Best-effort must never swallow cancellation (CLAUDE.md hard rule) — the new event path too.
+        val account = makeAccount("a1", serverUrl = "https://one.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(account)
+        coEvery { accountDao.getAccountById("a1") } returns account
+        every { encryptedPrefs.getFcmToken() } returns "tok"
+        val repo = repoWith(fakeClient { throw CancellationException("cancelled") })
+
+        var propagated = false
+        try {
+            repo.reconcileOnAccountAvailable()
+        } catch (e: CancellationException) {
+            propagated = true
+        }
+
+        assertTrue(propagated, "CancellationException must propagate from the account-available reconcile")
+    }
 }
