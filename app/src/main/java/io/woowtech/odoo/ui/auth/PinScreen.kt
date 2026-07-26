@@ -61,7 +61,10 @@ import kotlinx.coroutines.launch
 fun PinScreen(
     viewModel: AuthViewModel = hiltViewModel(),
     onPinVerified: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    // Hidden when PIN is the sole unlock gate (nowhere to go back to); shown when reached from the
+    // biometric screen's "Use PIN" so the user can return to the face prompt.
+    showBack: Boolean = true,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -143,12 +146,14 @@ fun PinScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Start
             ) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = stringResource(R.string.back_button),
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
+                if (showBack) {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back_button),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
 
@@ -306,8 +311,9 @@ fun PinScreen(
     }
 }
 
+/** Reusable numeric keypad. Shared by [PinScreen] (verify) and [PinSetupScreen] (create). */
 @Composable
-private fun NumberPad(
+internal fun NumberPad(
     reduceMotion: Boolean,
     onNumberClick: (String) -> Unit,
     onDeleteClick: () -> Unit

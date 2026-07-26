@@ -43,9 +43,28 @@ class SettingsRepository @Inject constructor(
         _settings.value = newSettings
     }
 
-    fun updateAppLock(enabled: Boolean) {
+    /**
+     * Updates the App Lock preference, enforcing the invariant `appLockEnabled ⇒ pinEnabled`.
+     *
+     * App Lock cannot be turned ON unless a PIN is already set: the PIN is the guaranteed
+     * unlock floor (a biometric is only an optional accelerator and can become unavailable
+     * at runtime — e.g. a weak/Class-2 face, or an enrollment removed after enabling). Arming
+     * App Lock with no working method is exactly the dead-end this guard prevents; the Settings
+     * UI must run PIN setup first. This is defense-in-depth behind that UI gate.
+     *
+     * Disabling App Lock is always allowed and never requires authentication.
+     *
+     * @return `true` if the requested state was applied; `false` if an ON request was refused
+     *   because no PIN is set (persisted state left unchanged).
+     */
+    fun updateAppLock(enabled: Boolean): Boolean {
+        if (enabled && !_settings.value.pinEnabled) {
+            Timber.w("updateAppLock(true) refused — no PIN set; App Lock requires a PIN floor")
+            return false
+        }
         encryptedPrefs.updateAppLock(enabled)
         _settings.value = _settings.value.copy(appLockEnabled = enabled)
+        return true
     }
 
     /**
@@ -80,7 +99,7 @@ class SettingsRepository @Inject constructor(
      * @return `true` on success, `false` when [pin] length is outside 4–6.
      */
     suspend fun setPin(pin: String): Boolean = withContext(Dispatchers.Default) {
-        if (pin.length < 4 || pin.length > 6) return@withContext false
+        if (pin.length != PIN_LENGTH) return@withContext false
 
         val hash = hashPin(pin)
         encryptedPrefs.updatePinHash(hash)
@@ -91,12 +110,22 @@ class SettingsRepository @Inject constructor(
         true
     }
 
+    /**
+     * Removes the stored PIN and, atomically in the same write, disables App Lock.
+     *
+     * Because the PIN is the mandatory unlock floor, removing it while App Lock stayed ON
+     * would re-create the dead-end this story fixes. Both changes are persisted through a
+     * single [EncryptedPrefs.saveAppSettings] commit, so a crash between the two can never
+     * leave `appLockEnabled=true && pinEnabled=false` on disk.
+     */
     fun removePin() {
-        encryptedPrefs.updatePinHash(null)
-        _settings.value = _settings.value.copy(
+        val newSettings = _settings.value.copy(
             pinEnabled = false,
-            pinHash = null
+            pinHash = null,
+            appLockEnabled = false, // co-disable atomically — never leave App Lock armed without a PIN
         )
+        encryptedPrefs.saveAppSettings(newSettings)
+        _settings.value = newSettings
     }
 
     /**
@@ -244,6 +273,13 @@ class SettingsRepository @Inject constructor(
     }
 
     companion object {
+        /**
+         * Fixed PIN length. PINs are exactly 6 digits (no 4–6 flexibility) — the single source of
+         * truth for PIN length, owned by the data layer. The PIN is verified exactly once, at 6
+         * digits (see [io.woowtech.odoo.ui.auth.AuthViewModel.enterPinDigit]).
+         */
+        const val PIN_LENGTH = 6
+
         private const val MAX_PIN_ATTEMPTS = 5
         private const val SALT_LENGTH_BYTES = 16
         private const val PBKDF2_ITERATIONS = 600_000

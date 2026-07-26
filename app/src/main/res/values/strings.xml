@@ -138,6 +138,14 @@
     <string name="biometric_title">Biometric Login</string>
     <string name="biometric_subtitle">Use fingerprint or face to login</string>
     <string name="biometric_negative">Use PIN</string>
+    <string name="applock_recovery_continue">Can\'t unlock on this device — turn off App Lock and continue</string>
+    <string name="pin_setup_title">Set a PIN</string>
+    <string name="pin_setup_subtitle">Enter a 6-digit PIN</string>
+    <string name="pin_setup_confirm_title">Confirm your PIN</string>
+    <string name="pin_setup_confirm_subtitle">Re-enter your PIN to confirm</string>
+    <string name="pin_setup_mismatch">PINs didn\'t match — try again</string>
+    <string name="applock_recovery_keyguard_title">Confirm it\'s you</string>
+    <string name="applock_recovery_keyguard_desc">Verify your device lock to turn off App Lock</string>
     <string name="biometric_not_available">Biometric authentication not available</string>
     <string name="biometric_not_enrolled">No biometric data enrolled</string>
     <string name="biometric_too_many_attempts">Too many failed attempts. Please use PIN.</string>

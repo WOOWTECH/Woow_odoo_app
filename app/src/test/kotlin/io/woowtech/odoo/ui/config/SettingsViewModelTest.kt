@@ -3,9 +3,11 @@ package io.woowtech.odoo.ui.config
 import app.cash.turbine.test
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.test.advanceUntilIdle
 import io.woowtech.odoo.data.repository.CacheRepository
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.domain.model.AppLanguage
@@ -52,6 +54,38 @@ class SettingsViewModelTest {
 
     private fun createViewModel(): SettingsViewModel {
         return SettingsViewModel(settingsRepository, cacheRepository)
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // WI-2: App Lock requires a PIN floor (setPinThenEnableAppLock ordering)
+    // ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `Given App Lock enabled via toggle when PIN set then PIN stored BEFORE App Lock enabled`() = runTest {
+        coEvery { settingsRepository.setPin("1234") } returns true
+        every { settingsRepository.updateAppLock(true) } returns true
+        viewModel = createViewModel()
+
+        viewModel.setPinThenEnableAppLock("1234")
+        advanceUntilIdle()
+
+        // Ordering matters: enabling App Lock before the PIN persists would momentarily violate
+        // the appLockEnabled ⇒ pinEnabled invariant (and updateAppLock would refuse).
+        coVerifyOrder {
+            settingsRepository.setPin("1234")
+            settingsRepository.updateAppLock(true)
+        }
+    }
+
+    @Test
+    fun `Given PIN storage fails when enabling App Lock then App Lock is NOT enabled`() = runTest {
+        coEvery { settingsRepository.setPin("12") } returns false // too short → not stored
+        viewModel = createViewModel()
+
+        viewModel.setPinThenEnableAppLock("12")
+        advanceUntilIdle()
+
+        verify(exactly = 0) { settingsRepository.updateAppLock(true) }
     }
 
     // ──────────────────────────────────────────────────────────

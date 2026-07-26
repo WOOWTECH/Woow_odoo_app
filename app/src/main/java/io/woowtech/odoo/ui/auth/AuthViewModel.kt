@@ -64,6 +64,20 @@ class AuthViewModel @Inject constructor(
     }
 
     /**
+     * Recovery escape for the no-usable-method state (App Lock on, no usable biometric, no PIN):
+     * disables App Lock and marks the session authenticated so the user is never trapped on a
+     * controlless lock screen. A lock with no working key protects nothing and only bricks the app.
+     *
+     * Interim informed-consent path so an already-bricked install can recover. WI-3 hardens this by
+     * gating on the OS keyguard (`KeyguardManager.createConfirmDeviceCredentialIntent`) before
+     * disabling, and forcing PIN setup, so it cannot be abused by a physical-access attacker.
+     */
+    fun disableAppLockForRecovery() {
+        settingsRepository.updateAppLock(false)
+        _isAuthenticated.value = true
+    }
+
+    /**
      * Resets the authenticated flag when the app is sent to the background, but only
      * if App Lock is enabled. Matches iOS `onAppBackgrounded()`.
      */
@@ -87,13 +101,13 @@ class AuthViewModel @Inject constructor(
     fun getLockoutRemainingMs(): Long = settingsRepository.getLockoutRemainingMs()
 
     /**
-     * Appends a digit to the in-progress PIN and evaluates whether the user has
-     * successfully entered the stored PIN. The stored PIN may be 4–6 digits, so a
-     * mismatch shorter than 6 digits is reported as [PinEntryResult.NeedMoreDigits]
-     * (the user may still be typing) rather than counted as a failed attempt.
-     *
-     * Only a length-6 mismatch is recorded as a failure via [SettingsRepository.verifyPin],
-     * mirroring the iOS `enterPinDigit` behaviour verbatim.
+     * Appends a digit to the in-progress PIN and evaluates it only once the full
+     * [SettingsRepository.PIN_LENGTH] (6) is reached. Entries shorter than 6 digits return
+     * [PinEntryResult.NeedMoreDigits] WITHOUT
+     * calling [SettingsRepository.verifyPin] — the PIN is checked exactly once, at 6 digits. This
+     * avoids the mid-typing stutter and the false-lockout that intermediate verifies caused (each
+     * wrong verify increments the failure counter, so verifying at lengths 4/5 could trip lockout
+     * before the real check at 6).
      *
      * This function is `suspend` because [SettingsRepository.verifyPin] dispatches
      * 600,000-iteration PBKDF2 to [kotlinx.coroutines.Dispatchers.Default]. Callers
@@ -108,7 +122,13 @@ class AuthViewModel @Inject constructor(
     suspend fun enterPinDigit(digit: String, currentPin: String): Pair<String, PinEntryResult> {
         val nextPin = currentPin + digit
 
-        if (nextPin.length < MIN_PIN_LENGTH) {
+        // PINs are a fixed 6 digits. Verify ONLY when all 6 are entered — never at intermediate
+        // lengths. This removes the mid-typing stutter AND fixes a false-lockout: verifyPin
+        // increments the failure counter on every wrong call, so verifying at lengths 4 and 5 used
+        // to burn 2 spurious failures per correct entry (3 per wrong entry) and could trip lockout at
+        // length 5 — after which the length-6 check was blocked by verifyPin's own lockout guard,
+        // rejecting the CORRECT PIN. Verifying once per entry keeps the failure count correct.
+        if (nextPin.length < SettingsRepository.PIN_LENGTH) {
             return nextPin to PinEntryResult.NeedMoreDigits
         }
 
@@ -117,15 +137,7 @@ class AuthViewModel @Inject constructor(
             return nextPin to PinEntryResult.Success
         }
 
-        // Wrong so far — but if the stored PIN is longer (5 or 6 digits) the user
-        // may still be mid-entry. Only treat MAX_PIN_LENGTH mismatches as real failures
-        // so we don't burn attempts on length-4 mistypes.
-        if (nextPin.length < MAX_PIN_LENGTH) {
-            return nextPin to PinEntryResult.NeedMoreDigits
-        }
-
-        // Length 6 and still wrong — verifyPin has already incremented the failure
-        // counter inside SettingsRepository.
+        // All 6 entered and wrong — verifyPin has incremented the failure counter exactly once.
         return if (settingsRepository.isLockedOut()) {
             "" to PinEntryResult.LockedOut
         } else {
@@ -134,9 +146,6 @@ class AuthViewModel @Inject constructor(
     }
 
     companion object {
-        private const val MIN_PIN_LENGTH = 4
-        private const val MAX_PIN_LENGTH = 6
-
         /** Maximum biometric failures allowed in a single session before forcing PIN. */
         const val MAX_BIOMETRIC_FAILURES = 3
     }

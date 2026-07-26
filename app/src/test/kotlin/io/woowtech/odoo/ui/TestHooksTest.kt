@@ -55,14 +55,14 @@ class TestHooksTest {
     // ─── Test 1: Valid 4-digit PIN is seeded ───────────────────────────────────
 
     @Test
-    fun `Given valid test-pin 1234 when applyIfPresent then setPin called`() = runTest {
-        val intent = intentWithExtras(pin = "1234")
+    fun `Given valid test-pin 123456 when applyIfPresent then setPin called`() = runTest {
+        val intent = intentWithExtras(pin = "123456")
         coEvery { settings.setPin(any()) } returns true
 
         TestHooks.applyIfPresent(intent, settings, this)
         advanceUntilIdle()
 
-        coVerify { settings.setPin("1234") }
+        coVerify { settings.setPin("123456") }
     }
 
     // ─── Test 2: Non-digit PIN is skipped ─────────────────────────────────────
@@ -178,7 +178,7 @@ class TestHooksTest {
 
     @Test
     fun `Given setPin throws when applyIfPresent then no exception propagates`() = runTest {
-        val intent = intentWithExtras(pin = "1234")
+        val intent = intentWithExtras(pin = "123456")
         coEvery { settings.setPin(any()) } throws RuntimeException("Simulated keystore failure")
 
         // Must not throw — the inner try/catch inside the launched coroutine absorbs it

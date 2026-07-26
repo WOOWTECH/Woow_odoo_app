@@ -69,6 +69,21 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Sets [pin] and, only after it is persisted, enables App Lock — in that order so the
+     * `appLockEnabled ⇒ pinEnabled` invariant is never briefly violated. Used by the Settings
+     * "App Lock" toggle: turning App Lock on first requires creating a PIN (the mandatory unlock
+     * floor). If PIN storage fails (e.g. invalid length) App Lock is left off.
+     */
+    fun setPinThenEnableAppLock(pin: String) {
+        viewModelScope.launch {
+            val stored = settingsRepository.setPin(pin)
+            if (stored) {
+                settingsRepository.updateAppLock(true)
+            }
+        }
+    }
+
     fun removePin() {
         settingsRepository.removePin()
     }
