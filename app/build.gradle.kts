@@ -19,8 +19,8 @@ android {
         applicationId = "io.woowtech.odoo"
         minSdk = 29
         targetSdk = 34
-        versionCode = 20
-        versionName = "1.0.20"
+        versionCode = 21
+        versionName = "1.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
