@@ -3,6 +3,7 @@ package io.woowtech.odoo.ui.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.woowtech.odoo.data.api.SessionReauthenticator
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.data.location.LocationPermissionGate
 import io.woowtech.odoo.data.push.DeepLinkManager
@@ -11,11 +12,13 @@ import io.woowtech.odoo.data.repository.AccountRepository
 import io.woowtech.odoo.data.repository.ReloginRequest
 import io.woowtech.odoo.data.repository.ReloginSignal
 import io.woowtech.odoo.domain.model.OdooAccount
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class WebViewCredentials(
@@ -32,6 +35,7 @@ class MainViewModel @Inject constructor(
     private val deepLinkManager: DeepLinkManager,
     private val reloginSignal: ReloginSignal,
     val locationPermissionGate: LocationPermissionGate,
+    private val sessionReauthenticator: SessionReauthenticator,
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount
@@ -102,6 +106,27 @@ class MainViewModel @Inject constructor(
 
     fun getSessionId(serverUrl: String): String? {
         return accountRepository.getSessionId(serverUrl)
+    }
+
+    /**
+     * Attempts to silently re-authenticate the active account's expired WebView session for [host],
+     * mirroring the iOS `attemptSelfHealOrLogin` recovery. Delegates to the shared
+     * [SessionReauthenticator] — the very same engine the FCM/REST path uses — so both recovery
+     * routes share one single-flight lock, one-retry cap, bad-credential STOP, and circuit breaker
+     * and can never race or resend a known-bad password.
+     *
+     * Returns true when a fresh session cookie was established on the shared cookie jar; the caller
+     * must then read the refreshed session id via [getSessionId] and re-inject it into the WebView's
+     * `CookieManager`. Returns false when recovery is impossible (no stored password, bad
+     * credentials, non-https/unknown host, or an open circuit), in which case the caller must
+     * surface an explicit re-login rather than retry.
+     *
+     * Runs the (blocking) re-auth on [Dispatchers.IO]; safe to call from the main thread.
+     */
+    suspend fun selfHealActiveAccount(host: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            sessionReauthenticator.reauthenticateForHost(host)
+        }
     }
 
     /**

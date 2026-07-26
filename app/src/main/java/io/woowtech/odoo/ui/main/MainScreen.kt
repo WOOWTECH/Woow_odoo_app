@@ -53,8 +53,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -87,8 +90,20 @@ fun MainScreen(
 ) {
     val account by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
     val pendingDeepLink by viewModel.pendingDeepLink.collectAsStateWithLifecycle(initialValue = null)
+    // WI-3: observe the re-login signal (previously emitted into the void). It fires when a session
+    // recovery is unrecoverable — bad/missing stored credentials — from either the WebView self-heal
+    // or the background FCM re-auth path. Surface the re-login surface once, then clear it so it can
+    // never loop.
+    val reloginRequest by viewModel.reloginRequest.collectAsStateWithLifecycle(initialValue = null)
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+
+    LaunchedEffect(reloginRequest) {
+        if (reloginRequest != null) {
+            viewModel.clearReloginRequest()
+            onMenuClick()
+        }
+    }
 
     // Cache the active account host so we never need to suspend on the WebChromeClient
     // callback thread. Updated whenever the active account changes.
@@ -222,7 +237,9 @@ fun MainScreen(
                     activeHostSnapshot = activeHostSnapshot,
                     onWebViewCreated = { webView = it },
                     onLoadingChanged = { isLoading = it },
-                    onSessionExpired = onMenuClick,
+                    onSelfHeal = { host -> viewModel.selfHealActiveAccount(host) },
+                    getFreshSessionId = { url -> viewModel.getSessionId(url) },
+                    onReloginRequired = onMenuClick,
                 )
             }
 
@@ -285,7 +302,9 @@ fun OdooWebView(
     activeHostSnapshot: String? = null,
     onWebViewCreated: (WebView) -> Unit,
     onLoadingChanged: (Boolean) -> Unit,
-    onSessionExpired: () -> Unit,
+    onSelfHeal: suspend (host: String) -> Boolean,
+    getFreshSessionId: (serverUrl: String) -> String?,
+    onReloginRequired: () -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -300,8 +319,27 @@ fun OdooWebView(
     // The WebViewClient and update{} block are created once but must read the LATEST params on
     // every callback / recomposition, so wrap the deep-link inputs the same way.
     val currentServerUrl by rememberUpdatedState(serverUrl)
+    val currentDatabase by rememberUpdatedState(database)
     val currentDeepLinkUrl by rememberUpdatedState(deepLinkUrl)
     val currentOnDeepLinkConsumed by rememberUpdatedState(onDeepLinkConsumed)
+
+    // Session self-heal callbacks. The WebViewClient below is created once at factory time and
+    // captures whatever is in scope then, so wrap the callbacks with rememberUpdatedState to read
+    // the latest on every invocation (same stale-closure fix as the deep-link inputs above).
+    val currentOnSelfHeal by rememberUpdatedState(onSelfHeal)
+    val currentGetFreshSessionId by rememberUpdatedState(getFreshSessionId)
+    val currentOnReloginRequired by rememberUpdatedState(onReloginRequired)
+
+    // Scope for the async self-heal launched from shouldOverrideUrlLoading. Compose scopes run on
+    // the main dispatcher, so the WebView reload after re-auth happens on the main thread; the
+    // blocking re-auth itself hops to Dispatchers.IO inside MainViewModel.selfHealActiveAccount.
+    val selfHealScope = rememberCoroutineScope()
+
+    // Loop guard: at most one self-heal attempt per expiry cycle. Set true when a /web/login
+    // triggers self-heal; reset to false in onPageFinished once a real (non-login) page lands.
+    // A second /web/login while still true means self-heal did not recover the session — we route
+    // to the re-login surface instead of re-entering self-heal (prevents the Main⇄login bounce).
+    val selfHealAttempted = remember { AtomicBoolean(false) }
 
     // Tracks which server the single WebView last (re)loaded, so update{} can detect an
     // account switch (serverUrl change) and drive a full reload. Seeded in the factory.
@@ -476,6 +514,13 @@ fun OdooWebView(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        // Self-heal loop guard: a real (non-login) page landed, so re-arm self-heal
+                        // for any future, genuinely-new expiry. A /web/login landing must NOT clear
+                        // it — that case is handled in shouldOverrideUrlLoading and re-arming here
+                        // would let the bounce loop resume.
+                        if (url != null && !url.contains("/web/login")) {
+                            selfHealAttempted.set(false)
+                        }
                         // v1.0.14: Force layout recalculation for OWL framework
                         view?.evaluateJavascript(
                             """
@@ -552,10 +597,49 @@ fun OdooWebView(
                         val url = request?.url?.toString() ?: return false
                         Timber.d("shouldOverrideUrlLoading: $url")
 
-                        // Detect session expiry - if redirected to login page
+                        // Detect session expiry — Odoo redirects the expired WebView to /web/login.
+                        // Instead of bouncing to Config (the old behaviour, which trapped the user
+                        // in a Main⇄login loop), silently self-heal from the stored password and
+                        // stay on the Odoo page — parity with iOS attemptSelfHealOrLogin.
                         if (url.contains("/web/login")) {
-                            Timber.d("Session expired, redirecting to login")
-                            onSessionExpired()
+                            if (selfHealAttempted.compareAndSet(false, true)) {
+                                // First expiry this cycle: cancel the login-page load, show the
+                                // spinner, and re-authenticate off-thread. All security guardrails
+                                // (https-only + exact stored host, one retry, bad-cred STOP,
+                                // single-flight, no credential logging) live in SessionReauthenticator.
+                                Timber.d("Session expired — attempting silent self-heal")
+                                onLoadingChanged(true)
+                                val targetServerUrl = currentServerUrl
+                                val targetDatabase = currentDatabase
+                                selfHealScope.launch {
+                                    val host = runCatching { java.net.URI(targetServerUrl).host }
+                                        .getOrNull()
+                                    val healed = host != null && currentOnSelfHeal(host)
+                                    if (healed) {
+                                        // Re-inject the refreshed session cookie (host-scoped, same
+                                        // proven path as the initial load) and reload the Odoo page.
+                                        val freshSessionId = currentGetFreshSessionId(targetServerUrl)
+                                        isolateCookiesForAccount(
+                                            serverUrl = targetServerUrl,
+                                            sessionId = freshSessionId,
+                                        )
+                                        view?.loadUrl("$targetServerUrl/web?db=$targetDatabase")
+                                        // Guard stays set until onPageFinished lands a real page —
+                                        // if the reload itself hits /web/login again we must not loop.
+                                    } else {
+                                        Timber.d("Self-heal failed — surfacing re-login")
+                                        onLoadingChanged(false)
+                                        currentOnReloginRequired()
+                                    }
+                                }
+                            } else {
+                                // Second /web/login before a real page loaded: self-heal already
+                                // ran and did not recover the session. Do NOT retry — surface the
+                                // re-login prompt so the user can re-authenticate manually.
+                                Timber.d("Session still expired after self-heal — surfacing re-login")
+                                onLoadingChanged(false)
+                                currentOnReloginRequired()
+                            }
                             return true
                         }
 
