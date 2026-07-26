@@ -32,7 +32,7 @@ class SettingsRepositoryPinTest {
 
     @Test
     fun `Given valid PIN when setPin then stores PBKDF2 hash with salt separator`() = runTest {
-        repo.setPin("1234")
+        repo.setPin("123456")
         // PBKDF2 hash format is "salt:hash" — must contain colon
         verify { encryptedPrefs.updatePinHash(match { it.contains(":") }) }
     }
@@ -43,24 +43,27 @@ class SettingsRepositoryPinTest {
         val hashes = mutableListOf<String>()
         every { encryptedPrefs.updatePinHash(capture(hashes)) } returns Unit
 
-        repo.setPin("1234")
+        repo.setPin("123456")
         // Reset state for second hash
         every { encryptedPrefs.getAppSettings() } returns AppSettings()
         val repo2 = SettingsRepository(encryptedPrefs)
-        repo2.setPin("1234")
+        repo2.setPin("123456")
 
         assertTrue(hashes.size >= 2)
         assertNotEquals(hashes[0], hashes[1], "Same PIN should produce different hashes due to random salt")
     }
 
     @Test
-    fun `Given PIN too short when setPin then returns false`() = runTest {
-        assertFalse(repo.setPin("12"))  // < 4 digits
+    fun `Given PIN not exactly 6 digits when setPin then returns false`() = runTest {
+        assertFalse(repo.setPin("12"))       // too short
+        assertFalse(repo.setPin("1234"))     // 4 digits — no longer allowed
+        assertFalse(repo.setPin("12345"))    // 5 digits — no longer allowed
+        assertFalse(repo.setPin("1234567"))  // too long
     }
 
     @Test
-    fun `Given PIN too long when setPin then returns false`() = runTest {
-        assertFalse(repo.setPin("1234567"))  // > 6 digits
+    fun `Given exactly 6 digits when setPin then returns true`() = runTest {
+        assertTrue(repo.setPin("123456"))
     }
 
     @Test
@@ -70,7 +73,7 @@ class SettingsRepositoryPinTest {
         every { encryptedPrefs.updatePinHash(capture(capturedHash)) } returns Unit
         every { encryptedPrefs.resetFailedPinAttempts() } returns Unit
 
-        repo.setPin("5678")
+        repo.setPin("567890")
 
         // Now simulate the stored hash being in settings
         val storedHash = capturedHash.first()
@@ -80,7 +83,7 @@ class SettingsRepositoryPinTest {
         )
         val repo2 = SettingsRepository(encryptedPrefs)
 
-        assertTrue(repo2.verifyPin("5678"))
+        assertTrue(repo2.verifyPin("567890"))
     }
 
     @Test
@@ -89,7 +92,7 @@ class SettingsRepositoryPinTest {
         every { encryptedPrefs.updatePinHash(capture(capturedHash)) } returns Unit
         every { encryptedPrefs.incrementFailedPinAttempts() } returns 1
 
-        repo.setPin("5678")
+        repo.setPin("567890")
 
         val storedHash = capturedHash.first()
         every { encryptedPrefs.getAppSettings() } returns AppSettings(
@@ -194,7 +197,7 @@ class SettingsRepositoryPinTest {
         every { encryptedPrefs.updatePinHash(capture(capturedHash)) } returns Unit
         every { encryptedPrefs.resetFailedPinAttempts() } returns Unit
 
-        repo.setPin("1234")
+        repo.setPin("123456")
 
         val storedHash = capturedHash.first()
         every { encryptedPrefs.getAppSettings() } returns AppSettings(
@@ -205,7 +208,7 @@ class SettingsRepositoryPinTest {
 
         // Launch verifyPin as a background Deferred on Dispatchers.Default so it runs
         // truly off this test dispatcher.
-        val deferred = async(Dispatchers.Default) { repo2.verifyPin("1234") }
+        val deferred = async(Dispatchers.Default) { repo2.verifyPin("123456") }
 
         // The test dispatcher coroutine can keep yielding while the Default-dispatcher
         // coroutine is running. If verifyPin did NOT use withContext(Default), the

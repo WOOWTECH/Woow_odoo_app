@@ -138,6 +138,14 @@
     <string name="biometric_title">生物辨識登入</string>
     <string name="biometric_subtitle">使用指紋或臉部登入</string>
     <string name="biometric_negative">使用 PIN 碼</string>
+    <string name="applock_recovery_continue">此裝置無法解鎖 — 關閉應用程式鎖定並繼續</string>
+    <string name="pin_setup_title">設定 PIN 碼</string>
+    <string name="pin_setup_subtitle">輸入 6 位數 PIN 碼</string>
+    <string name="pin_setup_confirm_title">確認 PIN 碼</string>
+    <string name="pin_setup_confirm_subtitle">再次輸入 PIN 碼以確認</string>
+    <string name="pin_setup_mismatch">PIN 碼不一致 — 請重試</string>
+    <string name="applock_recovery_keyguard_title">確認是您本人</string>
+    <string name="applock_recovery_keyguard_desc">驗證裝置鎖定以關閉應用程式鎖定</string>
     <string name="biometric_not_available">生物辨識驗證無法使用</string>
     <string name="biometric_not_enrolled">尚未設定生物辨識資料</string>
     <string name="biometric_too_many_attempts">嘗試次數過多，請使用 PIN 碼</string>

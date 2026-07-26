@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.LocaleList
 import androidx.biometric.BiometricManager
+import io.woowtech.odoo.ui.auth.PinSetupScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -100,12 +101,37 @@ fun SettingsScreen(
     var showColorPicker by remember { mutableStateOf(false) }
     var showThemeModePicker by remember { mutableStateOf(false) }
     var showPinSetup by remember { mutableStateOf(false) }
+    // When App Lock is toggled on without a PIN, route through PIN setup first and remember to
+    // enable App Lock once the PIN is created (PIN-as-floor invariant).
+    var pendingEnableAppLock by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
 
     val biometricManager = remember { BiometricManager.from(context) }
     val canUseBiometric = remember {
         biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
                 BiometricManager.BIOMETRIC_SUCCESS
+    }
+
+    // WI-0: PIN create/confirm overlay. Shown when setting a PIN or when enabling App Lock (which
+    // requires a PIN floor). Full-screen so it replaces the settings list while active.
+    if (showPinSetup) {
+        PinSetupScreen(
+            reduceMotion = settings.reduceMotion,
+            onPinConfirmed = { pin ->
+                if (pendingEnableAppLock) {
+                    viewModel.setPinThenEnableAppLock(pin)
+                    pendingEnableAppLock = false
+                } else {
+                    viewModel.setPin(pin)
+                }
+                showPinSetup = false
+            },
+            onCancel = {
+                showPinSetup = false
+                pendingEnableAppLock = false
+            },
+        )
+        return
     }
 
     Scaffold(
@@ -192,7 +218,15 @@ fun SettingsScreen(
                     title = stringResource(R.string.app_lock),
                     subtitle = stringResource(R.string.app_lock_subtitle),
                     checked = settings.appLockEnabled,
-                    onCheckedChange = { viewModel.updateAppLock(it) }
+                    onCheckedChange = { enable ->
+                        if (enable && !settings.pinEnabled) {
+                            // App Lock requires a PIN floor — create one first, then enable.
+                            pendingEnableAppLock = true
+                            showPinSetup = true
+                        } else {
+                            viewModel.updateAppLock(enable)
+                        }
+                    }
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))

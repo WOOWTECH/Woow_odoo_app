@@ -24,7 +24,7 @@ import timber.log.Timber
  *     --es test-pin 1234 --ez app-lock-enabled true --ez biometric-enabled false
  *
  * Recognized extras:
- *   test-pin              (String,  4-6 digits)        — seeds PIN via SettingsRepository
+ *   test-pin              (String,  exactly 6 digits)  — seeds PIN via SettingsRepository
  *   app-lock-enabled      (Boolean)                    — sets requiresAuth precondition
  *   biometric-enabled     (Boolean)                    — toggles biometric (capability-gated)
  *   reset-state           (Boolean)                    — clears auth, lockout counters
@@ -57,7 +57,7 @@ internal object TestHooks {
         try {
             val pin = intent.getStringExtra(EXTRA_TEST_PIN)
             if (pin != null) {
-                if (pin.length in 4..6 && pin.all { it.isDigit() }) {
+                if (pin.length == 6 && pin.all { it.isDigit() }) {
                     coroutineScope.launch {
                         try {
                             settings.setPin(pin)

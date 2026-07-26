@@ -173,4 +173,9 @@ private fun defaultPromptInfoFactory(
     .setSubtitle(subtitle)
     .setNegativeButtonText(negativeText)
     .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+    // Face/iris are passive: with the platform default (confirmationRequired=true) the user must tap
+    // an extra "Confirm" button after recognition. For app unlock we want the iOS Face ID behaviour —
+    // recognise and unlock directly — so we opt out of the extra confirmation step. (No effect on
+    // fingerprint, which is active and never shows a confirm step.)
+    .setConfirmationRequired(false)
     .build()

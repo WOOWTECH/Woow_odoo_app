@@ -63,6 +63,14 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    testOptions {
+        // Robolectric + Compose render tests need the merged Android resources/manifest on the
+        // JVM unit-test classpath (e.g. PinDotsRow shake render test).
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 tasks.withType<Test> {
@@ -133,6 +141,13 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
+    // Robolectric + Compose render tests (JVM). The vintage engine lets these JUnit4/Robolectric
+    // tests run under the project's useJUnitPlatform() runner alongside the JUnit 5 suite.
+    testImplementation(libs.robolectric)
+    testRuntimeOnly(libs.junit.vintage.engine)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.ui.test.junit4)
+    testImplementation(libs.androidx.ui.test.manifest)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -1,5 +1,11 @@
 package io.woowtech.odoo.ui.auth
 
+import android.app.Activity
+import android.app.KeyguardManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -63,6 +69,7 @@ fun BiometricScreen(
     viewModel: AuthViewModel = hiltViewModel(),
     onAuthSuccess: () -> Unit,
     onUsePinClick: () -> Unit,
+    onRecover: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
@@ -78,8 +85,54 @@ fun BiometricScreen(
     val biometricHelper = remember(activity) {
         activity?.let { BiometricPromptHelper(it, ContextCompat.getMainExecutor(context)) }
     }
-    val canUseBiometric = remember(biometricHelper) {
+    // WI-1 (1.3): recompute biometric availability on every ON_RESUME. Enrollment can change while
+    // the app is backgrounded (removed, strength-downgraded, or KeyPermanentlyInvalidated), so a
+    // value captured once at first composition would go stale — and a stale "available" could
+    // auto-prompt a now-invalid authenticator. Re-keying on the resume tick keeps it fresh.
+    @Suppress("DEPRECATION")
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var biometricAvailabilityTick by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) biometricAvailabilityTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val canUseBiometric = remember(biometricHelper, biometricAvailabilityTick) {
         biometricHelper?.canAuthenticate() == BiometricAvailability.Available
+    }
+    // Single source of truth for which controls the lock screen offers. Guarantees the
+    // screen can never render zero actions (the P0 brick). See AuthOptions.kt.
+    val authAction = resolveAuthOptions(
+        biometricEnabled = settings.biometricEnabled,
+        canUseBiometric = canUseBiometric,
+        pinEnabled = settings.pinEnabled,
+    )
+
+    // WI-3: keyguard-gated recovery. Before disabling App Lock we require the OS device credential,
+    // so a physical-access attacker who manufactured the no-method state (e.g. removed the enrolled
+    // biometric on a legacy PIN-less install) cannot use recovery to bypass the lock. On a device
+    // with no secure keyguard there is no root of trust, so we fall back to the informed-consent
+    // disable directly (onRecover).
+    val recoveryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) onRecover()
+    }
+
+    @Suppress("DEPRECATION") // createConfirmDeviceCredentialIntent is the clearest cross-version keyguard gate
+    fun startRecovery() {
+        val keyguard = context.getSystemService(KeyguardManager::class.java)
+        val intent = if (keyguard?.isDeviceSecure == true) {
+            keyguard.createConfirmDeviceCredentialIntent(
+                context.getString(R.string.applock_recovery_keyguard_title),
+                context.getString(R.string.applock_recovery_keyguard_desc),
+            )
+        } else {
+            null
+        }
+        if (intent != null) recoveryLauncher.launch(intent) else onRecover()
     }
 
     // Respect the reduceMotion preference. When enabled, snap() is used so there
@@ -103,7 +156,7 @@ fun BiometricScreen(
         helper.prompt(
             title = context.getString(R.string.biometric_title),
             subtitle = context.getString(R.string.biometric_subtitle),
-            negativeText = if (settings.pinEnabled) {
+            negativeText = if (authAction == AuthAction.BiometricAndPin) {
                 context.getString(R.string.biometric_negative)
             } else {
                 context.getString(R.string.cancel)
@@ -114,12 +167,12 @@ fun BiometricScreen(
             },
             onFallbackToPin = {
                 isAnimating = false
-                if (settings.pinEnabled) onUsePinClick()
+                if (authAction == AuthAction.BiometricAndPin) onUsePinClick()
             },
             onPermanentLockout = {
                 isAnimating = false
                 errorMessage = context.getString(R.string.biometric_too_many_attempts)
-                if (settings.pinEnabled) onUsePinClick()
+                if (authAction == AuthAction.BiometricAndPin) onUsePinClick()
             },
             onError = { message ->
                 isAnimating = false
@@ -128,7 +181,7 @@ fun BiometricScreen(
             onFailed = {
                 isAnimating = false
                 failureCount++
-                if (failureCount >= maxFailures && settings.pinEnabled) {
+                if (failureCount >= maxFailures && authAction == AuthAction.BiometricAndPin) {
                     errorMessage = context.getString(R.string.biometric_too_many_attempts)
                     onUsePinClick()
                 } else {
@@ -274,7 +327,7 @@ fun BiometricScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (settings.pinEnabled) {
+            if (authAction == AuthAction.BiometricAndPin) {
                 OutlinedButton(
                     onClick = onUsePinClick,
                     modifier = Modifier
@@ -285,6 +338,32 @@ fun BiometricScreen(
                     Text(
                         text = stringResource(R.string.biometric_negative),
                         style = MaterialTheme.typography.titleMedium
+                    )
+                }
+            }
+
+            // Recovery escape: when NO unlock method is usable (no usable biometric AND no PIN),
+            // App Lock cannot function and would otherwise trap the user on a blank screen (the P0
+            // brick). Offer an explicit, informed escape rather than a dead end.
+            // NOTE: production hardening (WI-3) gates this behind the OS keyguard
+            // (KeyguardManager.createConfirmDeviceCredentialIntent) before disabling App Lock; this
+            // build uses the informed-consent path so an already-bricked device can recover.
+            if (authAction is AuthAction.RecoveryNeeded) {
+                Button(
+                    onClick = { startRecovery() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text(
+                        text = stringResource(R.string.applock_recovery_continue),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        )
                     )
                 }
             }
