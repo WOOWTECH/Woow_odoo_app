@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,6 +57,9 @@ import androidx.lifecycle.Lifecycle
 import io.woowtech.odoo.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Horizontal amplitude (dp) of the wrong-PIN shake displacement. */
+private const val SHAKE_AMPLITUDE_DP = 10
 
 @Composable
 fun PinScreen(
@@ -181,49 +185,12 @@ fun PinScreen(
             Spacer(modifier = Modifier.height(40.dp))
 
             // PIN dots with better visibility + verifying indicator
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .padding(vertical = 16.dp)
-                    .then(
-                        if (shakeOffset > 0) Modifier.padding(
-                            start = (shakeOffset * 10).dp,
-                            end = (-shakeOffset * 10).dp
-                        ) else Modifier
-                    )
-            ) {
-                repeat(6) { index ->
-                    val isFilled = index < pin.length
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isFilled) MaterialTheme.colorScheme.primary
-                                else Color.Transparent
-                            )
-                            .border(
-                                width = 2.dp,
-                                color = if (isFilled) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                                shape = CircleShape
-                            )
-                    )
-                    if (index < 5) Spacer(modifier = Modifier.width(16.dp))
-                }
-                // Show a small spinner next to the dots while PBKDF2 is running.
-                // A 200ms debounce is applied via isVerifying so quick digit taps
-                // that don't reach the verify threshold never flash the indicator.
-                if (isVerifying) {
-                    Spacer(modifier = Modifier.width(12.dp))
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
+            PinDotsRow(
+                filledCount = pin.length,
+                shakeOffset = shakeOffset,
+                reduceMotion = reduceMotion,
+                isVerifying = isVerifying,
+            )
 
             // Error message with surface container
             error?.let {
@@ -307,6 +274,69 @@ fun PinScreen(
             }
 
             Spacer(modifier = Modifier.height(40.dp))
+        }
+    }
+}
+
+/**
+ * The row of six PIN dots (filled = entered digits) plus the PBKDF2 "verifying" spinner, including
+ * the wrong-PIN shake displacement. Stateless and hoisted out of [PinScreen] so the shake can be
+ * rendered deterministically at a fixed [shakeOffset] in a unit test — the shake path is where the
+ * crash lived (a negative padding value).
+ *
+ * @param filledCount number of dots to render filled (the current PIN length)
+ * @param shakeOffset horizontal shake progress in [0f, 1f]; 0 at rest
+ * @param reduceMotion when true, no lateral movement is applied (accessibility opt-out)
+ * @param isVerifying when true, shows the spinner next to the dots
+ */
+@Composable
+internal fun PinDotsRow(
+    filledCount: Int,
+    shakeOffset: Float,
+    reduceMotion: Boolean,
+    isVerifying: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .padding(vertical = 16.dp)
+            // Wrong-PIN shake: translate the row horizontally at placement time. Using offset (not
+            // padding) is what fixes the crash — padding requires non-negative values, but the shake
+            // needs a signed displacement. offset also avoids re-measuring or reflowing siblings.
+            // reduceMotion users get no lateral movement at all.
+            .offset(x = if (reduceMotion) 0.dp else (shakeOffset * SHAKE_AMPLITUDE_DP).dp)
+    ) {
+        repeat(6) { index ->
+            val isFilled = index < filledCount
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isFilled) MaterialTheme.colorScheme.primary
+                        else Color.Transparent
+                    )
+                    .border(
+                        width = 2.dp,
+                        color = if (isFilled) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        shape = CircleShape
+                    )
+            )
+            if (index < 5) Spacer(modifier = Modifier.width(16.dp))
+        }
+        // Show a small spinner next to the dots while PBKDF2 is running. A 200ms debounce is
+        // applied via isVerifying so quick digit taps that don't reach the verify threshold
+        // never flash the indicator.
+        if (isVerifying) {
+            Spacer(modifier = Modifier.width(12.dp))
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }
