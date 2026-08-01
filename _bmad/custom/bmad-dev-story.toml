@@ -1,0 +1,72 @@
+# Team override for bmad-dev-story.
+#
+# WHY THIS EXISTS
+# ---------------
+# `bmad-dev-story/customize.toml` loads project-context.md as `persistent_facts`:
+#
+#     persistent_facts = [ "file:{project-root}/**/project-context.md" ]
+#
+# That means every dev story is implemented ON TOP OF whatever project-context.md
+# claims. When the context drifts from the code, the drift is not a documentation
+# problem — it silently corrupts the facts each implementation is built on.
+#
+# BMAD deliberately ships NO automatic refresh: `bmad-generate-project-context`
+# supports an update mode (it detects an existing file and offers to update it
+# rather than rebuild), but nothing triggers it. The trigger is left to the
+# project via the hooks below, which ship empty by default.
+#
+# 2026-07: this project drifted for ~3 months (Android context 2026-05-04, iOS
+# 2026-05-10) across a version bump, a PIN/crypto change, an App Lock rewrite and
+# a new test harness. These two hooks are the guard against a repeat.
+
+[workflow]
+
+# Runs after greet, before the workflow begins.
+activation_steps_prepend = [
+  """
+Project-context freshness gate. Locate the project-context.md that `persistent_facts`
+loads for this project-root. Determine (a) the date recorded in its frontmatter or its
+file mtime, and (b) how far the code has moved since: `git log -1 --format=%cd` for the
+newest commit, and `git log --oneline --since=<context-date> | wc -l` for the number of
+commits landed since the context was written.
+
+If more than 30 commits OR more than 30 days have passed, WARN the user BEFORE starting
+implementation: state the context's date, the commit count since, and that the rules
+being loaded as foundational facts may no longer match the code. Ask whether to proceed
+anyway or to refresh first with the `bmad-generate-project-context` skill.
+
+Never silently implement against a context you have reason to believe is stale — say so.
+""",
+]
+
+# Runs at the final step, after the story is complete and its status is updated.
+on_complete = """
+Project-context drift check (do NOT skip).
+
+Take the story's final File List and decide whether this implementation invalidated
+anything project-context.md asserts. Check these categories:
+
+  a. Dependency / version / build files — build.gradle.kts, gradle/libs.versions.toml,
+     project.pbxproj, __manifest__.py, requirements*.txt, pyproject.toml, Dockerfile,
+     CI workflow files.
+  b. Dependency-injection or app-wiring modules (Hilt modules, composition roots,
+     service registration).
+  c. Architectural layering, navigation graphs, or state-management patterns.
+  d. The test harness — new frameworks, runners, or testing conventions.
+  e. Security, crypto, or auth mechanisms (hashing, key storage, lock/session flows).
+  f. ANY rule the loaded project-context states explicitly: a pinned version, a
+     "do not use X" rule, a named symbol, a file:line citation, or a numeric constant.
+
+For every match, quote the specific project-context line that is now WRONG and state the
+corrected fact from the code you just wrote.
+
+Then report to the user in one of two forms:
+  - "project-context.md is now stale in N place(s):" followed by the quoted lines and
+    their corrections, plus an offer to refresh via the `bmad-generate-project-context`
+    skill (it will detect the existing file and offer an update, not a rebuild).
+  - "project-context.md still matches the code." — a single line, when nothing matched.
+
+Do NOT edit project-context.md from inside this workflow: dev-story is only permitted to
+modify the story file. Surfacing the drift is the deliverable; refreshing is a separate,
+user-approved run.
+"""

@@ -95,3 +95,6 @@ app/firebase-service-account.json
 # Python (test scripts)
 __pycache__/
 *.pyc
+
+# BMAD personal (user-scoped) config — never shared
+_bmad/config.user.yaml
