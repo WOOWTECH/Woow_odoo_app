@@ -1,6 +1,8 @@
 # Story 8-1 — A push deep link must never switch accounts on an ambiguous identity
 
-- **Status:** review — WI-1..WI-4 implemented; full `:app:testDebugUnitTest` suite green.
+- **Status:** review-fixes-applied — WI-1..WI-4 implemented, then seven defects from an adversarial
+  review of `36458a3` were fixed, including one where WI-2 as first written **defeated WI-1**.
+  Full `:app:testDebugUnitTest` suite green.
 - **Repo:** android · branch `dev_spec_drift_refine` (base `d096570`)
 - **Covers:** conformance finding **P2-9** (Android half; iOS half is a separate story)
 - **Spec of record:** `docs/spec-hprime/2026-05-10-Option-H-Prime-Implementation-Plan.md` §13.3
@@ -121,6 +123,16 @@ into a refusal, which is right in either case. But the claim "customers are affe
 
 ## Follow-ups
 
+- **🔴 The routing key cannot identify an account, and this story does not fix that.** `odoo_tenant_id`
+  is the database name, so two users on one database share it and their deep links are now dropped —
+  a real functional loss for a supported configuration, accepted because the alternative is opening
+  the wrong user's session. The server must stamp something account-scoped on the payload (the
+  registration response already returns `device_id`; the send path knows the recipient's `user_id`).
+  **This is the actual fix for P2-9 and it lives in the plugin, not here.**
+- Narrowing the blast radius honestly: §4.3's shared `POSTGRES_DB=odoo18_ecpay` is the **STB** path.
+  `deploy/deploy-tenant.sh:41` derives a per-tenant database, so the k8s path does not collide
+  box-to-box. The two-users-one-database case above collides on every deployment path.
+
 - A confirmation dialog when a deep link would switch to a non-active account. Reasonable, not
   minimal, and not a blocker.
 - Make `odoo_tenant_id` unguessable server-side (a random per-install id rather than the db name).
@@ -200,7 +212,35 @@ exists in this repo, so no style gate was run (nothing to run).
 - `app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt` — modified (2 new tests)
 - `app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt` — modified (reversal)
 
+### Code review round — defects found in `36458a3`
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | **WI-2 defeated WI-1.** WI-1 detects ambiguity with `matches.size > 1`, so it only fires while BOTH colliding accounts hold the id. WI-2's refusal guaranteed exactly ONE owner — so the router saw a unique match and confidently switched to it. Demonstrated: X registers first and keeps `odoo18_ecpay`, Y is refused and stays null, a push **from Y** yields `SwitchAndApply(acc-X)` and resolves Y's record id in X's database. Without WI-2 the same input returns `Drop`. My comment stated the harm as the benefit: "keeps the OTHER account routable" — routable *by pushes from either server*. | WI-2 now **persists** the colliding id and logs it. A visible collision is refused by WI-1; an invisible one is guessed. The test was inverted accordingly and states why. |
+| 2 | **`Drop` breaks a supported configuration, and the routing key is wrong by construction.** `tenant_id_for` resolves to the DATABASE NAME ("one database == one tenant/box"), and accounts are keyed on `serverUrl + database + username` — so two users on ONE database are two accounts that NECESSARILY share the id. `tenantId` names a TENANT; the router selects an ACCOUNT. This class's own fixture (`SwitchAccountUnregisterTest.kt:54-71`) is exactly that shape. | Cannot be fixed client-side: the payload carries no account identity. `Drop` remains right (guessing opens the wrong user's session in the same database), but the loss is now stated in the code, this story and the TODO doc instead of being discovered later. Raised as a follow-up on the server. |
+| 3 | WI-2 was write-path-only: the guard sat inside `if (tenantId != account.tenantId)`, so a device already holding a collision never re-evaluated. | Moot once #1 was fixed — persisting is now unconditional, and a device already in the collided state is exactly the state WI-1 detects. |
+| 4 | **Three stale rationales**, including the one WI-3's own text demanded be rewritten. Worst: `registerSavedFcmToken`'s KDoc justified its single-account scope by "switch has just unregistered the previous account on purpose" — deleted in the same commit. `DeepLinkRouter`'s justification for `Drop` cited the same deleted call, so the stated reason for the check was void as of the commit introducing it. | All three rewritten. The router's justification now gives the real reasons (#1/#2). `registerSavedFcmToken`'s scope is re-justified on the host-keyed cookie jar, which is the actual constraint. |
+| 5 | **The vacuity audit was incomplete** — three tests became tautologies, not one. "No previous active account" and "switch to the already-active account" discriminated only because the removed call was guarded by `previousActiveAccountId != null && != accountId`; with the call gone both assert something universally true and already covered. | Deleted, with a comment recording what they used to prove. Three tautologies in one class is worse than none. |
+| 6 | The AC6 test claimed logout is "the only remaining caller" of `unregisterToken`. `removeAccount` also calls it — the story's own WI-3 text cites both. | Corrected, plus an honest note that the guarantee is call-made, not row-gone: the unregister is best-effort and nothing retries it. |
+| 7 | Assertion failure messages used `\${...}` — escaped, so they print the template rather than the value at the only moment anyone reads them. | Unescaped. |
+
+**One overclaim of mine corrected:** the commit said the rewritten `SwitchAccountUnregisterTest`
+assertions are "strictly stronger". They are not comparable — `exactly = 0` and
+`coVerifyOrder { unregister first }` are *contradictory* properties. "Broader over arguments" is
+accurate; "strictly stronger" wrongly implies the old guarantee is subsumed. It is reversed, deliberately.
+
+**Also actioned:** the dead `getAccountByTenantId` was **deleted** rather than documented — it was the
+same `LIMIT 1` footgun WI-1 removed, left loaded. And the same-host `removeAccount` hazard (the cookie
+jar is host-keyed and the server deletes by session `user_id`, so removing a non-active account on a
+shared host deletes the ACTIVE account's row) is now recorded on `removeAccount`; the deleted
+`switchAccount` block had been its only record in the repo.
+
 ## Change Log
+- 2026-08-03 (review fixes): Seven defects fixed. The serious one was mine: WI-2 as first written
+  guaranteed a single owner for a colliding tenant id, which is precisely the condition under which
+  WI-1 cannot detect ambiguity — so the two work items cancelled out and the mis-route returned.
+  The review also surfaced that the routing key is wrong by construction (a tenant id cannot name an
+  account), which is recorded as a follow-up rather than papered over.
 - 2026-08-03 (impl): WI-1..WI-4 implemented, each RED first. The notable decision was WI-3: three
   existing tests asserted the behaviour being removed, so they were rewritten with the reversal and
   its justification recorded in the class KDoc rather than quietly dropped.

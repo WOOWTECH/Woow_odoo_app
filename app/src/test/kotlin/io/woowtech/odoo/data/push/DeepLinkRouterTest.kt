@@ -163,9 +163,11 @@ class DeepLinkRouterTest {
     // server Y opening server X's account. No attacker required; that is the default
     // deployment behaving exactly as written.
     //
-    // It matters because the switch is DESTRUCTIVE: `switchAccount` unregisters the
-    // previously-active account's FCM token, so one tap on a mis-routed notification
-    // kills push for an unrelated account.
+    // It matters because acting on a wrong guess opens ANOTHER server's session and
+    // resolves the payload's record id in the wrong database. (It USED to be worse still:
+    // `switchAccount` unregistered the previously-active account's FCM token, so a
+    // mis-routed tap killed push for an unrelated account. Story 8-1 removed that side
+    // effect in the same change, so this comment is history, not current behaviour.)
 
     private val collidingX =
         RoutableAccount(id = "acc-X", tenantId = "odoo18_ecpay", serverHost = "x-odoo.woowtech.io")
@@ -185,7 +187,7 @@ class DeepLinkRouterTest {
         route as DeepLinkRoute.Drop
         assertTrue(
             route.reason.contains("ambiguous"),
-            "the drop must name ambiguity so an operator can tell it from an unknown tenant: \${route.reason}",
+            "the drop must name ambiguity so an operator can tell it from an unknown tenant: ${route.reason}",
         )
     }
 
@@ -203,7 +205,7 @@ class DeepLinkRouterTest {
             )
             assertTrue(
                 route !is DeepLinkRoute.SwitchAndApply,
-                "row order decided the target — routing is non-deterministic: \$route",
+                "row order decided the target — routing is non-deterministic: $route",
             )
         }
     }

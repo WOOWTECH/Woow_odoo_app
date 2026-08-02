@@ -31,14 +31,6 @@ interface AccountDao {
     suspend fun findAccount(serverUrl: String, database: String, username: String): OdooAccount?
 
     /**
-     * Resolves the local account that owns the given opaque [tenantId]. Returns null when no
-     * account has registered that tenant id yet, which the deep-link router treats as an
-     * unresolved tenant (the notification is dropped, never mis-routed to the active account).
-     */
-    @Query("SELECT * FROM accounts WHERE tenantId = :tenantId LIMIT 1")
-    suspend fun getAccountByTenantId(tenantId: String): OdooAccount?
-
-    /**
      * How many OTHER accounts already own [tenantId].
      *
      * `odoo_tenant_id` defaults to the Odoo database name, and spec §4.3 ships every box with the
@@ -46,9 +38,10 @@ interface AccountDao {
      * back an identical id. A non-zero count means the id cannot identify an account, and must not
      * be persisted as one (story 8-1, P2-9).
      *
-     * ⚠️ Prefer this over [getAccountByTenantId] when resolving a routing target. That method's
-     * `LIMIT 1` silently picks whichever row the database returns first, which is the exact
-     * non-determinism this story removed from `DeepLinkRouter`.
+     * ⚠️ Do not add a `SELECT ... WHERE tenantId = :x LIMIT 1` helper back. One existed, had zero
+     * callers, and was deleted with this change: its `LIMIT 1` silently picks whichever row the
+     * database returns first, which is exactly the non-determinism story 8-1 removed from
+     * `DeepLinkRouter`. Resolution must count first and refuse when the count is not one.
      */
     @Query("SELECT COUNT(*) FROM accounts WHERE tenantId = :tenantId AND id != :excludingId")
     suspend fun countAccountsWithTenantId(tenantId: String, excludingId: String): Int

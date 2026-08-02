@@ -151,10 +151,16 @@ class AccountRepository @Inject constructor(
      * Register the locally-saved FCM token with the given Odoo account.
      *
      * Used by [switchAccount] to register ONLY the switched-to account under the currently-active
-     * session cookie. Switch must not register the other accounts here: it has just unregistered the
-     * previously-active account on purpose (see [switchAccount]), and re-registering all accounts
-     * would undo that. (Login instead uses [FcmTokenRepository.reconcileOnAccountAvailable], which
-     * upserts the token for every logged-in account — there is no prior unregister to preserve.)
+     * session cookie.
+     *
+     * The original reason for the single-account scope — "switch has just unregistered the
+     * previously-active account on purpose, and re-registering all accounts would undo that" — was
+     * **deleted with that unregister** in story 8-1. The scope is still correct, but for a different
+     * and more basic reason: the session cookie jar is keyed by HOST
+     * (`OdooJsonRpcClient.cookieStore`), so at this point in the switch only the switched-to
+     * account has a live session. Registering the others here would POST under the wrong identity.
+     * (Login instead uses [FcmTokenRepository.reconcileOnAccountAvailable], which upserts the token
+     * for every logged-in account.)
      *
      * This is also the "replay" path for the case where `WoowFcmService.onNewToken`
      * fired with zero accounts (e.g., fresh install before login) — the token
@@ -260,6 +266,15 @@ class AccountRepository @Inject constructor(
         // Best-effort FCM unregister before local deletion. If the device
         // is offline we still proceed — the local record removal is the
         // user-facing intent and must not be blocked by network state.
+        //
+        // ⚠️ SAME-HOST MULTI-ACCOUNT HAZARD (this note is the surviving record of a trap that
+        // used to be documented in `switchAccount`, whose comment block story 8-1 removed).
+        // The session cookie jar is keyed by HOST alone, and the server deletes by
+        // `user_id = env.uid` resolved from the SESSION — the request body carries only the
+        // token. So removing a NON-ACTIVE account that shares a host with the active one
+        // deletes the ACTIVE account's device row instead. `logout()` is safe today because it
+        // always targets the active account; this path is not. Fix the per-account session
+        // binding (story 8-2) before wiring a remove-account UI to this.
         fcmTokenRepository?.let { repo ->
             repo.unregisterToken(accountId)
                 .onSuccess { Timber.d("FCM token unregistered for account %s before removal", accountId) }

@@ -85,10 +85,17 @@ object DeepLinkRouter {
         // return rows in, so a legitimate push from one server could open the other one's
         // account. That needs no attacker; it is the default deployment as written.
         //
-        // Dropping is the correct trade because the switch is DESTRUCTIVE: the caller's
-        // `switchAccount` unregisters the previously-active account's FCM token, so acting
-        // on a wrong guess silently kills push for an unrelated account. On a colliding
-        // deployment a deep link now does nothing instead of doing the wrong thing.
+        // Dropping is the correct trade because acting on a wrong guess opens ANOTHER
+        // server's session and resolves the payload's record id in the wrong database. On a
+        // colliding deployment a deep link now does nothing instead of doing the wrong thing.
+        //
+        // ⚠️ This does NOT make routing correct — it makes it safe. `odoo_tenant_id` names a
+        // TENANT (the plugin resolves it to the database name: "one database == one
+        // tenant/box"), while this function selects an ACCOUNT. Two users on ONE database are
+        // two local accounts that NECESSARILY share the id, so their deep links are dropped
+        // too — a real functional loss for a supported configuration. The client cannot do
+        // better: the payload carries no account identity. Fixing it properly requires the
+        // server to stamp something account-scoped. Recorded in story 8-1's follow-ups.
         val matches = accounts.filter { it.tenantId == tenantId }
         if (matches.size > 1) {
             return DeepLinkRoute.Drop("ambiguous tenant id (${matches.size} accounts share it)")

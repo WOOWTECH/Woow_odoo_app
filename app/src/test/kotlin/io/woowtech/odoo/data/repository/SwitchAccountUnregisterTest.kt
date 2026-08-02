@@ -155,36 +155,11 @@ class SwitchAccountUnregisterTest {
         coVerify(exactly = 1) { fcmTokenRepository.unregisterToken("acc-A") }
     }
 
-    @Test
-    fun `Given no previous active account when switch then unregisterToken is not called`() = runTest {
-        // Edge case: app booting from a state where no account is active
-        // (shouldn't happen in normal flow, but the code path must be robust).
-        coEvery { accountDao.getActiveAccountOnce() } returns null
-        coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
-        coEvery {
-            fcmTokenRepository.registerToken("acc-B", "fcm-token-shared")
-        } returns Result.success(Unit)
-
-        val ok = accountRepository.switchAccount("acc-B")
-
-        assertTrue(ok)
-        coVerify(exactly = 0) { fcmTokenRepository.unregisterToken(any()) }
-        coVerify(exactly = 1) { fcmTokenRepository.registerToken("acc-B", "fcm-token-shared") }
-    }
-
-    @Test
-    fun `Given switch to same already-active account when called then unregisterToken is not called`() = runTest {
-        // Self-switch (UI quirk where same account row is tapped). We
-        // don't want to unregister the very account we're "switching" to.
-        coEvery { accountDao.getActiveAccountOnce() } returns accountB.copy(isActive = true)
-        coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
-        coEvery {
-            fcmTokenRepository.registerToken("acc-B", "fcm-token-shared")
-        } returns Result.success(Unit)
-
-        val ok = accountRepository.switchAccount("acc-B")
-
-        assertTrue(ok)
-        coVerify(exactly = 0) { fcmTokenRepository.unregisterToken(any()) }
-    }
+    // The two tests that used to live here — "no previous active account" and "switch to the
+    // already-active account" — asserted `unregisterToken` was not called. They discriminated
+    // only because the removed code was guarded by
+    // `previousActiveAccountId != null && previousActiveAccountId != accountId`: they were the
+    // two branches of that guard. With the call gone the guard is gone, so both asserted a
+    // property that is now universally true and already covered above. Three tautologies in one
+    // class is worse than none — they were deleted rather than left looking like coverage.
 }

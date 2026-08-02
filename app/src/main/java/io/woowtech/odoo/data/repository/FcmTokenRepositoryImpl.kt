@@ -240,29 +240,36 @@ class FcmTokenRepositoryImpl(
             // account simply keeps current-behaviour routing until a newer server responds.
             val tenantId = FcmRegistrationResponse.parseTenantId(responseBody)
             if (tenantId != null && tenantId != account.tenantId) {
-                // Story 8-1 (P2-9) WI-2: refuse to store an id another account already owns.
+                // Story 8-1 (P2-9) WI-2: a colliding tenant id IS persisted — deliberately — and
+                // logged. The first version of this refused to store it, which was backwards and
+                // silently reintroduced the very mis-route WI-1 exists to prevent.
                 //
-                // `odoo_tenant_id` defaults to the Odoo database name, and spec §4.3 ships every
-                // box with the same POSTGRES_DB unless an operator overrides it, so two unrelated
-                // servers routinely return an IDENTICAL id. Storing it on both accounts would put
-                // the ambiguity into the routing key itself, leaving DeepLinkRouter with nothing
-                // to do but refuse every deep link for either account. Keeping the collision out
-                // of the database keeps it observable — and keeps the OTHER account routable.
+                // `odoo_tenant_id` is the Odoo DATABASE NAME (see the plugin's `tenant_id_for`:
+                // "one database == one tenant/box"), and spec §4.3 ships every STB box with the
+                // same POSTGRES_DB unless an operator overrides it. Two unrelated servers therefore
+                // routinely return an IDENTICAL id.
+                //
+                // `DeepLinkRouter` can only detect that ambiguity if BOTH accounts carry the id:
+                // its guard is `matches.size > 1`. Refusing the second write leaves exactly one
+                // owner, so the router sees a unique match and confidently switches to it — which
+                // means a push from server Y opens server X's account. Storing it on both is what
+                // makes the collision visible, and a visible collision is refused rather than
+                // guessed.
                 val collisions = accountDao.countAccountsWithTenantId(
                     tenantId = tenantId,
                     excludingId = accountId,
                 )
                 if (collisions > 0) {
                     Timber.w(
-                        "Server returned a tenant id already owned by %d other account(s); not " +
-                            "persisting it for account %s. Deep links for these accounts cannot be " +
-                            "routed until the servers are given distinct tenant ids",
-                        collisions, accountId,
+                        "Tenant id for account %s is shared with %d other account(s). Deep links " +
+                            "for all of them will be DROPPED rather than mis-routed until the " +
+                            "servers are given distinct tenant ids (or, for two users on one " +
+                            "database, until the payload carries account identity)",
+                        accountId, collisions,
                     )
-                } else {
-                    accountDao.updateTenantId(id = accountId, tenantId = tenantId)
-                    Timber.d("Persisted tenant id for account %s", accountId)
                 }
+                accountDao.updateTenantId(id = accountId, tenantId = tenantId)
+                Timber.d("Persisted tenant id for account %s", accountId)
             }
             Result.success(Unit)
         } catch (cancellation: CancellationException) {

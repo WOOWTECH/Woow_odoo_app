@@ -421,7 +421,12 @@ class FcmTokenRepositoryTest {
         """{"jsonrpc":"2.0","id":1,"result":{"device_id":7,"odoo_tenant_id":"$tenantId"}}"""
 
     @Test
-    fun `Given another account already owns the tenant id when registering then it is not persisted`() = runTest {
+    fun `Given another account already owns the tenant id when registering then it is STILL persisted`() = runTest {
+        // Review finding: the first version of WI-2 REFUSED this write, which defeated WI-1.
+        // DeepLinkRouter detects ambiguity with `matches.size > 1`, so it can only refuse a
+        // colliding id when BOTH accounts carry it. Leaving exactly one owner makes the router
+        // see a unique match and confidently switch to it — a push from server Y opening
+        // server X's account. Persisting on both is what makes the collision detectable.
         val a = makeAccount("a", serverUrl = "https://a.test")
         coEvery { accountDao.getAllAccountsList() } returns listOf(a)
         coEvery { accountDao.getAccountById("a") } returns a
@@ -430,7 +435,7 @@ class FcmTokenRepositoryTest {
         repoWith(fakeClient { req -> jsonResponse(req, 200, registerResponse("odoo18_ecpay")) })
             .registerTokenForAllAccounts("tok")
 
-        coVerify(exactly = 0) { accountDao.updateTenantId(id = "a", tenantId = any()) }
+        coVerify(exactly = 1) { accountDao.updateTenantId(id = "a", tenantId = "odoo18_ecpay") }
     }
 
     @Test
