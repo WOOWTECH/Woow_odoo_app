@@ -76,7 +76,24 @@ object DeepLinkRouter {
             return DeepLinkRoute.ApplyToActive(actionUrl)
         }
 
-        val target = accounts.firstOrNull { it.tenantId == tenantId }
+        // Story 8-1 (P2-9): an AMBIGUOUS tenant id must be refused, never guessed.
+        //
+        // `odoo_tenant_id` defaults to the Odoo database name, and spec §4.3 ships every
+        // box with the same POSTGRES_DB unless an operator overrides it — so two customer
+        // servers routinely produce two local accounts with an IDENTICAL tenant id. The
+        // previous `firstOrNull` made the target depend on the order the DAO happened to
+        // return rows in, so a legitimate push from one server could open the other one's
+        // account. That needs no attacker; it is the default deployment as written.
+        //
+        // Dropping is the correct trade because the switch is DESTRUCTIVE: the caller's
+        // `switchAccount` unregisters the previously-active account's FCM token, so acting
+        // on a wrong guess silently kills push for an unrelated account. On a colliding
+        // deployment a deep link now does nothing instead of doing the wrong thing.
+        val matches = accounts.filter { it.tenantId == tenantId }
+        if (matches.size > 1) {
+            return DeepLinkRoute.Drop("ambiguous tenant id (${matches.size} accounts share it)")
+        }
+        val target = matches.firstOrNull()
             ?: return DeepLinkRoute.Drop("unresolved tenant id")
 
         if (!isLoggedIn(target.id)) {

@@ -240,8 +240,29 @@ class FcmTokenRepositoryImpl(
             // account simply keeps current-behaviour routing until a newer server responds.
             val tenantId = FcmRegistrationResponse.parseTenantId(responseBody)
             if (tenantId != null && tenantId != account.tenantId) {
-                accountDao.updateTenantId(id = accountId, tenantId = tenantId)
-                Timber.d("Persisted tenant id for account %s", accountId)
+                // Story 8-1 (P2-9) WI-2: refuse to store an id another account already owns.
+                //
+                // `odoo_tenant_id` defaults to the Odoo database name, and spec §4.3 ships every
+                // box with the same POSTGRES_DB unless an operator overrides it, so two unrelated
+                // servers routinely return an IDENTICAL id. Storing it on both accounts would put
+                // the ambiguity into the routing key itself, leaving DeepLinkRouter with nothing
+                // to do but refuse every deep link for either account. Keeping the collision out
+                // of the database keeps it observable — and keeps the OTHER account routable.
+                val collisions = accountDao.countAccountsWithTenantId(
+                    tenantId = tenantId,
+                    excludingId = accountId,
+                )
+                if (collisions > 0) {
+                    Timber.w(
+                        "Server returned a tenant id already owned by %d other account(s); not " +
+                            "persisting it for account %s. Deep links for these accounts cannot be " +
+                            "routed until the servers are given distinct tenant ids",
+                        collisions, accountId,
+                    )
+                } else {
+                    accountDao.updateTenantId(id = accountId, tenantId = tenantId)
+                    Timber.d("Persisted tenant id for account %s", accountId)
+                }
             }
             Result.success(Unit)
         } catch (cancellation: CancellationException) {

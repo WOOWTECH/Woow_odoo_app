@@ -1,6 +1,6 @@
 # Story 8-1 — A push deep link must never switch accounts on an ambiguous identity
 
-- **Status:** ready-for-dev
+- **Status:** review — WI-1..WI-4 implemented; full `:app:testDebugUnitTest` suite green.
 - **Repo:** android · branch `dev_spec_drift_refine` (base `d096570`)
 - **Covers:** conformance finding **P2-9** (Android half; iOS half is a separate story)
 - **Spec of record:** `docs/spec-hprime/2026-05-10-Option-H-Prime-Implementation-Plan.md` §13.3
@@ -127,9 +127,83 @@ into a refusal, which is right in either case. But the claim "customers are affe
   That is the real fix for §13.3's residual risk and it belongs in the plugin/central repos.
 
 ## Dev Agent Record
-_(to be filled during implementation)_
+
+### Implementation notes
+
+**WI-1 — `DeepLinkRouter.route`.** `firstOrNull` replaced with a `filter` + size check; more than one
+match returns `Drop("ambiguous tenant id (N accounts share it)")`. Pure function, no Android
+dependency, so the test is exact rather than approximate.
+
+**WI-2 — colliding tenant ids are not persisted.** New `AccountDao.countAccountsWithTenantId(tenantId,
+excludingId)`. This is a `@Query` addition only — no schema change, so no Room migration. The existing
+`getAccountByTenantId` has the same `LIMIT 1` non-determinism this story removed from the router; it
+has **zero callers**, so it is not a second live hole, but its KDoc now warns against using it to
+resolve a routing target.
+
+**WI-3 — the unregister-on-switch is gone.** The removed block's own comment documented the
+cookie-jar-by-host ordering workaround, which is why it was written; the reason it can now be deleted
+outright is that its premise is void. Two independent confirmations, both verified in code rather than
+assumed: the plugin has `UNIQUE(fcm_token, user_id)` with DISTINCT dedupe on send, and
+`registerTokenForAllAccounts` (`FcmTokenRepositoryImpl.kt:96`) registers **every** account
+unconditionally — so the switch was deleting a row the next token refresh or cold-start replay put
+straight back. The replacement comment states both, so nobody restores it without re-checking the
+server constraint.
+
+**WI-4 — the finding's wording** was corrected in `hprime-conformance-todo.md` (monorepo `a0f8cf4`).
+
+### Tests — and one deliberate reversal
+
+All new tests were demonstrated RED first:
+
+| Test | RED evidence |
+|---|---|
+| ambiguous → Drop | `AssertionFailedError at DeepLinkRouterTest.kt:184` |
+| row order must not decide the target | `AssertionFailedError at DeepLinkRouterTest.kt:204` |
+| colliding tenant id not persisted | `FcmTokenRepositoryTest > ...not persisted() FAILED` (1 of 23) |
+
+The ambiguity test asserts the property **negatively** — for BOTH row orders, no `SwitchAndApply` may
+be produced. A test asserting "it picks X" would have passed with the bug present, because the bug is
+that the pick is arbitrary.
+
+**`SwitchAccountUnregisterTest` previously asserted the behaviour WI-3 removes.** Those tests were
+rewritten, not deleted, and the class KDoc now records the reversal and why the old rationale no
+longer holds. The assertions are **not weakened**: `coVerify(exactly = 0) { unregisterToken(any()) }`
+over any argument is strictly stronger than the previous `coVerifyOrder` pinning one call sequence. A
+third test in that class became vacuous once the call disappeared (it stubbed a failure on a path that
+no longer runs); it was replaced with an AC6 guard asserting that **explicit logout still
+unregisters** — the property that genuinely needed protecting after this change.
+
+### Verification
+
+`./gradlew --offline :app:testDebugUnitTest` — BUILD SUCCESSFUL, whole module. No ktlint/detekt config
+exists in this repo, so no style gate was run (nothing to run).
+
+### NOT proven — 待伺服器恢復後驗證
+
+- That two deployed boxes actually emit the same `odoo_tenant_id` today. WI-1 is correct either way —
+  it converts an ambiguous identity into a refusal — but "customers are affected right now" rests on
+  §4.3's shared `POSTGRES_DB` and has not been observed on live boxes.
+- E2E: a push from server Y, tapped, must not switch to server X's account. **No instrumentation
+  tests exist** (`app/src/androidTest/` is empty — verified against the working tree, index, all
+  branches and history), so this is **absent, not pending**.
+- That removing the unregister does not cause duplicate notifications in practice. The server-side
+  DISTINCT dedupe is what prevents it and it is unit-tested in the plugin repo, but the end-to-end
+  behaviour on a real device with two accounts on one server has not been observed.
+
+### File List
+
+- `app/src/main/java/io/woowtech/odoo/data/push/DeepLinkRouter.kt` — modified (WI-1)
+- `app/src/main/java/io/woowtech/odoo/data/local/AccountDao.kt` — modified (WI-2 query + warning)
+- `app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepositoryImpl.kt` — modified (WI-2)
+- `app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt` — modified (WI-3)
+- `app/src/test/kotlin/io/woowtech/odoo/data/push/DeepLinkRouterTest.kt` — modified (3 new tests)
+- `app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt` — modified (2 new tests)
+- `app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt` — modified (reversal)
 
 ## Change Log
+- 2026-08-03 (impl): WI-1..WI-4 implemented, each RED first. The notable decision was WI-3: three
+  existing tests asserted the behaviour being removed, so they were rewritten with the reversal and
+  its justification recorded in the class KDoc rather than quietly dropped.
 - 2026-08-03: Authored from the party-mode round. Mechanism corrected (user tap, not silent push);
   consequence escalated (no attacker needed, and the switch is destructive). The unregister-on-switch
   was found to be invalidated by the server's `UNIQUE(fcm_token, user_id)` + DISTINCT dedupe, so it

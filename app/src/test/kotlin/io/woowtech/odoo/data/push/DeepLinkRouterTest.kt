@@ -151,4 +151,74 @@ class DeepLinkRouterTest {
 
         assertInstanceOf(DeepLinkRoute.Drop::class.java, route)
     }
+
+    // ---------------------------------------------------------------------
+    // Story 8-1 (P2-9) — an ambiguous tenant id must be refused, not guessed
+    // ---------------------------------------------------------------------
+    //
+    // `odoo_tenant_id` defaults to the Odoo DATABASE NAME, and spec §4.3 ships every
+    // box with the same POSTGRES_DB unless an operator overrides it. Two customer
+    // servers therefore produce two local accounts with an IDENTICAL tenantId, and
+    // `firstOrNull` made routing depend on DAO row order — a legitimate push from
+    // server Y opening server X's account. No attacker required; that is the default
+    // deployment behaving exactly as written.
+    //
+    // It matters because the switch is DESTRUCTIVE: `switchAccount` unregisters the
+    // previously-active account's FCM token, so one tap on a mis-routed notification
+    // kills push for an unrelated account.
+
+    private val collidingX =
+        RoutableAccount(id = "acc-X", tenantId = "odoo18_ecpay", serverHost = "x-odoo.woowtech.io")
+    private val collidingY =
+        RoutableAccount(id = "acc-Y", tenantId = "odoo18_ecpay", serverHost = "y-odoo.woowtech.io")
+
+    @Test
+    fun `Given two accounts sharing a tenant id when route then drops rather than guessing`() {
+        val route = DeepLinkRouter.route(
+            tenantId = "odoo18_ecpay",
+            actionUrl = "/web#active_id=mail.channel_7",
+            accounts = listOf(collidingX, collidingY),
+            isLoggedIn = allLoggedIn,
+        )
+
+        assertInstanceOf(DeepLinkRoute.Drop::class.java, route)
+        route as DeepLinkRoute.Drop
+        assertTrue(
+            route.reason.contains("ambiguous"),
+            "the drop must name ambiguity so an operator can tell it from an unknown tenant: \${route.reason}",
+        )
+    }
+
+    @Test
+    fun `Given a colliding tenant id when route then never resolves to either candidate`() {
+        // The safety property stated negatively: whichever order the DAO returns rows
+        // in, no SwitchAndApply may be produced. A test asserting "it picks X" would
+        // pass with the bug present, since the bug is that the pick is arbitrary.
+        for (order in listOf(listOf(collidingX, collidingY), listOf(collidingY, collidingX))) {
+            val route = DeepLinkRouter.route(
+                tenantId = "odoo18_ecpay",
+                actionUrl = "/web#active_id=mail.channel_7",
+                accounts = order,
+                isLoggedIn = allLoggedIn,
+            )
+            assertTrue(
+                route !is DeepLinkRoute.SwitchAndApply,
+                "row order decided the target — routing is non-deterministic: \$route",
+            )
+        }
+    }
+
+    @Test
+    fun `Given a colliding pair plus an unrelated account when route to the unique one then still switches`() {
+        // The refusal must be scoped to the ambiguous id, not poison the whole list.
+        val route = DeepLinkRouter.route(
+            tenantId = "tenant-B",
+            actionUrl = "/web#active_id=mail.channel_7",
+            accounts = listOf(collidingX, collidingY, accountB),
+            isLoggedIn = allLoggedIn,
+        )
+
+        assertInstanceOf(DeepLinkRoute.SwitchAndApply::class.java, route)
+        assertEquals("acc-B", (route as DeepLinkRoute.SwitchAndApply).accountId)
+    }
 }

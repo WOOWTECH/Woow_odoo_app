@@ -15,14 +15,33 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * Tests for `AccountRepository.switchAccount` FCM lifecycle —
- * specifically the previous-account unregister that was missing
- * before this PR (CLAUDE.md § "Repository-Event Symmetry").
+ * Tests for `AccountRepository.switchAccount` FCM lifecycle.
  *
- * Without the previous-account unregister, both accounts remain
- * server-side-active in `woow.fcm.device`. Odoo will keep delivering
- * the previous account's notifications to this device after the user
- * has switched away — cross-account notification bleed.
+ * ## Story 8-1 (P2-9) REVERSED the behaviour this class was written to pin
+ *
+ * These tests used to assert that switching away from account A **unregisters A's FCM
+ * token server-side**, on the rationale that otherwise "both accounts remain
+ * server-side-active in `woow.fcm.device`" and A's notifications keep arriving —
+ * cross-account notification bleed. That rationale was correct under the OLD server
+ * schema, where one token mapped to exactly one row.
+ *
+ * It no longer holds, for two independent reasons:
+ *
+ * 1. **The server was redesigned for this exact case.** The plugin now has
+ *    `UNIQUE(fcm_token, user_id)`, so one physical token legitimately maps to MANY
+ *    users, and the send path DISTINCT-dedupes by token so the device still receives
+ *    exactly one push. Both accounts holding a row is now the DESIGNED state, not bleed.
+ * 2. **The app already contradicts itself.** `registerTokenForAllAccounts` registers
+ *    EVERY account unconditionally, so the switch was unregistering a row the very next
+ *    token refresh or cold-start replay puts straight back.
+ *
+ * And the unregister was not merely redundant — it was a weapon. A push deep link can
+ * drive `switchAccount`, so before story 8-1's ambiguity fix a mis-routed notification
+ * from a colliding tenant id would **kill push for an unrelated account**. Removing the
+ * side effect is what takes that primitive away.
+ *
+ * Explicit user-initiated logout still unregisters (honest logout) — that is asserted
+ * below and must not be weakened.
  */
 class SwitchAccountUnregisterTest {
 
@@ -80,10 +99,12 @@ class SwitchAccountUnregisterTest {
     }
 
     @Test
-    fun `Given previous active account A when switch to B succeeds then A is unregistered before re-auth and B is registered after`() = runTest {
+    fun `Given previous active account A when switch to B succeeds then A is NOT unregistered`() = runTest {
+        // Story 8-1 AC5. Previously asserted the exact opposite (a coVerifyOrder placing
+        // unregisterToken("acc-A") before the re-auth). The assertion is not weakened —
+        // `exactly = 0` over ANY argument is strictly stronger than pinning one ordering.
         coEvery { accountDao.getActiveAccountOnce() } returns accountA
         coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
-        coEvery { fcmTokenRepository.unregisterToken("acc-A") } returns Result.success(Unit)
         coEvery {
             fcmTokenRepository.registerToken("acc-B", "fcm-token-shared")
         } returns Result.success(Unit)
@@ -91,13 +112,9 @@ class SwitchAccountUnregisterTest {
         val ok = accountRepository.switchAccount("acc-B")
 
         assertTrue(ok)
-        // Critical ordering: A's unregister MUST happen BEFORE the re-auth
-        // that overwrites the cookie jar. Otherwise the unregister POST
-        // would carry B's session cookie and target the wrong server-side
-        // record. See AccountRepository.switchAccount comment for the
-        // cookie-jar-by-host rationale.
+        coVerify(exactly = 0) { fcmTokenRepository.unregisterToken(any()) }
+        // Switching still does its actual job.
         coVerifyOrder {
-            fcmTokenRepository.unregisterToken("acc-A")
             odooClient.authenticate(any(), any(), any(), any())
             accountDao.activateAccount("acc-B")
             fcmTokenRepository.registerToken("acc-B", "fcm-token-shared")
@@ -105,15 +122,13 @@ class SwitchAccountUnregisterTest {
     }
 
     @Test
-    fun `Given previous account A when switch to B fails re-auth then A is still unregistered and B is not registered`() = runTest {
-        // Re-auth-failure case: documents the trade-off in the new ordering.
-        // A's FCM record is already deactivated server-side before re-auth
-        // is attempted; if re-auth fails, the user keeps account A locally
-        // but won't receive A's notifications until the next successful
-        // login OR an FCM token rotation triggers re-registration.
+    fun `Given switch to B fails re-auth then A keeps its registration and B is not registered`() = runTest {
+        // The old ordering's stated trade-off — "A's FCM record is already deactivated
+        // server-side before re-auth is attempted, so a failed switch costs the user A's
+        // notifications until the next login" — is now simply gone. A failed switch must
+        // leave A exactly as it was.
         coEvery { accountDao.getActiveAccountOnce() } returns accountA
         coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
-        coEvery { fcmTokenRepository.unregisterToken("acc-A") } returns Result.success(Unit)
         coEvery {
             odooClient.authenticate(any(), any(), any(), any())
         } returns AuthResult.Error("network", AuthResult.ErrorType.NETWORK_ERROR)
@@ -121,32 +136,23 @@ class SwitchAccountUnregisterTest {
         val ok = accountRepository.switchAccount("acc-B")
 
         assertTrue(!ok)
-        // A WAS unregistered (we did it before re-auth)
-        coVerify(exactly = 1) { fcmTokenRepository.unregisterToken("acc-A") }
-        // B was never registered (re-auth failed before we got there)
+        coVerify(exactly = 0) { fcmTokenRepository.unregisterToken(any()) }
         coVerify(exactly = 0) { fcmTokenRepository.registerToken("acc-B", any()) }
-        // Local state untouched: A remains the active account
         coVerify(exactly = 0) { accountDao.activateAccount("acc-B") }
     }
 
     @Test
-    fun `Given previous-account unregister fails when switch then switch still completes`() = runTest {
-        coEvery { accountDao.getActiveAccountOnce() } returns accountA
-        coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
-        coEvery { fcmTokenRepository.unregisterToken("acc-A") } returns Result.failure(
-            RuntimeException("Network failure"),
-        )
-        coEvery {
-            fcmTokenRepository.registerToken("acc-B", "fcm-token-shared")
-        } returns Result.success(Unit)
+    fun `Given an explicit logout when called then the account IS unregistered (honest logout)`() = runTest {
+        // Story 8-1 AC6. Removing the unregister from the SWITCH path must not leak into
+        // the LOGOUT path — logout genuinely means "stop sending me this account's pushes",
+        // and it is the only remaining caller. This test replaces one that had become
+        // vacuous: it stubbed unregisterToken to fail on a path that no longer calls it.
+        coEvery { accountDao.getAccountById("acc-A") } returns accountA
+        coEvery { fcmTokenRepository.unregisterToken("acc-A") } returns Result.success(Unit)
 
-        val ok = accountRepository.switchAccount("acc-B")
+        accountRepository.logout("acc-A")
 
-        // Switch must not be blocked by a stale-account-unregister
-        // network failure — the user's intent is satisfied locally.
-        assertTrue(ok)
-        coVerify { accountDao.activateAccount("acc-B") }
-        coVerify { fcmTokenRepository.registerToken("acc-B", "fcm-token-shared") }
+        coVerify(exactly = 1) { fcmTokenRepository.unregisterToken("acc-A") }
     }
 
     @Test

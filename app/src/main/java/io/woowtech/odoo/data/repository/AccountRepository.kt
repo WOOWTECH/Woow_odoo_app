@@ -99,47 +99,32 @@ class AccountRepository @Inject constructor(
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
 
-        // Capture the previously-active account so we can unregister its FCM
-        // token on the server side. Without this, both accounts remain active
-        // in `woow.fcm.device` and the previous user's notifications keep
-        // arriving on the device after switching. Symmetric with the
-        // `logout → unregisterToken` pattern (CLAUDE.md
-        // § "Repository-Event Symmetry").
-        val previousActiveAccountId = accountDao.getActiveAccountOnce()?.id
-
-        // CRITICAL ordering: unregister A BEFORE re-authenticating as B.
+        // Story 8-1 (P2-9): switching accounts deliberately does NOT unregister the
+        // previously-active account's FCM token any more.
         //
-        // OdooJsonRpcClient's cookie jar is keyed by HOST, not accountId
-        // (see `OdooJsonRpcClient.kt`: `cookieStore.getOrPut(url.host)`).
-        // For multi-account on the same Odoo host, re-authenticating as B
-        // OVERWRITES A's session cookie. If we unregistered A AFTER re-auth,
-        // the unregister POST would carry B's cookie and either silently
-        // no-op (server can't find A's record) or worse, delete B's
-        // brand-new record. So: unregister first, while A's cookie is live.
+        // The removed code unregistered A before re-authenticating as B, on the rationale
+        // that otherwise "both accounts remain active in woow.fcm.device" and A's
+        // notifications keep arriving — cross-account bleed. That was correct under the OLD
+        // server schema, where one token mapped to exactly one row. It is wrong now, for
+        // two independent reasons:
         //
-        // Trade-off: if re-auth then fails, A's FCM record is already
-        // deactivated server-side and the user keeps account A locally but
-        // won't receive A's notifications until the next successful login or
-        // FCM token rotation re-registers. This is the lesser of two evils
-        // versus risking a server-side corruption of B's record.
-        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {
-            fcmTokenRepository?.let { repo ->
-                repo.unregisterToken(previousActiveAccountId)
-                    .onSuccess {
-                        Timber.d(
-                            "FCM token unregistered for previous account %s before switching to %s",
-                            previousActiveAccountId, accountId,
-                        )
-                    }
-                    .onFailure { error ->
-                        Timber.w(
-                            error,
-                            "FCM unregister of previous account %s failed during switch — server may keep delivering its notifications until token rotates",
-                            previousActiveAccountId,
-                        )
-                    }
-            }
-        }
+        //  1. The server was redesigned for precisely this case. The plugin has
+        //     UNIQUE(fcm_token, user_id), so one physical token legitimately maps to MANY
+        //     users, and the send path DISTINCT-dedupes by token so the device still gets
+        //     exactly ONE push. Both accounts holding a row is the DESIGNED state.
+        //  2. This app already contradicted itself: registerTokenForAllAccounts registers
+        //     EVERY account unconditionally, so the switch was deleting a row that the very
+        //     next token refresh or cold-start replay put straight back.
+        //
+        // And it was not merely redundant. A push deep link can drive switchAccount, so a
+        // notification mis-routed by a colliding tenant id would KILL PUSH for an unrelated
+        // account — a denial-of-notifications primitive handed to any peer server. Removing
+        // the side effect is what takes that primitive away; story 8-1's ambiguity check in
+        // DeepLinkRouter closes the other half.
+        //
+        // Explicit user-initiated logout still unregisters (see `logout`), which is the
+        // honest meaning of "stop sending me this account's pushes". Do not restore this
+        // call here without first re-checking the server's uniqueness constraint.
 
         // Try to re-authenticate (this overwrites the cookie jar for the host)
         val result = odooClient.authenticate(

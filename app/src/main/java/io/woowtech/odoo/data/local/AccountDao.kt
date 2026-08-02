@@ -39,6 +39,21 @@ interface AccountDao {
     suspend fun getAccountByTenantId(tenantId: String): OdooAccount?
 
     /**
+     * How many OTHER accounts already own [tenantId].
+     *
+     * `odoo_tenant_id` defaults to the Odoo database name, and spec §4.3 ships every box with the
+     * same `POSTGRES_DB` unless an operator overrides it — so two unrelated servers routinely hand
+     * back an identical id. A non-zero count means the id cannot identify an account, and must not
+     * be persisted as one (story 8-1, P2-9).
+     *
+     * ⚠️ Prefer this over [getAccountByTenantId] when resolving a routing target. That method's
+     * `LIMIT 1` silently picks whichever row the database returns first, which is the exact
+     * non-determinism this story removed from `DeepLinkRouter`.
+     */
+    @Query("SELECT COUNT(*) FROM accounts WHERE tenantId = :tenantId AND id != :excludingId")
+    suspend fun countAccountsWithTenantId(tenantId: String, excludingId: String): Int
+
+    /**
      * Persists the [tenantId] returned by the Odoo server for the account with [id]. Called
      * after a successful FCM device registration so future notifications can be routed.
      */

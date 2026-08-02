@@ -1,6 +1,7 @@
 package io.woowtech.odoo.data.repository
 
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -404,5 +405,45 @@ class FcmTokenRepositoryTest {
         }
 
         assertTrue(propagated, "CancellationException must propagate from the account-available reconcile")
+    }
+
+    // ---------------------------------------------------------------------
+    // Story 8-1 (P2-9) WI-2 — do not persist a tenant id another account owns
+    // ---------------------------------------------------------------------
+    //
+    // `odoo_tenant_id` defaults to the Odoo database name and spec §4.3 ships every box
+    // with the same POSTGRES_DB, so two servers routinely hand back an IDENTICAL id.
+    // Letting both accounts store it puts the ambiguity in the database, where the deep
+    // link router can only refuse to act on it. Refusing the write keeps the collision
+    // observable and out of the routing key.
+
+    private fun registerResponse(tenantId: String) =
+        """{"jsonrpc":"2.0","id":1,"result":{"device_id":7,"odoo_tenant_id":"$tenantId"}}"""
+
+    @Test
+    fun `Given another account already owns the tenant id when registering then it is not persisted`() = runTest {
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        coEvery { accountDao.countAccountsWithTenantId("odoo18_ecpay", "a") } returns 1
+
+        repoWith(fakeClient { req -> jsonResponse(req, 200, registerResponse("odoo18_ecpay")) })
+            .registerTokenForAllAccounts("tok")
+
+        coVerify(exactly = 0) { accountDao.updateTenantId(id = "a", tenantId = any()) }
+    }
+
+    @Test
+    fun `Given the tenant id is unique when registering then it is persisted`() = runTest {
+        // The counterpart, so the refusal above reads as scoped rather than as a blanket stop.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        coEvery { accountDao.countAccountsWithTenantId("tenant-unique", "a") } returns 0
+
+        repoWith(fakeClient { req -> jsonResponse(req, 200, registerResponse("tenant-unique")) })
+            .registerTokenForAllAccounts("tok")
+
+        coVerify(exactly = 1) { accountDao.updateTenantId(id = "a", tenantId = "tenant-unique") }
     }
 }
