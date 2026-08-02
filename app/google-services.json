@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "780203804762",
+    "project_id": "woow-odoo-de2cb",
+    "storage_bucket": "woow-odoo-de2cb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:780203804762:android:344bfb6595cd68907cb063",
+        "android_client_info": {
+          "package_name": "io.woowtech.odoo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAw5sK0o05yENhYWLa2bThOS8IHICM_Dug"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:780203804762:android:2e503774a47af23c7cb063",
+        "android_client_info": {
+          "package_name": "io.woowtech.odoo.debug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAw5sK0o05yENhYWLa2bThOS8IHICM_Dug"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -55,6 +55,12 @@ captures/
 
 # Google Services (e.g. APIs or Firebase)
 google-services.json
+# ...except the app's own Firebase CLIENT config. It is not a credential: no private_key,
+# no client_email, no "type":"service_account" — it cannot send pushes, only lets a device
+# register to receive them, and it ships inside every published APK anyway. Keeping it out
+# of git meant any clean checkout (CI, new clone, new worktree) silently built an APK that
+# crash-loops on launch. iOS already commits the equivalent GoogleService-Info.plist.
+!app/google-services.json
 
 # Freeline
 freeline.py
