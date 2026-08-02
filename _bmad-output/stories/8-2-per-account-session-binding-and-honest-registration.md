@@ -1,6 +1,6 @@
 # Story 8-2 — Register under the right account, and tell the truth when the server says no
 
-- **Status:** ready-for-dev (WI-1..WI-3 unblocked; WI-4..WI-6 gated — see the blocking question)
+- **Status:** in-progress — WI-1..WI-3 (P0-2) implemented and green; WI-4..WI-6 (P0-3) next.
 - **Repo:** android · branch `dev_spec_drift_refine` (base `d096570`)
 - **Covers:** conformance findings **P0-2** and **P0-3**, plus two hazards found during planning
 - **Decided in:** party-mode round 2026-08-03 (Winston / Amelia / Murat)
@@ -199,8 +199,55 @@ production row-length audit first: 待伺服器恢復後驗證.
   tenant-id parsers read keys straight off `result`; wrapping it silently loses the tenant id and
   causes cross-tenant deep-link mis-routing. That is creating a P0 to fix a tidiness complaint.
 
+
 ## Dev Agent Record
-_(to be filled during implementation)_
+
+### P0-2 (WI-1..WI-3) — implementation notes
+
+**A deliberate deviation from the party-mode decision, stated rather than slipped in.** The round
+called for an **endpoint-aware** parser taking a sealed `FcmEndpoint`, on the grounds that a single
+parser "has to invent a rule for `{'success': false}`". On implementation that turned out not to hold:
+the correct rule is to read only `error` and **ignore `success` entirely**, which is right for both
+endpoints and is not an invention — it is what the controller actually guarantees. An enum used by no
+branch is ceremony, so `FcmServerOutcome.parse` is endpoint-agnostic.
+
+The endpoint difference is real, but it is a **severity policy**, not a parsing rule, so it lives at
+the two call sites where the party round also said it belonged:
+- **register fails closed** — `Rejected` **and** `Unreadable` both throw. Registration is idempotent
+  server-side and replays on the next cold start, so a false failure costs one POST; a false success
+  costs push, silently, forever. `Unreadable` is included deliberately: once we read the body for a
+  verdict, keeping "2xx is enough" would be the same silent-success hole in a new place.
+- **unregister stays tolerant** — `Unreadable` proceeds with a warning; only an explicit rejection
+  fails. Logout must never be blockable by a server.
+
+`postToOdoo` no longer decides severity at all. It reports transport outcomes (401, non-2xx, empty
+body) and returns the body. A shared transport helper applying one rule to two endpoints with opposite
+risk profiles is what let a rejected registration read as success in the first place.
+
+### Tests — RED evidence
+
+Written against the existing `repoWith(fakeClient { ... })` seam; **no new production seam was
+needed**, contrary to the constraint recorded when this story was written.
+
+RED before the fix: 3 of 31 failed —
+`...rejects the registration inside result...`, `...unregister returns an error...`,
+`...the id field differs...`. The `success: false` test passed from the start, which is the point of
+having written it first: it pins behaviour that is already correct and is the most likely casualty of
+a careless P0-2 fix.
+
+### Fixture provenance — and why it is not the plugin's tests
+
+Inner `result` payloads are copied verbatim from the plugin **controller source**, cited per fixture.
+The envelope is written locally, because the plugin's own tests **discard it**
+(`tests/test_fcm_controller.py:42` returns `response.json().get('result', ...)`) — they are
+authoritative for the inner object only and carry zero information about the wrapper, so a fixture
+lifted from them would exercise a body shape Odoo never emits. Those tests also assert
+`assertIn('error', result)` — key presence, not message text — so the taxonomy keys on the `error`
+key and never on its message.
+
+**These bodies are derived from source, not captured.** 待伺服器恢復後驗證: capture real wire bodies
+for register-success / register-reject / unregister-true / unregister-false and diff them against the
+fixtures before trusting them.
 
 ## Change Log
 - 2026-08-03: Authored from the party-mode round. P0-3's root cause relocated from the FCM cookie jar

@@ -451,4 +451,147 @@ class FcmTokenRepositoryTest {
 
         coVerify(exactly = 1) { accountDao.updateTenantId(id = "a", tenantId = "tenant-unique") }
     }
+
+    // ---------------------------------------------------------------------
+    // Story 8-2 (P0-2) — a rejected registration must not be reported as success
+    // ---------------------------------------------------------------------
+    //
+    // FIXTURE PROVENANCE. Inner `result` payloads are copied verbatim from the plugin's
+    // controller source, cited per fixture. The ENVELOPE is written here because the
+    // plugin's own tests DISCARD it (`tests/test_fcm_controller.py:42` returns
+    // `response.json().get('result', ...)`), so they are authoritative for the inner object
+    // ONLY and carry zero information about the wrapper. A fixture lifted from them would
+    // exercise a body shape Odoo never emits.
+    //
+    // Those tests also assert `assertIn('error', result)` — KEY PRESENCE, not message text.
+    // So the taxonomy below keys on the `error` key and never on its message string; a test
+    // matching "Invalid fcm_token format" would inherit a guarantee the plugin does not make.
+    //
+    // These bodies are DERIVED FROM SOURCE, NOT CAPTURED. 待伺服器恢復後驗證: capture real
+    // wire bodies and diff them against these before trusting them.
+
+    /** Odoo wraps every `type='json'` route return in this envelope. */
+    private fun envelope(result: String) = """{"jsonrpc":"2.0","id":1,"result":$result}"""
+
+    // plugin controllers/fcm_controller.py:43
+    private val registerRejected = envelope("""{"error":"Invalid fcm_token format"}""")
+    // plugin models/fcm_device.py — the register_device success shape
+    private val registerAccepted = envelope("""{"device_id":7,"odoo_tenant_id":"tenant-x"}""")
+    // plugin controllers/fcm_controller.py:79 — `False` means "you had no row"
+    private val unregisterNoRow = envelope("""{"success":false}""")
+    private val unregisterDeleted = envelope("""{"success":true}""")
+    // plugin controllers/fcm_controller.py:74
+    private val unregisterRejected = envelope("""{"error":"fcm_token is required"}""")
+
+    @Test
+    fun `Given unregister returns success false when unregistering then it is NOT a failure`() = runTest {
+        // WRITE THIS ONE FIRST. `false` means the server had no row for this user, which after
+        // logout is the DESIRED end state — not an error. A parser that treats every falsy
+        // result as rejection manufactures an alarm on every correct logout, which is the most
+        // likely way a well-meaning implementer breaks P0-2.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAccountById("a") } returns a
+        every { encryptedPrefs.getFcmToken() } returns "tok"
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, unregisterNoRow) })
+            .unregisterToken("a")
+
+        assertTrue(result.isSuccess, "an empty server-side state is the goal of unregister, not a failure")
+    }
+
+    @Test
+    fun `Given unregister returns an error when unregistering then it is a failure`() = runTest {
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAccountById("a") } returns a
+        every { encryptedPrefs.getFcmToken() } returns "tok"
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, unregisterRejected) })
+            .unregisterToken("a")
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `Given unregister deletes the row when unregistering then it is a success`() = runTest {
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAccountById("a") } returns a
+        every { encryptedPrefs.getFcmToken() } returns "tok"
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, unregisterDeleted) })
+            .unregisterToken("a")
+
+        assertTrue(result.isSuccess)
+    }
+
+    @Test
+    fun `Given the server rejects the registration inside result when registering then it fails`() = runTest {
+        // The defect: the client checked only the JSON-RPC ENVELOPE error, but the plugin
+        // returns validation failures INSIDE result with HTTP 200. "Invalid fcm_token format"
+        // was logged as registered and returned as Result.success, with no retry until the next
+        // cold start and no release-mode logging to notice it.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, registerRejected) })
+            .registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isFailure, "a result-level rejection must not be reported as success")
+    }
+
+    @Test
+    fun `Given a rejected registration when registering then no tenant id is persisted`() = runTest {
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+
+        repoWith(fakeClient { req -> jsonResponse(req, 200, registerRejected) })
+            .registerTokenForAllAccounts("tok")
+
+        coVerify(exactly = 0) { accountDao.updateTenantId(any(), any()) }
+    }
+
+    @Test
+    fun `Given an accepted registration when registering then it succeeds and persists the tenant id`() = runTest {
+        // The counterpart, so "fail closed" cannot be implemented as "fail always".
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        coEvery { accountDao.countAccountsWithTenantId("tenant-x", "a") } returns 0
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, registerAccepted) })
+            .registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) { accountDao.updateTenantId(id = "a", tenantId = "tenant-x") }
+    }
+
+    @Test
+    fun `Given an envelope-level error when registering then it still fails (regression)`() = runTest {
+        // The behaviour that already worked must not be lost while adding the result-level check.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        val body = """{"jsonrpc":"2.0","id":1,"error":{"code":200,"message":"Odoo Server Error"}}"""
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, body) })
+            .registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `Given the id field differs when registering then the outcome is unaffected`() = runTest {
+        // The app sends "id": 1; the plugin's own test helper sends none, so Odoo echoes null.
+        // Fixtures derived from either source must classify identically — proven, not assumed.
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        val nullId = """{"jsonrpc":"2.0","id":null,"result":{"error":"Invalid fcm_token format"}}"""
+
+        val result = repoWith(fakeClient { req -> jsonResponse(req, 200, nullId) })
+            .registerTokenForAllAccounts("tok")
+
+        assertTrue(result.isFailure)
+    }
 }

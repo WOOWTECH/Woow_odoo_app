@@ -232,6 +232,18 @@ class FcmTokenRepositoryImpl(
                 ),
                 account = account,
             )
+            // Story 8-2 (P0-2): register FAILS CLOSED. Registration is idempotent server-side
+            // (the plugin's AC3 early return) and replays on the next cold start, so a false
+            // failure costs one POST. A false success costs push, silently, forever — which is
+            // exactly what this finding was. `Unreadable` is included: once we are reading the
+            // body for a verdict, "2xx is enough" is the same silent-success hole in a new place.
+            when (val outcome = FcmServerOutcome.parse(responseBody)) {
+                is FcmServerOutcome.Rejected ->
+                    throw IOException("Odoo rejected the registration for account $accountId (${outcome.detail})")
+                FcmServerOutcome.Unreadable ->
+                    throw IOException("Unreadable registration response for account $accountId")
+                FcmServerOutcome.Ok -> Unit
+            }
             Timber.d("FCM token registered for account %s", accountId)
 
             // Persist the opaque tenant id the server returns for this account so future push
@@ -298,12 +310,23 @@ class FcmTokenRepositoryImpl(
                     val token = encryptedPrefs.getFcmToken()
                         ?: error("No FCM token stored — nothing to unregister for account $accountId")
 
-                    postToOdoo(
+                    val body = postToOdoo(
                         serverUrl = account.fullServerUrl,
                         path = UNREGISTER_PATH,
                         params = mapOf(PARAM_FCM_TOKEN to token),
                         account = account,
                     )
+                    // Story 8-2 (P0-2): unregister is deliberately MORE tolerant than register.
+                    // Logout must never be blockable by a server, so an unreadable body proceeds;
+                    // only an explicit rejection is a failure. Note `success: false` is NOT a
+                    // rejection — it means the server had no row, which is the goal of unregister.
+                    when (val outcome = FcmServerOutcome.parse(body)) {
+                        is FcmServerOutcome.Rejected ->
+                            throw IOException("Odoo rejected the unregister for account $accountId (${outcome.detail})")
+                        FcmServerOutcome.Unreadable ->
+                            Timber.w("Unreadable unregister response for account %s — proceeding", accountId)
+                        FcmServerOutcome.Ok -> Unit
+                    }
                     Timber.d("FCM token unregistered for account %s", accountId)
                 }.onFailure { error ->
                     Timber.w(error, "FCM token unregister failed for account %s — proceeding with logout", accountId)
@@ -346,7 +369,10 @@ class FcmTokenRepositoryImpl(
      * Posts a JSON-RPC-style request to the Odoo push endpoint. The session cookie is
      * automatically attached by the [httpClient]'s CookieJar via [sessionCookieProvider].
      *
-     * @throws IOException if the HTTP call fails or the response indicates a session error.
+     * Returns the raw response body. It does NOT inspect the body for an application-level
+     * rejection — see the note at the return statement.
+     *
+     * @throws IOException if the HTTP call fails, the session is expired, or the status is non-2xx.
      */
     private fun postToOdoo(
         serverUrl: String,
@@ -379,19 +405,12 @@ class FcmTokenRepositoryImpl(
             throw IOException("Server error ${response.code} for $url")
         }
 
-        // Check for application-level error in the Odoo JSON-RPC response
-        runCatching {
-            val json = gson.fromJson(responseBody, JsonObject::class.java)
-            val error = json.get("error")
-            if (error != null && !error.isJsonNull) {
-                throw IOException("Odoo error at $url: $error")
-            }
-        }.onFailure { parseError ->
-            if (parseError is IOException) throw parseError
-            // JSON parse failure is non-fatal — server returned 2xx which is enough
-            Timber.w(parseError, "Could not parse Odoo response from %s", url)
-        }
-
+        // Story 8-2 (P0-2): this function deliberately does NOT decide whether the SERVER
+        // rejected us. It reports transport outcomes (401, non-2xx, empty body) and returns
+        // the body; the callers classify it with `FcmServerOutcome.parse` and apply their own
+        // severity policy. The two endpoints have genuinely different safe defaults — register
+        // must fail closed, unregister must never be blockable — and a shared transport helper
+        // applying one rule to both is what let a rejected registration read as success.
         return responseBody
     }
 
@@ -442,6 +461,63 @@ interface SessionCookieProvider {
  * Parses the opaque tenant id out of an Odoo FCM device-registration response. Isolated as a pure
  * function so it can be unit-tested without any network layer.
  */
+/**
+ * What the Odoo server said about a push register/unregister request, read from the JSON-RPC body.
+ *
+ * Every route in `woow_fcm_push` is `type='json'` and returns HTTP **200** even for validation
+ * failures, putting the failure INSIDE `result` (`controllers/fcm_controller.py:39,43,46,74`). The
+ * client used to inspect only the JSON-RPC ENVELOPE `error`, so `"Invalid fcm_token format"` was
+ * logged as *registered* and returned as `Result.success` — with no retry until the next cold start
+ * and no release-mode logging to notice (P0-2).
+ */
+sealed interface FcmServerOutcome {
+
+    /** The server accepted the request. */
+    data object Ok : FcmServerOutcome
+
+    /** The server reached us and said no. [detail] is for logging only, never for logic. */
+    data class Rejected(val detail: String) : FcmServerOutcome
+
+    /** The body could not be read as a JSON-RPC response at all. Callers decide what that means. */
+    data object Unreadable : FcmServerOutcome
+
+    companion object {
+
+        private val parser = Gson()
+
+        /**
+         * Classifies a JSON-RPC response body.
+         *
+         * Rejection is keyed on the **presence of an `error` key**, at the envelope level or inside
+         * `result`, and never on its message text: the plugin's own tests assert only
+         * `assertIn('error', result)`, so the strings are not a contract we may depend on.
+         *
+         * `success: false` from `unregister` is deliberately **[Ok]**. It means "you had no row",
+         * which after a logout is the DESIRED end state — treating it as a rejection would
+         * manufacture an alarm on every correct logout. That is why this parser reads only `error`
+         * and ignores `success` entirely, for both endpoints.
+         */
+        fun parse(responseBody: String?): FcmServerOutcome {
+            if (responseBody.isNullOrBlank()) return Unreadable
+            val root = runCatching { parser.fromJson(responseBody, JsonObject::class.java) }
+                .getOrNull() ?: return Unreadable
+
+            root.get("error")?.takeUnless { it.isJsonNull }?.let {
+                return Rejected("envelope error: $it")
+            }
+
+            val result = runCatching { root.getAsJsonObject("result") }.getOrNull()
+                ?: return Unreadable
+
+            result.get("error")?.takeUnless { it.isJsonNull }?.let {
+                return Rejected("result error: $it")
+            }
+
+            return Ok
+        }
+    }
+}
+
 object FcmRegistrationResponse {
 
     private val tenantIdKeys = listOf("tenant_id", "odoo_tenant_id")
