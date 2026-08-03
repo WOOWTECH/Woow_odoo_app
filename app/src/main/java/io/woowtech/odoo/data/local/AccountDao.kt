@@ -56,15 +56,22 @@ interface AccountDao {
     /**
      * Persists the ACCOUNT-scoped push routing key returned by registration (P2-9).
      *
-     * Unlike [updateTenantId] there is no ambiguity to guard against: a device row id is
-     * unique per (fcm_token, user_id) by construction, which is exactly why it exists.
+     * ⚠️ The id is unique per `(fcm_token, user_id)` **within one Odoo database** — it is a
+     * per-database Postgres sequence. Two identically-deployed boxes both hand out 1, 2, 3,
+     * so a collision ACROSS servers is entirely possible and must be logged, exactly as
+     * [countAccountsWithTenantId] does for the tenant id.
      */
     @Query("UPDATE accounts SET deviceId = :deviceId WHERE id = :id")
     suspend fun updateDeviceId(id: String, deviceId: String)
 
-    /** Resolves the account owning [deviceId], or null. Unique by construction — no LIMIT. */
-    @Query("SELECT * FROM accounts WHERE deviceId = :deviceId")
-    suspend fun getAccountsByDeviceId(deviceId: String): List<OdooAccount>
+    /**
+     * How many OTHER accounts already hold [deviceId].
+     *
+     * Mirrors [countAccountsWithTenantId]. The routing key is only unique within one
+     * database, so two servers can issue the same small integer.
+     */
+    @Query("SELECT COUNT(*) FROM accounts WHERE deviceId = :deviceId AND id != :excludingId")
+    suspend fun countAccountsWithDeviceId(deviceId: String, excludingId: String): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAccount(account: OdooAccount)

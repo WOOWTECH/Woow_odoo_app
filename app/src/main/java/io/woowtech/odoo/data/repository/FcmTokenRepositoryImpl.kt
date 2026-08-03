@@ -271,10 +271,26 @@ class FcmTokenRepositoryImpl(
             // an older server that does not return a tenant id leaves the column null and the
             // account simply keeps current-behaviour routing until a newer server responds.
             // P2-9 root cause: persist the ACCOUNT-scoped routing key the server returns.
-            // Unlike the tenant id there is no ambiguity to guard against — a device row id
-            // is unique per (fcm_token, user_id) by construction, which is why it exists.
+            //
+            // ⚠️ It is unique per (fcm_token, user_id) WITHIN ONE DATABASE — a per-database
+            // Postgres sequence — so two identically-deployed boxes both hand out 1, 2, 3.
+            // A cross-server collision is logged for the same reason the tenant id's is:
+            // the router refuses an ambiguous key, so an operator seeing deep links stop
+            // needs this line to know why.
             FcmRegistrationResponse.parseDeviceId(responseBody)?.let { deviceId ->
                 if (deviceId != account.deviceId) {
+                    val collisions = accountDao.countAccountsWithDeviceId(
+                        deviceId = deviceId,
+                        excludingId = accountId,
+                    )
+                    if (collisions > 0) {
+                        Timber.w(
+                            "Device routing key for account %s is shared with %d other " +
+                                "account(s) — two servers issued the same row id. Deep links " +
+                                "for them will be DROPPED rather than mis-routed",
+                            accountId, collisions,
+                        )
+                    }
                     accountDao.updateDeviceId(id = accountId, deviceId = deviceId)
                 }
             }

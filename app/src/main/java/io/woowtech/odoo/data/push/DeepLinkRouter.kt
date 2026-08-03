@@ -92,8 +92,40 @@ object DeepLinkRouter {
         // unmatched id means our stored row is stale — not that the server failed to identify
         // the account.
         if (!deviceId.isNullOrBlank()) {
-            val target = accounts.firstOrNull { it.deviceId == deviceId }
-                ?: return DeepLinkRoute.Drop("unresolved device id")
+            // ⚠️ COUNT, never `firstOrNull`. The first version of this branch used
+            // `firstOrNull` — the exact code whose removal is explained 30 lines below —
+            // on the belief that a device row id is "unique by construction". That belief
+            // is SCOPED WRONG: `woow.fcm.device.id` is a per-DATABASE Postgres sequence, so
+            // it is unique per (fcm_token, user_id) only WITHIN one database. Two boxes
+            // deployed identically both hand out 1, 2, 3… — and this story's own premise is
+            // that they are deployed identically. Two accounts on two servers can therefore
+            // both hold deviceId "1", and taking the first would switch sessions to the
+            // wrong server, which is precisely the P0 leak story 8-1 exists to prevent.
+            val deviceMatches = accounts.filter { it.deviceId == deviceId }
+            if (deviceMatches.size > 1) {
+                return DeepLinkRoute.Drop(
+                    "ambiguous device id (${deviceMatches.size} accounts share it)",
+                )
+            }
+            val target = deviceMatches.firstOrNull()
+            if (target == null) {
+                // The payload carries a key but NO account has stored one yet — a server
+                // that upgraded before this device re-registered. Dropping here would
+                // silently break every deep link that worked yesterday, so fall through to
+                // the tenant path. That is NOT the same as an unmatched id among accounts
+                // that DO have one: there our stored row is stale, and falling back would
+                // re-introduce the guess this key removes.
+                if (accounts.none { !it.deviceId.isNullOrBlank() }) {
+                    return route(
+                        deviceId = null,
+                        tenantId = tenantId,
+                        actionUrl = actionUrl,
+                        accounts = accounts,
+                        isLoggedIn = isLoggedIn,
+                    )
+                }
+                return DeepLinkRoute.Drop("unresolved device id")
+            }
             if (!isLoggedIn(target.id)) {
                 return DeepLinkRoute.Drop("target account not logged in")
             }
