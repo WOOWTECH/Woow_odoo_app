@@ -1,6 +1,8 @@
 package io.woowtech.odoo.data.api
 
 import com.google.gson.Gson
+import io.woowtech.odoo.data.repository.FcmRequestAccount
+import io.woowtech.odoo.data.repository.SessionCookieProvider
 import com.google.gson.JsonObject
 import okhttp3.Interceptor
 import okhttp3.Response
@@ -32,6 +34,11 @@ import java.net.HttpURLConnection
  */
 class SessionReauthInterceptor(
     private val reauthenticator: SessionReauthenticator,
+    /**
+     * Supplies the FRESH per-account cookie for a replayed request. Nullable so callers that never
+     * attach an account tag (and therefore never replay a tagged request) need not provide one.
+     */
+    private val cookieProvider: SessionCookieProvider? = null,
 ) : Interceptor {
 
     private val gson = Gson()
@@ -55,19 +62,36 @@ class SessionReauthInterceptor(
             return response
         }
 
-        val host = request.url.host
-        val reauthOk = reauthenticator.reauthenticateForHost(host)
+        // Story 8-2 (P0-3): prefer the account stamped on the request. Resolving by HOST picks the
+        // most-recently-used account sharing that host, so with two accounts on one Odoo server it
+        // re-authenticated the WRONG one and then replayed the request under that sibling's
+        // identity — creating a device row for the wrong user while reporting success for the right
+        // one, and writing the response's tenant id onto the wrong account row.
+        val tagged = request.tag(FcmRequestAccount::class.java)
+        val reauthOk = if (tagged != null) {
+            reauthenticator.reauthenticateForAccount(tagged.accountId)
+        } else {
+            reauthenticator.reauthenticateForHost(request.url.host)
+        }
         if (!reauthOk) {
             return response
         }
 
-        // Refresh succeeded — replay the ORIGINAL request once. The refreshed cookie is attached by the
-        // client's CookieJar; the marker header fences any further retry of this same request.
+        // Refresh succeeded — replay the ORIGINAL request once.
+        //
+        // The Cookie header MUST be re-resolved here. `request.newBuilder()` reuses the original
+        // headers, and the client deliberately carries no CookieJar (see buildFcmHttpClient), so a
+        // plain replay would re-present the STALE cookie and the re-auth would accomplish nothing.
         response.close()
-        val retried = request.newBuilder()
+        val builder = request.newBuilder()
             .header(SessionReauthenticator.RETRY_MARKER_HEADER, "1")
-            .build()
-        return chain.proceed(retried)
+        if (tagged != null) {
+            val fresh = cookieProvider?.getCookiesForAccount(tagged.accountId).orEmpty()
+            if (fresh.isNotEmpty()) {
+                builder.header("Cookie", fresh.joinToString("; ") { "${it.name}=${it.value}" })
+            }
+        }
+        return chain.proceed(builder.build())
     }
 
     /**

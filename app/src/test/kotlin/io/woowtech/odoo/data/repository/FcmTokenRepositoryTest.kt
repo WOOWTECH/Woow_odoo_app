@@ -12,6 +12,7 @@ import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.test.runTest
 import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -48,7 +49,7 @@ class FcmTokenRepositoryTest {
         // Real interceptor over a relaxed re-auth engine: no session-expired body is served in these
         // tests, so the interceptor is a transparent pass-through (detection returns false).
         sessionReauthInterceptor = SessionReauthInterceptor(mockk<SessionReauthenticator>(relaxed = true))
-        every { sessionCookieProvider.getCookiesForHost(any()) } returns emptyList<Cookie>()
+        every { sessionCookieProvider.getCookiesForAccount(any()) } returns emptyList<Cookie>()
         repo = FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,
@@ -593,5 +594,105 @@ class FcmTokenRepositoryTest {
             .registerTokenForAllAccounts("tok")
 
         assertTrue(result.isFailure)
+    }
+
+
+    // ---------------------------------------------------------------------
+    // Story 8-2 (P0-3) — each account's POST must carry ITS OWN session
+    // ---------------------------------------------------------------------
+    //
+    // ⚠️ WHY AN APPLICATION INTERCEPTOR IS TRUSTWORTHY HERE, AND USUALLY IS NOT.
+    //
+    // OkHttp's BridgeInterceptor runs AFTER application interceptors and calls
+    // `requestBuilder.header("Cookie", …)` — which REPLACES. So with a non-empty CookieJar an
+    // application interceptor sees the header we set while the WIRE carries the jar's cookie, and
+    // an assertion made here would be structurally incapable of failing.
+    //
+    // It is faithful in this suite only because BridgeInterceptor touches the header exclusively
+    // when `cookieJar.loadForRequest(url)` returns a NON-EMPTY list. The production client uses
+    // `CookieJar.NO_COOKIES`, which returns empty, so the header we set is the header that ships.
+    // `Given the production FCM client then it carries no cookie jar` below pins that premise — if
+    // a jar is ever put back, that test fails and these become untrustworthy together.
+
+    private fun cookiesFor(vararg pairs: Pair<String, String>): SessionCookieProvider =
+        object : SessionCookieProvider {
+            override fun getCookiesForAccount(accountId: String): List<Cookie> =
+                pairs.toMap()[accountId]?.let {
+                    listOf(Cookie.Builder().name("session_id").value(it).domain("shared.test").build())
+                }.orEmpty()
+        }
+
+    @Test
+    fun `Given the production FCM client then it carries no cookie jar`() {
+        // Load-bearing premise, not tidiness — see the note above.
+        val client = FcmTokenRepositoryImpl.buildFcmHttpClient(sessionReauthInterceptor)
+        assertTrue(
+            client.cookieJar === CookieJar.NO_COOKIES,
+            "a CookieJar on this client would overwrite the per-account Cookie header on the way " +
+                "to the wire, while still looking correct to an application interceptor",
+        )
+    }
+
+    @Test
+    fun `Given two accounts on one host when registering all then each POST carries its own session`() = runTest {
+        // The defect: the jar was keyed by host, so on one Odoo server every registration POST went
+        // out under whichever session that host held. The second account never got a device row
+        // while the app reported success for both.
+        val a = makeAccount("acc-A", serverUrl = "https://shared.test")
+        val b = makeAccount("acc-B", serverUrl = "https://shared.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a, b)
+        coEvery { accountDao.getAccountById("acc-A") } returns a
+        coEvery { accountDao.getAccountById("acc-B") } returns b
+        // No prior token, so the MA-1 rotation-unregister does not fire and the only POSTs are the
+        // two registrations. (Left in, it produced 4 POSTs — and each of those ALSO carried the
+        // right per-account cookie, which is the fix working on the rotation path too.)
+        every { encryptedPrefs.getFcmToken() } returns null
+
+        val seen = mutableListOf<String?>()
+        val repo = FcmTokenRepositoryImpl(
+            encryptedPrefs = encryptedPrefs,
+            accountDao = accountDao,
+            httpClient = OkHttpClient.Builder()
+                .cookieJar(CookieJar.NO_COOKIES)
+                .addInterceptor { chain ->
+                    seen += chain.request().header("Cookie")
+                    jsonResponse(chain.request(), 200, registerAccepted)
+                }
+                .build(),
+            sessionCookieProvider = cookiesFor("acc-A" to "sess-A", "acc-B" to "sess-B"),
+        )
+        coEvery { accountDao.countAccountsWithTenantId(any(), any()) } returns 0
+
+        repo.registerTokenForAllAccounts("tok")
+
+        assertEquals(listOf("session_id=sess-A", "session_id=sess-B"), seen)
+    }
+
+    @Test
+    fun `Given a registration POST then it is tagged with its account`() = runTest {
+        // The tag is how SessionReauthInterceptor re-authenticates the RIGHT account. A CookieJar
+        // cannot carry this: loadForRequest sees only the URL, never the Request.
+        val a = makeAccount("acc-A", serverUrl = "https://shared.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("acc-A") } returns a
+        coEvery { accountDao.countAccountsWithTenantId(any(), any()) } returns 0
+
+        var tag: FcmRequestAccount? = null
+        val repo = FcmTokenRepositoryImpl(
+            encryptedPrefs = encryptedPrefs,
+            accountDao = accountDao,
+            httpClient = OkHttpClient.Builder()
+                .cookieJar(CookieJar.NO_COOKIES)
+                .addInterceptor { chain ->
+                    tag = chain.request().tag(FcmRequestAccount::class.java)
+                    jsonResponse(chain.request(), 200, registerAccepted)
+                }
+                .build(),
+            sessionCookieProvider = cookiesFor("acc-A" to "sess-A"),
+        )
+
+        repo.registerTokenForAllAccounts("tok")
+
+        assertEquals(FcmRequestAccount("acc-A"), tag)
     }
 }

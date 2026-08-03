@@ -84,6 +84,28 @@ class SessionReauthenticator @Inject constructor(
      * single re-auth network call for that host. Blocking — call it off the main thread (the OkHttp
      * interceptor chain already runs on a background dispatcher thread).
      */
+    /**
+     * Re-authenticates a SPECIFIC account. Prefer this over [reauthenticateForHost] whenever the
+     * caller knows which account the request belonged to (story 8-2, P0-3): host resolution cannot
+     * distinguish two accounts on one Odoo server, so it re-authenticated the wrong one and the
+     * replayed request went out under a sibling's identity.
+     */
+    fun reauthenticateForAccount(accountId: String): Boolean = runBlocking {
+        val account = accountDao.getAccountById(accountId) ?: run {
+            Timber.w("Re-auth: no account %s — declining", accountId)
+            return@runBlocking false
+        }
+        if (openCircuits.contains(accountId)) {
+            Timber.w("Re-auth: circuit open for account %s — declining", accountId)
+            return@runBlocking false
+        }
+        if (!account.serverUrl.startsWith("https://")) {
+            Timber.w("Re-auth: account %s server URL is not https — declining", accountId)
+            return@runBlocking false
+        }
+        performReauth(account)
+    }
+
     fun reauthenticateForHost(requestHost: String): Boolean {
         // Guardrail 1: refuse to touch anything that is not an exact stored https host.
         val account = resolveAccountForHost(requestHost) ?: run {
@@ -140,6 +162,7 @@ class SessionReauthenticator @Inject constructor(
         }
 
         val result = odooClient.authenticate(
+            accountId = account.id,
             serverUrl = serverUrl,
             database = account.database,
             username = account.username,
@@ -187,11 +210,9 @@ class SessionReauthenticator @Inject constructor(
         reloginSignal.request(accountId = accountId, reason = reason)
     }
 
-    /** Clears the stale session cookie for the account's host so no expired cookie lingers. */
+    /** Clears this ACCOUNT's stale session so no expired cookie lingers — siblings are untouched. */
     private fun clearSessionFor(account: OdooAccount) {
-        // Use the bare host (no port) so it matches how OdooJsonRpcClient keys its cookie store.
-        val host = hostOf(account.serverUrl) ?: return
-        odooClient.clearCookies(host)
+        odooClient.clearCookies(account.id)
     }
 
     /**
@@ -199,8 +220,10 @@ class SessionReauthenticator @Inject constructor(
      *
      * Enforces guardrail 1: only accounts with an `https` server URL are considered, and the host must
      * match exactly (case-insensitive). Returns null when there is no such account (declines re-auth).
-     * When multiple accounts share a host, the most-recently-used one (first in the DAO's
-     * `lastLogin DESC` order) is chosen — its stored session is the one the request was using.
+     * ⚠️ When multiple accounts share a host this picks the most-recently-used one, which is a
+     * GUESS — and a wrong guess re-authenticates the wrong account and replays the request under a
+     * sibling's identity. Callers that know the account must use [reauthenticateForAccount]
+     * instead; this host path remains only for requests that carry no account tag.
      */
     private fun resolveAccountForHost(requestHost: String): OdooAccount? = runBlocking {
         accountDao.getAllAccountsList()

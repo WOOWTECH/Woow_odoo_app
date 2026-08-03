@@ -71,7 +71,7 @@ class LoginRegisterTest {
     @Test
     fun `Given authenticate succeeds then the account-available reconcile is fired exactly once`() = runTest {
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns authSuccess
 
         accountRepository.authenticate(
@@ -88,7 +88,7 @@ class LoginRegisterTest {
     @Test
     fun `Given authenticate fails then the account-available reconcile is not fired`() = runTest {
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Error("bad password", AuthResult.ErrorType.INVALID_CREDENTIALS)
 
         accountRepository.authenticate(
@@ -104,7 +104,7 @@ class LoginRegisterTest {
     @Test
     fun `Given the reconcile fails when authenticate succeeds then login still completes`() = runTest {
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns authSuccess
         coEvery {
             fcmTokenRepository.reconcileOnAccountAvailable()

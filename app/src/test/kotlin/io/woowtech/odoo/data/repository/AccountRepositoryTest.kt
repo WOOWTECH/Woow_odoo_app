@@ -60,6 +60,7 @@ class AccountRepositoryTest {
         fun `Given new user when authenticate succeeds then creates account and saves password`() = runTest {
             coEvery {
                 odooClient.authenticate(
+                    accountId = any(),
                     serverUrl = "https://my.odoo.com",
                     database = "prod",
                     username = "admin",
@@ -98,7 +99,7 @@ class AccountRepositoryTest {
         @Test
         fun `Given bare domain when authenticate then prepends https before calling client`() = runTest {
             coEvery {
-                odooClient.authenticate(any(), any(), any(), any())
+                odooClient.authenticate(any(), any(), any(), any(), any())
             } returns AuthResult.Success(
                 userId = 1,
                 sessionId = "s",
@@ -116,6 +117,7 @@ class AccountRepositoryTest {
 
             coVerify {
                 odooClient.authenticate(
+                    accountId = any(),
                     serverUrl = "https://my.odoo.com",
                     database = "db",
                     username = "admin",
@@ -127,7 +129,7 @@ class AccountRepositoryTest {
         @Test
         fun `Given URL already has https when authenticate then does not double-prefix`() = runTest {
             coEvery {
-                odooClient.authenticate(any(), any(), any(), any())
+                odooClient.authenticate(any(), any(), any(), any(), any())
             } returns AuthResult.Success(
                 userId = 1,
                 sessionId = "s",
@@ -145,6 +147,7 @@ class AccountRepositoryTest {
 
             coVerify {
                 odooClient.authenticate(
+                    accountId = any(),
                     serverUrl = "https://my.odoo.com",
                     database = "db",
                     username = "admin",
@@ -174,7 +177,7 @@ class AccountRepositoryTest {
             )
             coEvery { accountDao.findAccount("https://my.odoo.com", "prod", "admin") } returns existingAccount
             coEvery {
-                odooClient.authenticate(any(), any(), any(), any())
+                odooClient.authenticate(any(), any(), any(), any(), any())
             } returns AuthResult.Success(
                 userId = 42,
                 sessionId = "new-session",
@@ -207,7 +210,7 @@ class AccountRepositoryTest {
     @Test
     fun `Given successful auth when authenticate then deactivates all accounts before inserting new active`() = runTest {
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Success(
             userId = 1,
             sessionId = "s",
@@ -239,7 +242,7 @@ class AccountRepositoryTest {
         @Test
         fun `Given auth fails when authenticate then returns error without saving account`() = runTest {
             coEvery {
-                odooClient.authenticate(any(), any(), any(), any())
+                odooClient.authenticate(any(), any(), any(), any(), any())
             } returns AuthResult.Error("Invalid credentials", AuthResult.ErrorType.INVALID_CREDENTIALS)
 
             val result = repository.authenticate(
@@ -259,7 +262,7 @@ class AccountRepositoryTest {
         @Test
         fun `Given network error when authenticate then returns error from client`() = runTest {
             coEvery {
-                odooClient.authenticate(any(), any(), any(), any())
+                odooClient.authenticate(any(), any(), any(), any(), any())
             } returns AuthResult.Error("Network unreachable", AuthResult.ErrorType.NETWORK_ERROR)
 
             val result = repository.authenticate(
@@ -296,6 +299,7 @@ class AccountRepositoryTest {
             every { encryptedPrefs.getPassword("acc-1") } returns "storedPass"
             coEvery {
                 odooClient.authenticate(
+                    accountId = any(),
                     serverUrl = "https://my.odoo.com",
                     database = "prod",
                     username = "admin",
@@ -354,7 +358,7 @@ class AccountRepositoryTest {
             coEvery { accountDao.getAccountById("acc-1") } returns account
             every { encryptedPrefs.getPassword("acc-1") } returns "pass"
             coEvery {
-                odooClient.authenticate(any(), any(), any(), any())
+                odooClient.authenticate(any(), any(), any(), any(), any())
             } returns AuthResult.Error("expired", AuthResult.ErrorType.SESSION_EXPIRED)
 
             val result = repository.switchAccount("acc-1")
@@ -385,7 +389,9 @@ class AccountRepositoryTest {
 
             repository.logout("acc-1")
 
-            verify { odooClient.clearCookies("my.odoo.com") }
+            // Story 8-2 (P0-3): cleared by ACCOUNT id, not host. Clearing by host would have
+            // logged out every sibling account on the same Odoo server.
+            verify { odooClient.clearCookies("acc-1") }
             verify { encryptedPrefs.removePassword("acc-1") }
             coVerify { accountDao.deleteAccountById("acc-1") }
         }
@@ -405,7 +411,7 @@ class AccountRepositoryTest {
 
             repository.logout()
 
-            verify { odooClient.clearCookies("active.odoo.com") }
+            verify { odooClient.clearCookies("active-acc") }
             verify { encryptedPrefs.removePassword("active-acc") }
             coVerify { accountDao.deleteAccountById("active-acc") }
         }
@@ -461,38 +467,39 @@ class AccountRepositoryTest {
     @Nested
     inner class SessionAccess {
 
+        // Story 8-2 (P0-3): these used to assert that `getSessionId(serverUrl)` extracted the
+        // HOST and looked the session up by it. That behaviour is deliberately removed — a host is
+        // not an identity. `OdooJsonRpcClient` used to hold exactly ONE session per host and
+        // `saveFromResponse` called `clear()` before writing, so logging in account B DELETED
+        // account A's session. Looking up by host could therefore only ever return one of two
+        // accounts' sessions, silently.
+        //
+        // The replacement assertion is the property that actually matters, and the old tests could
+        // not express it at all: two accounts ON ONE HOST resolve to two DIFFERENT sessions.
+
         @Test
-        fun `Given server URL with https prefix when getSessionId then extracts host correctly`() {
-            every { odooClient.getSessionId("my.odoo.com") } returns "session-abc"
+        fun `Given two accounts on one host when getSessionId then each resolves its own session`() {
+            every { odooClient.getSessionId("acc-A") } returns "session-A"
+            every { odooClient.getSessionId("acc-B") } returns "session-B"
 
-            val sessionId = repository.getSessionId("https://my.odoo.com")
-
-            assertEquals("session-abc", sessionId)
+            assertEquals("session-A", repository.getSessionId("acc-A"))
+            assertEquals("session-B", repository.getSessionId("acc-B"))
         }
 
         @Test
-        fun `Given server URL with http prefix when getSessionId then extracts host correctly`() {
-            every { odooClient.getSessionId("my.odoo.com") } returns "session-abc"
+        fun `Given an account id when getSessionCookies then resolves by account not host`() {
+            val cookie = okhttp3.Cookie.Builder()
+                .name("session_id").value("sess-B").domain("shared.odoo.com").build()
+            every { odooClient.getSessionCookies("acc-B") } returns listOf(cookie)
 
-            val sessionId = repository.getSessionId("http://my.odoo.com")
-
-            assertEquals("session-abc", sessionId)
-        }
-
-        @Test
-        fun `Given server URL with path when getSessionId then uses host only`() {
-            every { odooClient.getSessionId("my.odoo.com") } returns "session-abc"
-
-            val sessionId = repository.getSessionId("https://my.odoo.com/web/login")
-
-            assertEquals("session-abc", sessionId)
+            assertEquals(listOf(cookie), repository.getSessionCookies("acc-B"))
         }
 
         @Test
         fun `Given no session when getSessionId then returns null`() {
             every { odooClient.getSessionId(any()) } returns null
 
-            assertNull(repository.getSessionId("https://unknown.com"))
+            assertNull(repository.getSessionId("unknown-account"))
         }
     }
 

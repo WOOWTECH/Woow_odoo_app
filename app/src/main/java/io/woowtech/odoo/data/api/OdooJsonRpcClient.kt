@@ -7,8 +7,6 @@ import io.woowtech.odoo.domain.model.AuthResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
-import okhttp3.CookieJar
-import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,26 +21,35 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class OdooJsonRpcClient @Inject constructor() {
+class OdooJsonRpcClient(private val httpClient: OkHttpClient? = null) {
+
+    /**
+     * Production entry point. The optional client on the primary constructor exists so unit tests
+     * can drive real cookie storage without TLS — this class enforces `https://`, and MockWebServer
+     * serves plaintext by default. Same seam, same reason, as `FcmTokenRepositoryImpl`.
+     */
+    @Inject
+    constructor() : this(httpClient = null)
 
     private val gson = Gson()
-    private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<Cookie>>()
 
-    private val cookieJar = object : CookieJar {
-        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            cookieStore.getOrPut(url.host) { mutableListOf() }.apply {
-                clear()
-                addAll(cookies)
-            }
-        }
+    /**
+     * Session cookies, keyed by **account id** — story 8-2 (P0-3).
+     *
+     * This map used to be keyed by HOST, with a `CookieJar` whose `saveFromResponse` called
+     * `clear()` before writing. That meant authenticating account B on a host did not shadow
+     * account A's session, it **deleted** it: the app could hold exactly ONE Odoo session per host,
+     * process-wide. Multi-account on one server was therefore impossible by construction, and the
+     * FCM registration fan-out silently POSTed every account under whichever session survived.
+     *
+     * There is deliberately **no `CookieJar`** any more. `authenticate` is the only method that
+     * issues a request here, so the cookies are read straight off its response and stored under the
+     * account they belong to. A jar cannot do this correctly: `CookieJar.loadForRequest(url)`
+     * receives only the URL and can never know which account a request is for.
+     */
+    private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, List<Cookie>>()
 
-        override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            return cookieStore[url.host] ?: emptyList()
-        }
-    }
-
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .cookieJar(cookieJar)
+    private val client: OkHttpClient = httpClient ?: OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -55,19 +62,27 @@ class OdooJsonRpcClient @Inject constructor() {
         })
         .build()
 
-    fun getSessionCookies(host: String): List<Cookie> {
-        return cookieStore[host] ?: emptyList()
+    /** Session cookies for [accountId], or empty when that account has no live session. */
+    fun getSessionCookies(accountId: String): List<Cookie> = cookieStore[accountId] ?: emptyList()
+
+    /** The `session_id` value for [accountId], or null when that account has no live session. */
+    fun getSessionId(accountId: String): String? =
+        cookieStore[accountId]?.find { it.name == "session_id" }?.value
+
+    /** Drops [accountId]'s session. Siblings on the same host are untouched — that is the point. */
+    fun clearCookies(accountId: String) {
+        cookieStore.remove(accountId)
     }
 
-    fun getSessionId(host: String): String? {
-        return cookieStore[host]?.find { it.name == "session_id" }?.value
-    }
-
-    fun clearCookies(host: String) {
-        cookieStore.remove(host)
-    }
-
+    /**
+     * Authenticates [accountId] and stores its session cookies under that id.
+     *
+     * [accountId] is required precisely because a host is not an identity: two accounts on one Odoo
+     * server each need their own session, and keying on the host made the second login destroy the
+     * first (story 8-2, P0-3).
+     */
     suspend fun authenticate(
+        accountId: String,
         serverUrl: String,
         database: String,
         username: String,
@@ -93,7 +108,7 @@ class OdooJsonRpcClient @Inject constructor() {
                 id = 1
             )
 
-            val response = executeRequest(url, requestBody)
+            val response = executeRequest(url, requestBody, accountId)
 
             if (response.error != null) {
                 val errorMessage = response.error.data?.message
@@ -121,7 +136,7 @@ class OdooJsonRpcClient @Inject constructor() {
             }
 
             val uid = result.get("uid").asInt
-            val sessionId = getSessionId(extractHost(serverUrl)) ?: ""
+            val sessionId = getSessionId(accountId) ?: ""
             val name = result.get("name")?.asString ?: username
 
             AuthResult.Success(
@@ -141,7 +156,7 @@ class OdooJsonRpcClient @Inject constructor() {
         }
     }
 
-    private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {
+    private fun executeRequest(url: String, body: JsonRpcRequest, accountId: String): JsonRpcResponse {
         val jsonBody = gson.toJson(body)
         val request = Request.Builder()
             .url(url)
@@ -150,14 +165,18 @@ class OdooJsonRpcClient @Inject constructor() {
             .build()
 
         val response = client.newCall(request).execute()
+        // Store this account's cookies explicitly. Replacing rather than merging matches the old
+        // jar's behaviour for a SINGLE account (a fresh login supersedes that account's session);
+        // what changes is that it can no longer touch a sibling account's entry.
+        val cookies = Cookie.parseAll(request.url, response.headers)
+        if (cookies.isNotEmpty()) {
+            cookieStore[accountId] = cookies
+        }
         val responseBody = response.body?.string() ?: throw IOException("Empty response")
 
         return gson.fromJson(responseBody, JsonRpcResponse::class.java)
     }
 
-    private fun extractHost(url: String): String {
-        return url.removePrefix("https://").removePrefix("http://").split("/").first()
-    }
 }
 
 data class JsonRpcRequest(

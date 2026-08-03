@@ -95,8 +95,8 @@ object AppModule {
     @Singleton
     fun provideSessionCookieProvider(odooClient: OdooJsonRpcClient): SessionCookieProvider {
         return object : SessionCookieProvider {
-            override fun getCookiesForHost(host: String): List<Cookie> =
-                odooClient.getSessionCookies(host)
+            override fun getCookiesForAccount(accountId: String): List<Cookie> =
+                odooClient.getSessionCookies(accountId)
         }
     }
 
@@ -143,8 +143,15 @@ object AppModule {
     @Singleton
     fun provideSessionReauthInterceptor(
         reauthenticator: SessionReauthenticator,
+        sessionCookieProvider: SessionCookieProvider,
     ): SessionReauthInterceptor {
-        return SessionReauthInterceptor(reauthenticator = reauthenticator)
+        // The cookie provider is required for the REPLAY: the FCM client carries no CookieJar
+        // (story 8-2, P0-3), so without it a replayed request would re-present the stale cookie
+        // and the re-authentication would accomplish nothing.
+        return SessionReauthInterceptor(
+            reauthenticator = reauthenticator,
+            cookieProvider = sessionCookieProvider,
+        )
     }
 
     @Provides

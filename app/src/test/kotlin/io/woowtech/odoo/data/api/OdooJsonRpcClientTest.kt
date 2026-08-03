@@ -1,6 +1,8 @@
 package io.woowtech.odoo.data.api
 
 import io.woowtech.odoo.domain.model.AuthResult
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.MediaType.Companion.toMediaType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -50,6 +52,7 @@ class OdooJsonRpcClientTest {
         @Test
         fun `Given http URL when authenticate then returns HTTPS_REQUIRED error without network call`() = runTest {
             val result = client.authenticate(
+                accountId = "test-account",
                 serverUrl = "http://insecure.example.com",
                 database = "mydb",
                 username = "admin",
@@ -64,6 +67,7 @@ class OdooJsonRpcClientTest {
         @Test
         fun `Given bare domain without https prefix when authenticate then returns HTTPS_REQUIRED`() = runTest {
             val result = client.authenticate(
+                accountId = "test-account",
                 serverUrl = "example.com",
                 database = "mydb",
                 username = "admin",
@@ -112,6 +116,7 @@ class OdooJsonRpcClientTest {
         fun `Given unreachable server when authenticate then returns NETWORK_ERROR`() = runTest {
             // Use a host that cannot resolve
             val result = client.authenticate(
+                accountId = "test-account",
                 serverUrl = "https://this-server-definitely-does-not-exist-12345.invalid",
                 database = "mydb",
                 username = "admin",
@@ -251,5 +256,87 @@ class OdooJsonRpcClientTest {
         assertTrue(types.contains(AuthResult.ErrorType.HTTPS_REQUIRED))
         assertTrue(types.contains(AuthResult.ErrorType.SERVER_ERROR))
         assertTrue(types.contains(AuthResult.ErrorType.UNKNOWN))
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    // Story 8-2 (P0-3) — one session per ACCOUNT, not one per host
+    // ──────────────────────────────────────────────────────────
+    //
+    // The store used to be `ConcurrentHashMap<host, MutableList<Cookie>>` with a CookieJar whose
+    // `saveFromResponse` called `clear()` before writing. Authenticating account B on a host did
+    // not shadow account A's session — it DELETED it. The app could hold exactly ONE Odoo session
+    // per host, process-wide, so multi-account on one server was impossible by construction and
+    // the FCM fan-out silently POSTed every account under whichever session survived.
+    //
+    // Driven through an injected OkHttpClient rather than MockWebServer: this class enforces
+    // `https://` and MockWebServer serves plaintext by default (okhttp-tls is not available
+    // offline). Same seam, same reason, as FcmTokenRepositoryImpl.
+
+    @Nested
+    inner class PerAccountSessions {
+
+        private fun clientServing(sessionFor: (String) -> String): OdooJsonRpcClient {
+            val http = okhttp3.OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val req = chain.request()
+                    val user = Regex(""""login":"([^"]+)"""")
+                        .find(req.body?.let { b ->
+                            okio.Buffer().also { b.writeTo(it) }.readUtf8()
+                        } ?: "")?.groupValues?.get(1) ?: "?"
+                    okhttp3.Response.Builder()
+                        .request(req)
+                        .protocol(okhttp3.Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .header("Set-Cookie", "session_id=${sessionFor(user)}; Path=/")
+                        .body(
+                            """{"jsonrpc":"2.0","id":1,"result":{"uid":7,"name":"$user"}}"""
+                                .toResponseBody("application/json".toMediaType()),
+                        )
+                        .build()
+                }
+                .build()
+            return OdooJsonRpcClient(httpClient = http)
+        }
+
+        @Test
+        fun `Given two accounts on ONE host when both authenticate then both sessions survive`() = runTest {
+            val client = clientServing { user -> "sess-$user" }
+
+            client.authenticate("acc-A", "https://shared.odoo.com", "db", "userA", "pw")
+            client.authenticate("acc-B", "https://shared.odoo.com", "db", "userB", "pw")
+
+            // The defect, stated directly: with a host-keyed store the second login wiped the first,
+            // so this assertion could not have held for BOTH accounts at once.
+            assertEquals("sess-userA", client.getSessionId("acc-A"))
+            assertEquals("sess-userB", client.getSessionId("acc-B"))
+        }
+
+        @Test
+        fun `Given two accounts on one host when one logs out then the sibling keeps its session`() = runTest {
+            val client = clientServing { user -> "sess-$user" }
+            client.authenticate("acc-A", "https://shared.odoo.com", "db", "userA", "pw")
+            client.authenticate("acc-B", "https://shared.odoo.com", "db", "userB", "pw")
+
+            client.clearCookies("acc-A")
+
+            assertNull(client.getSessionId("acc-A"))
+            assertEquals("sess-userB", client.getSessionId("acc-B"), "clearing one account logged out its sibling")
+        }
+
+        @Test
+        fun `Given re-authentication of one account then only that account's session is replaced`() = runTest {
+            var round = 1
+            val client = clientServing { user -> "sess-$user-$round" }
+            client.authenticate("acc-A", "https://shared.odoo.com", "db", "userA", "pw")
+            client.authenticate("acc-B", "https://shared.odoo.com", "db", "userB", "pw")
+
+            round = 2
+            client.authenticate("acc-A", "https://shared.odoo.com", "db", "userA", "pw")
+
+            assertEquals("sess-userA-2", client.getSessionId("acc-A"))
+            assertEquals("sess-userB-1", client.getSessionId("acc-B"))
+        }
     }
 }

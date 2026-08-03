@@ -53,6 +53,7 @@ class FcmTokenRepositoryImpl(
     private val encryptedPrefs: EncryptedPrefs,
     private val accountDao: AccountDao,
     private val httpClient: OkHttpClient,
+    private val sessionCookieProvider: SessionCookieProvider = NoSessionCookies,
 ) : FcmTokenRepository {
 
     /**
@@ -70,7 +71,8 @@ class FcmTokenRepositoryImpl(
     ) : this(
         encryptedPrefs = encryptedPrefs,
         accountDao = accountDao,
-        httpClient = buildFcmHttpClient(sessionCookieProvider, sessionReauthInterceptor),
+        httpClient = buildFcmHttpClient(sessionReauthInterceptor),
+        sessionCookieProvider = sessionCookieProvider,
     )
 
     private val gson = Gson()
@@ -388,10 +390,21 @@ class FcmTokenRepositoryImpl(
             add("params", gson.toJsonTree(params))
         }
 
+        // Story 8-2 (P0-3): attach THIS account's session explicitly. See buildFcmHttpClient for
+        // why a CookieJar cannot do this and why the jar must stay empty. The account id is also
+        // stamped as a request tag so SessionReauthInterceptor can re-authenticate the right
+        // account instead of guessing from the host.
+        val cookies = sessionCookieProvider.getCookiesForAccount(account.id)
         val request = Request.Builder()
             .url(url)
             .post(gson.toJson(requestBody).toRequestBody(JSON_MEDIA_TYPE))
             .header("Content-Type", "application/json")
+            .apply {
+                if (cookies.isNotEmpty()) {
+                    header("Cookie", cookies.joinToString("; ") { "${it.name}=${it.value}" })
+                }
+            }
+            .tag(FcmRequestAccount::class.java, FcmRequestAccount(account.id))
             .build()
 
         val response = httpClient.newCall(request).execute()
@@ -431,18 +444,27 @@ class FcmTokenRepositoryImpl(
          * SessionExpiredException envelope, or a genuine 401) once and replays the request — all
          * safety guardrails live in SessionReauthenticator.
          */
-        private fun buildFcmHttpClient(
-            sessionCookieProvider: SessionCookieProvider,
+        /**
+         * ⚠️ **`CookieJar.NO_COOKIES` is load-bearing, not tidiness.**
+         *
+         * The session cookie is now attached explicitly per request by [postToOdoo], because a
+         * `CookieJar` cannot do it correctly: `loadForRequest(url)` receives only the URL and can
+         * never know which ACCOUNT a request belongs to (story 8-2, P0-3).
+         *
+         * And a non-empty jar would silently defeat that: OkHttp's `BridgeInterceptor` runs AFTER
+         * application interceptors and calls `requestBuilder.header("Cookie", …)`, which
+         * **replaces** rather than appends. Any jar returning cookies here would overwrite the
+         * per-account header on the way to the wire, and — worse — an application interceptor in a
+         * test would still observe the correct header, so the bug would be invisible to the obvious
+         * assertion. Do not put a jar back on this client.
+         */
+        internal fun buildFcmHttpClient(
             sessionReauthInterceptor: SessionReauthInterceptor,
         ): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .cookieJar(object : CookieJar {
-                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
-                override fun loadForRequest(url: HttpUrl): List<Cookie> =
-                    sessionCookieProvider.getCookiesForHost(url.host)
-            })
+            .cookieJar(CookieJar.NO_COOKIES)
             .addInterceptor(sessionReauthInterceptor)
             .build()
     }
@@ -452,9 +474,28 @@ class FcmTokenRepositoryImpl(
  * Provides session cookies for a given host. Abstracted as an interface so
  * [FcmTokenRepositoryImpl] can be unit-tested without the real [OdooJsonRpcClient].
  */
+/**
+ * Identifies the account a push register/unregister request belongs to, carried as an OkHttp request
+ * tag. An `Interceptor` can read a tag (it sees the `Request`); a `CookieJar` cannot (it sees only
+ * the URL), which is why the account travels this way rather than through the jar.
+ */
+data class FcmRequestAccount(val accountId: String)
+
+/** No session at all. The default for the test constructor, so a test opts in to cookies. */
+object NoSessionCookies : SessionCookieProvider {
+    override fun getCookiesForAccount(accountId: String): List<Cookie> = emptyList()
+}
+
 interface SessionCookieProvider {
-    /** Returns the session cookies that should be sent to the given Odoo host. */
-    fun getCookiesForHost(host: String): List<Cookie>
+    /**
+     * Returns the session cookies for [accountId].
+     *
+     * Keyed by ACCOUNT, not host (story 8-2, P0-3). A host lookup could only ever return one
+     * session, so on a server with two logged-in accounts every registration POST went out under
+     * whichever session happened to survive — and the second account never got a device row while
+     * the app reported success for both.
+     */
+    fun getCookiesForAccount(accountId: String): List<Cookie>
 }
 
 /**

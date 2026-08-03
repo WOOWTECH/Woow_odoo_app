@@ -1,6 +1,8 @@
 # Story 8-2 — Register under the right account, and tell the truth when the server says no
 
-- **Status:** in-progress — WI-1..WI-3 (P0-2) implemented and green; WI-4..WI-6 (P0-3) next.
+- **Status:** review — WI-1..WI-6 implemented; full `:app:testDebugUnitTest` suite green (416 tests).
+  The gating question below is **still unanswered** and remains a gate on whether the fix is
+  SUFFICIENT — not on whether it is necessary.
 - **Repo:** android · branch `dev_spec_drift_refine` (base `d096570`)
 - **Covers:** conformance findings **P0-2** and **P0-3**, plus two hazards found during planning
 - **Decided in:** party-mode round 2026-08-03 (Winston / Amelia / Murat)
@@ -234,6 +236,70 @@ RED before the fix: 3 of 31 failed —
 `...the id field differs...`. The `success: false` test passed from the start, which is the point of
 having written it first: it pins behaviour that is already correct and is the most likely casualty of
 a careless P0-2 fix.
+
+### P0-3 (WI-4..WI-6) — implementation notes
+
+**The gate was re-read, and it gates sufficiency, not necessity.** The story blocked WI-4..WI-6 on
+"does Odoo hold two concurrent sessions for one host from one device". That question decides whether
+the fix is *enough*; it does not change the fact that the client currently **cannot hold two sessions
+at all**, so it is broken under every possible answer. The client-side work was therefore done, with
+the sufficiency question left explicitly open.
+
+**WI-4 — the store is keyed by account id, and the `CookieJar` is gone entirely.** `authenticate` is
+the only method in `OdooJsonRpcClient` that issues a request, so cookies are read straight off its
+response (`Cookie.parseAll`) and stored under the account they belong to. A jar cannot do this: it
+receives only the URL and can never know which account a request is for. `getSessionId`,
+`getSessionCookies` and `clearCookies` are all account-keyed; `extractHost` is deleted.
+
+**WI-5 — the FCM client uses `CookieJar.NO_COOKIES` and `postToOdoo` sets the header.** The empty jar
+is **load-bearing, not tidiness**: OkHttp's `BridgeInterceptor` runs after application interceptors
+and calls `header("Cookie", …)`, which *replaces*. Any jar returning cookies would overwrite the
+per-account header on the way to the wire — while an application interceptor in a test would still
+observe the correct value, making the bug invisible to the obvious assertion. A test pins that the
+production builder uses `NO_COOKIES`, so if a jar is ever restored that test and the header tests fail
+together rather than silently becoming vacuous.
+
+**WI-6 — the account travels as an OkHttp request tag.** An `Interceptor` can read a tag (it sees the
+`Request`); a `CookieJar` cannot. `reauthenticateForAccount` is preferred whenever the tag is present;
+`reauthenticateForHost` survives only for untagged requests and its KDoc now says plainly that it is a
+guess. The replay re-resolves the `Cookie` header — without that, `request.newBuilder()` reuses the
+original headers and the replay re-presents the stale cookie, so the re-authentication would achieve
+nothing.
+
+### Tests
+
+| Property | How |
+|---|---|
+| Two accounts on ONE host both keep their sessions | Unit — `OdooJsonRpcClient` with an injected client serving `Set-Cookie` |
+| Clearing one account does not log out its sibling | Unit |
+| Re-auth of one account leaves the sibling's session intact | Unit |
+| Each registration POST carries **its own** session | Unit — app interceptor, sound only because of `NO_COOKIES` (premise pinned by its own test) |
+| The production FCM client carries no cookie jar | Unit — structural |
+| A registration POST is tagged with its account | Unit |
+| Hazard A: the TAGGED account is re-authenticated, not the MRU one | Unit — MockWebServer |
+| Hazard A: the replay carries the FRESH cookie, not the stale one | Unit — **`MockWebServer.takeRequest()`**, read at the wire |
+
+**Honest note on RED evidence.** The `OdooJsonRpcClient` tests could not fail against the old code —
+they could not *compile*, because `getSessionId` took a host and `authenticate` took no account id.
+That is weaker evidence than an assertion-level RED and is recorded as such rather than dressed up.
+The FCM and interceptor tests did fail meaningfully: the per-account-cookie test first reported four
+POSTs instead of two, because the MA-1 rotation-unregister also fires — and each of those also carried
+the correct per-account cookie, which is the fix working on the rotation path too.
+
+**Existing tests that asserted host-keyed behaviour were rewritten, not deleted.** Three
+`AccountRepositoryTest` cases asserted that `getSessionId(serverUrl)` extracted the host. That
+behaviour is deliberately removed, so they were replaced by the assertion the old API could not
+express at all: **two accounts on one host resolve to two different sessions.**
+
+### Still NOT proven — 待伺服器恢復後驗證
+
+- **The gate itself:** that Odoo will hold two concurrent valid sessions for one host from one device.
+  If its session store rotates or invalidates on a second authentication, this work is necessary but
+  not sufficient and the design needs revisiting. **This is a gate, not a footnote.**
+- That two `woow.fcm.device` rows are actually created for two users on one host.
+- That the DISTINCT send path yields exactly one push for a device carrying two rows.
+- That the fixture bodies match real wire traffic (they are derived from the plugin's controller
+  source, not captured).
 
 ### Fixture provenance — and why it is not the plugin's tests
 

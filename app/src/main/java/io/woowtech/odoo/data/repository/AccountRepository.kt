@@ -46,11 +46,22 @@ class AccountRepository @Inject constructor(
     ): AuthResult {
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
 
-        val result = odooClient.authenticate(fullUrl, database, username, password)
+        // The account id must be known BEFORE authenticating, because the session cookies are now
+        // stored under it (story 8-2, P0-3). OdooAccount derives a deterministic id from
+        // serverUrl+database+username, so an existing account keeps its id and a new one gets the
+        // same id it will be persisted under.
+        val existingAccount = accountDao.findAccount(fullUrl, database, username)
+        val accountId = existingAccount?.id
+            ?: OdooAccount(
+                serverUrl = fullUrl,
+                database = database,
+                username = username,
+                displayName = username,
+            ).id
+
+        val result = odooClient.authenticate(accountId, fullUrl, database, username, password)
 
         if (result is AuthResult.Success) {
-            // Check if account already exists
-            val existingAccount = accountDao.findAccount(fullUrl, database, username)
 
             val account = existingAccount?.copy(
                 displayName = result.displayName,
@@ -128,6 +139,7 @@ class AccountRepository @Inject constructor(
 
         // Try to re-authenticate (this overwrites the cookie jar for the host)
         val result = odooClient.authenticate(
+            accountId,
             account.fullServerUrl,
             account.database,
             account.username,
@@ -219,9 +231,9 @@ class AccountRepository @Inject constructor(
                 }
         }
 
-        // Clear cookies
-        val host = account.fullServerUrl.removePrefix("https://").split("/").first()
-        odooClient.clearCookies(host)
+        // Clear THIS account's session only. Keyed by account id (story 8-2, P0-3): clearing by
+        // host would log out every sibling account on the same Odoo server.
+        odooClient.clearCookies(id)
 
         // Remove password
         encryptedPrefs.removePassword(id)
@@ -290,15 +302,17 @@ class AccountRepository @Inject constructor(
         accountDao.deleteAccountById(accountId)
     }
 
-    fun getSessionId(serverUrl: String): String? {
-        val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
-        return odooClient.getSessionId(host)
-    }
+    /**
+     * The `session_id` for [accountId], or null when that account has no live session.
+     *
+     * Keyed by account, not host (story 8-2, P0-3): two accounts on one Odoo server have two
+     * distinct sessions, and a host lookup could only ever return one of them.
+     */
+    fun getSessionId(accountId: String): String? = odooClient.getSessionId(accountId)
 
-    fun getSessionCookies(serverUrl: String): List<okhttp3.Cookie> {
-        val host = serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
-        return odooClient.getSessionCookies(host)
-    }
+    /** Session cookies for [accountId]. See [getSessionId] for why this is not keyed by host. */
+    fun getSessionCookies(accountId: String): List<okhttp3.Cookie> =
+        odooClient.getSessionCookies(accountId)
 
     suspend fun getAccountCount(): Int = accountDao.getAccountCount()
 }

@@ -129,7 +129,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Success(userId = 1, sessionId = "s", username = "admin", displayName = "Admin")
 
         server.enqueue(sessionExpiredEnvelope())
@@ -143,7 +143,7 @@ class SessionReauthInterceptorTest {
         // Original + one retry.
         assertEquals(2, server.requestCount)
         // Exactly one re-auth network call.
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any(), any()) }
         // Retried request carried the fence marker (proves the cookie-refreshed replay).
         server.takeRequest()
         val retried = server.takeRequest()
@@ -158,7 +158,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Success(userId = 1, sessionId = "s", username = "admin", displayName = "Admin")
 
         // Server never recovers — always the session-expired envelope.
@@ -175,7 +175,7 @@ class SessionReauthInterceptorTest {
         // Original + exactly one retry, then give up. No infinite loop.
         assertEquals(2, server.requestCount)
         // Re-auth attempted exactly once (the retry is fenced by the marker header).
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any(), any()) }
     }
 
     // AC3.3 — bad credentials stop, clear session, emit re-login, no password re-send loop
@@ -186,7 +186,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "old-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Error("bad creds", AuthResult.ErrorType.INVALID_CREDENTIALS)
 
         server.enqueue(sessionExpiredEnvelope())
@@ -198,7 +198,7 @@ class SessionReauthInterceptorTest {
         // No retry: only the original request reached the server.
         assertEquals(1, server.requestCount)
         // Re-auth attempted exactly once (the known-bad password is not hammered).
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any(), any()) }
         // Stale session cleared + re-login signalled.
         verify { odooClient.clearCookies(any()) }
         verify { reloginSignal.request(accountId = account.id, reason = ReloginReason.INVALID_CREDENTIALS) }
@@ -215,7 +215,7 @@ class SessionReauthInterceptorTest {
 
         assertFalse(didReauth)
         verify(exactly = 0) { encryptedPrefs.getPassword(any()) }
-        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -233,7 +233,7 @@ class SessionReauthInterceptorTest {
         val didReauth = reauthenticator.reauthenticateForHost("plain.example.com")
 
         assertFalse(didReauth)
-        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any(), any()) }
     }
 
     // AC3.5 — single-flight: concurrent session expiries on the same host do not overlap in re-auth
@@ -246,7 +246,7 @@ class SessionReauthInterceptorTest {
 
         val inFlight = java.util.concurrent.atomic.AtomicInteger(0)
         val maxConcurrent = java.util.concurrent.atomic.AtomicInteger(0)
-        coEvery { odooClient.authenticate(any(), any(), any(), any()) } coAnswers {
+        coEvery { odooClient.authenticate(any(), any(), any(), any(), any()) } coAnswers {
             val now = inFlight.incrementAndGet()
             maxConcurrent.updateAndGet { prev -> maxOf(prev, now) }
             Thread.sleep(50) // widen the window so an unguarded impl would overlap
@@ -273,7 +273,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Error("timeout", AuthResult.ErrorType.NETWORK_ERROR)
 
         // Drive the engine directly N times.
@@ -290,13 +290,13 @@ class SessionReauthInterceptorTest {
 
         // Once open, further expiries are declined without any re-auth attempt.
         coVerify(exactly = SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         }
         val afterOpen = reauthenticator.reauthenticateForHost("cb.example.com")
         assertFalse(afterOpen)
         // Still exactly N calls — none after the circuit opened.
         coVerify(exactly = SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         }
     }
 
@@ -315,7 +315,7 @@ class SessionReauthInterceptorTest {
         assertEquals("{\"result\":{\"tenant_id\":\"t1\"}}", response.body?.string())
         response.close()
         assertEquals(1, server.requestCount)
-        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any(), any()) }
     }
 
     // A genuine transport-level 401 is still honoured (belt-and-suspenders).
@@ -326,7 +326,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Success(userId = 1, sessionId = "s", username = "admin", displayName = "Admin")
 
         server.enqueue(MockResponse().setResponseCode(401))
@@ -337,6 +337,107 @@ class SessionReauthInterceptorTest {
         assertEquals(200, response.code)
         response.close()
         assertEquals(2, server.requestCount)
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any(), any()) }
+    }
+
+
+    // ──────────────────────────────────────────────────────────
+    // Story 8-2 (P0-3) Hazard A — re-auth must bind the TAGGED account, not the MRU one
+    // ──────────────────────────────────────────────────────────
+    //
+    // `resolveAccountForHost` takes `firstOrNull` over `lastLogin DESC`; its own KDoc admitted "the
+    // most-recently-used one is chosen". With accounts A (MRU) and B on one host, B's expired POST
+    // re-authenticated **A**, and the interceptor then replayed **B's** request carrying A's cookie:
+    // the server created a row for A, the client returned success for B, and the response's tenant
+    // id was written onto B's row. Silent cross-account corruption of the routing key.
+
+    @Test
+    fun `Given a tagged request when the session expires then the TAGGED account is re-authenticated`() = runTest {
+        val host = server.hostName + ":" + server.port
+        val mru = OdooAccount(
+            id = "acc-A", serverUrl = "https://$host", database = "db",
+            username = "userA", displayName = "A",
+        )
+        val tagged = OdooAccount(
+            id = "acc-B", serverUrl = "https://$host", database = "db",
+            username = "userB", displayName = "B",
+        )
+        // `lastLogin DESC` puts A first, so host resolution would pick A.
+        coEvery { accountDao.getAllAccountsList() } returns listOf(mru, tagged)
+        coEvery { accountDao.getAccountById("acc-B") } returns tagged
+        every { encryptedPrefs.getPassword(any()) } returns "pw"
+        coEvery { odooClient.authenticate(any(), any(), any(), any(), any()) } returns
+            AuthResult.Success(userId = 2, sessionId = "s", username = "userB", displayName = "B")
+
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"jsonrpc":"2.0","id":1,"error":{"code":100,"message":"Odoo Session Expired","data":{"name":"odoo.http.SessionExpiredException"}}}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"jsonrpc":"2.0","id":1,"result":{}}"""))
+
+        val request = Request.Builder()
+            .url(server.url("/woow_fcm_push/register"))
+            .post("{}".toRequestBody())
+            .tag(
+                io.woowtech.odoo.data.repository.FcmRequestAccount::class.java,
+                io.woowtech.odoo.data.repository.FcmRequestAccount("acc-B"),
+            )
+            .build()
+        client.newCall(request).execute().close()
+
+        // The decisive assertion: the account id passed to authenticate is B's, not the MRU A's.
+        val accountIdSlot = slot<String>()
+        coVerify { odooClient.authenticate(capture(accountIdSlot), any(), any(), any(), any()) }
+        assertEquals("acc-B", accountIdSlot.captured)
+    }
+
+    @Test
+    fun `Given a tagged request when replayed then it carries the FRESH cookie not the stale one`() = runTest {
+        // `request.newBuilder()` reuses the original headers, and the FCM client deliberately has no
+        // CookieJar — so without an explicit re-resolve the replay re-presents the STALE cookie and
+        // the re-authentication accomplishes nothing at all.
+        val host = server.hostName + ":" + server.port
+        val account = OdooAccount(
+            id = "acc-B", serverUrl = "https://$host", database = "db",
+            username = "userB", displayName = "B",
+        )
+        coEvery { accountDao.getAllAccountsList() } returns listOf(account)
+        coEvery { accountDao.getAccountById("acc-B") } returns account
+        every { encryptedPrefs.getPassword(any()) } returns "pw"
+        coEvery { odooClient.authenticate(any(), any(), any(), any(), any()) } returns
+            AuthResult.Success(userId = 2, sessionId = "s", username = "userB", displayName = "B")
+
+        val freshProvider = object : io.woowtech.odoo.data.repository.SessionCookieProvider {
+            override fun getCookiesForAccount(accountId: String) = listOf(
+                okhttp3.Cookie.Builder().name("session_id").value("FRESH").domain(server.hostName).build(),
+            )
+        }
+        val taggedClient = OkHttpClient.Builder()
+            .cookieJar(okhttp3.CookieJar.NO_COOKIES)
+            .addInterceptor(SessionReauthInterceptor(reauthenticator, freshProvider))
+            .build()
+
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"jsonrpc":"2.0","id":1,"error":{"code":100,"message":"Odoo Session Expired","data":{"name":"odoo.http.SessionExpiredException"}}}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"jsonrpc":"2.0","id":1,"result":{}}"""))
+
+        val request = Request.Builder()
+            .url(server.url("/woow_fcm_push/register"))
+            .post("{}".toRequestBody())
+            .header("Cookie", "session_id=STALE")
+            .tag(
+                io.woowtech.odoo.data.repository.FcmRequestAccount::class.java,
+                io.woowtech.odoo.data.repository.FcmRequestAccount("acc-B"),
+            )
+            .build()
+        taggedClient.newCall(request).execute().close()
+
+        // Read at the WIRE, via MockWebServer — the only place that tells the truth about headers.
+        assertEquals("session_id=STALE", server.takeRequest().getHeader("Cookie"))
+        assertEquals("session_id=FRESH", server.takeRequest().getHeader("Cookie"))
     }
 }

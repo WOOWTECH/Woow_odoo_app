@@ -47,7 +47,7 @@ class FcmTokenEmptyAccountsTest {
         sessionReauthInterceptor = io.woowtech.odoo.data.api.SessionReauthInterceptor(
             mockk<io.woowtech.odoo.data.api.SessionReauthenticator>(relaxed = true),
         )
-        every { sessionCookieProvider.getCookiesForHost(any()) } returns emptyList<Cookie>()
+        every { sessionCookieProvider.getCookiesForAccount(any()) } returns emptyList<Cookie>()
         repo = FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,

@@ -86,7 +86,7 @@ class SwitchAccountUnregisterTest {
         coEvery { accountDao.getAccountById("acc-B") } returns accountB
         coEvery { encryptedPrefs.getPassword("acc-B") } returns "test-password"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns authSuccess
 
         accountRepository = AccountRepository(
@@ -115,7 +115,7 @@ class SwitchAccountUnregisterTest {
         coVerify(exactly = 0) { fcmTokenRepository.unregisterToken(any()) }
         // Switching still does its actual job.
         coVerifyOrder {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
             accountDao.activateAccount("acc-B")
             fcmTokenRepository.registerToken("acc-B", "fcm-token-shared")
         }
@@ -130,7 +130,7 @@ class SwitchAccountUnregisterTest {
         coEvery { accountDao.getActiveAccountOnce() } returns accountA
         coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticate(any(), any(), any(), any(), any())
         } returns AuthResult.Error("network", AuthResult.ErrorType.NETWORK_ERROR)
 
         val ok = accountRepository.switchAccount("acc-B")
