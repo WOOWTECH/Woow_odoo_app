@@ -58,6 +58,11 @@ class SessionReauthInterceptorTest {
         accountDao = mockk(relaxed = true)
         encryptedPrefs = mockk(relaxed = true)
         odooClient = mockk(relaxed = true)
+        // Story 8-2 review finding #5: a re-auth that stores no session is no longer reported as a
+        // refresh — replaying with the OLD cookie burns the single retry while logging success. The
+        // relaxed mock returns null here, so every double must state that a session WAS stored.
+        // Tests that need the opposite override this locally.
+        every { odooClient.getSessionId(any()) } returns "refreshed-session"
         reloginSignal = mockk(relaxed = true)
         reauthenticator = SessionReauthenticator(
             accountDao = accountDao,
@@ -439,5 +444,28 @@ class SessionReauthInterceptorTest {
         // Read at the WIRE, via MockWebServer — the only place that tells the truth about headers.
         assertEquals("session_id=STALE", server.takeRequest().getHeader("Cookie"))
         assertEquals("session_id=FRESH", server.takeRequest().getHeader("Cookie"))
+    }
+
+
+    @Test
+    fun `Given re-auth succeeds but stores no session then it is NOT reported as refreshed`() = runTest {
+        // Story 8-2 review finding #5. `performReauth` returned true for ANY AuthResult.Success,
+        // even when no Set-Cookie arrived (session reused server-side, or a redirect carrying the
+        // cookie on a hop we no longer capture). The interceptor then set the EXPIRED cookie as
+        // "fresh", the replay failed identically, the one-retry cap was spent — and the log said
+        // the session had been refreshed. A silent, self-inflicted failure.
+        val account = accountForMockServer("acc-1")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(account)
+        coEvery { accountDao.getAccountById("acc-1") } returns account
+        every { encryptedPrefs.getPassword(any()) } returns "pw"
+        coEvery { odooClient.authenticate(any(), any(), any(), any(), any()) } returns
+            AuthResult.Success(userId = 1, sessionId = "", username = "admin", displayName = "Admin")
+        // The credentials were accepted, but nothing was stored.
+        every { odooClient.getSessionId(any()) } returns null
+
+        assertFalse(
+            reauthenticator.reauthenticateForAccount("acc-1"),
+            "an authenticate that left no session must not be reported as a refreshed session",
+        )
     }
 }

@@ -25,7 +25,7 @@ import javax.inject.Singleton
  * on inactivity or server restart, after which registration fails and the device silently stops
  * receiving push notifications. This engine re-authenticates **once** with the account's already-stored
  * credentials (the same secret used for biometric auto-login — no new credential-at-rest exposure),
- * refreshes the session cookie on the shared [OdooJsonRpcClient] cookie jar, and lets the caller replay
+ * refreshes the session cookie on the shared [OdooJsonRpcClient] session store, and lets the caller replay
  * the original request.
  *
  * ## Detection lives in the interceptor, not here
@@ -76,7 +76,7 @@ class SessionReauthenticator @Inject constructor(
 
     /**
      * Attempts to refresh the expired Odoo session for [requestHost], applying every security
-     * guardrail. Returns true when a fresh session cookie was established on the shared cookie jar and
+     * guardrail. Returns true when a fresh session cookie was established on the shared session store and
      * the caller may retry the original request once, or false when the caller must give up (no stored
      * account for the host, a non-https host, an open circuit, or a failed re-auth).
      *
@@ -103,7 +103,12 @@ class SessionReauthenticator @Inject constructor(
             Timber.w("Re-auth: account %s server URL is not https — declining", accountId)
             return@runBlocking false
         }
-        performReauth(account)
+        // Guardrail 6 applies here too. Keyed by ACCOUNT: the WebView path and the FCM path can
+        // expire simultaneously for the same account, and without a shared lock both would POST the
+        // stored password before either could open the circuit — so a password that is stale
+        // server-side would be re-sent, which guardrail 3 exists to prevent. The loser of the race
+        // would also overwrite the session the winner had just stored.
+        runSingleFlight(key = accountId, account = account)
     }
 
     fun reauthenticateForHost(requestHost: String): Boolean {
@@ -126,17 +131,23 @@ class SessionReauthenticator @Inject constructor(
      * session-expiry responses result in exactly one authenticate network call. Returns true when the
      * session was refreshed and the caller should retry, false when it must give up.
      */
-    private fun runReauthSingleFlight(host: String, account: OdooAccount): Boolean {
-        val lock = hostLocks.getOrPut(host) { Mutex() }
-        return runBlocking {
-            lock.withLock {
+    private fun runReauthSingleFlight(host: String, account: OdooAccount): Boolean =
+        runBlocking { runSingleFlight(key = account.id, account = account) }
+
+    /**
+     * Single-flight body, keyed by ACCOUNT id so the host path and the account path share one lock
+     * for the same account. Keying by host would let the two paths run concurrently for one account
+     * whenever they resolved differently.
+     */
+    private suspend fun runSingleFlight(key: String, account: OdooAccount): Boolean {
+        val lock = hostLocks.getOrPut(key) { Mutex() }
+        return lock.withLock {
                 // Re-check the circuit inside the lock: a concurrent expiry that ran first may have
                 // opened it (invalid credentials), in which case we must not resend the password.
-                if (openCircuits.contains(account.id)) {
-                    return@withLock false
-                }
-                performReauth(account)
+            if (openCircuits.contains(account.id)) {
+                return@withLock false
             }
+            performReauth(account)
         }
     }
 
@@ -171,6 +182,17 @@ class SessionReauthenticator @Inject constructor(
 
         return when (result) {
             is AuthResult.Success -> {
+                // A success that stored no cookie is not a refreshed session. Reporting true here
+                // makes the caller replay with the OLD cookie and burn its single retry, while the
+                // log claims the session was refreshed — a silent, self-inflicted failure.
+                if (odooClient.getSessionId(account.id).isNullOrEmpty()) {
+                    Timber.w(
+                        "Re-auth: server accepted the credentials for account %s but set no session " +
+                            "cookie — treating as NOT refreshed rather than replaying a stale one",
+                        account.id,
+                    )
+                    return false
+                }
                 consecutiveFailures.remove(account.id)
                 Timber.d("Re-auth: session refreshed for account %s", account.id)
                 true

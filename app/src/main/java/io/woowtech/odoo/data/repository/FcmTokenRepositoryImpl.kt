@@ -58,7 +58,8 @@ class FcmTokenRepositoryImpl(
 
     /**
      * Production entry point. Hilt injects the collaborators; we build the hardened OkHttp client
-     * (cookie jar + WI-3 re-auth interceptor). The primary constructor takes the client directly so
+     * (no cookie jar — see buildFcmHttpClient — plus the WI-3 re-auth interceptor). The primary
+     * constructor takes the client directly so
      * unit tests can inject a [okhttp3.mockwebserver.MockWebServer]-backed client and drive real
      * success / hard-failure / unreachable outcomes hermetically.
      */
@@ -243,7 +244,24 @@ class FcmTokenRepositoryImpl(
                 is FcmServerOutcome.Rejected ->
                     throw IOException("Odoo rejected the registration for account $accountId (${outcome.detail})")
                 FcmServerOutcome.Unreadable ->
-                    throw IOException("Unreadable registration response for account $accountId")
+                    // NOT fatal, deliberately — and this is a correction to the first version of
+                    // this story, which threw here.
+                    //
+                    // The fail-closed rationale is "a false failure costs one POST". That holds for
+                    // a TRANSIENT unreadable body. It does NOT hold for a SHAPE mismatch: an older
+                    // or differently-configured server whose `result` is not an object would fail
+                    // every registration, on every cold start, forever — and never reach the
+                    // tenant-id write either, so it would also permanently lose deep-link routing.
+                    // That is strictly worse than the silent success this story replaced.
+                    //
+                    // A rejection we can READ is still fatal; a body we cannot read is logged loudly
+                    // and the registration is allowed to stand, because the server DID return 2xx.
+                    Timber.w(
+                        "Unreadable registration response for account %s — the server returned 2xx " +
+                            "but not a JSON-RPC body this client understands. Treating as accepted; " +
+                            "if this repeats, the server contract has changed",
+                        accountId,
+                    )
                 FcmServerOutcome.Ok -> Unit
             }
             Timber.d("FCM token registered for account %s", accountId)
@@ -368,8 +386,10 @@ class FcmTokenRepositoryImpl(
         }
 
     /**
-     * Posts a JSON-RPC-style request to the Odoo push endpoint. The session cookie is
-     * automatically attached by the [httpClient]'s CookieJar via [sessionCookieProvider].
+     * Posts a JSON-RPC-style request to the Odoo push endpoint.
+     *
+     * The session cookie is attached EXPLICITLY below, per account. The client deliberately carries
+     * no `CookieJar` — see [buildFcmHttpClient] for why putting one back would silently break this.
      *
      * Returns the raw response body. It does NOT inspect the body for an application-level
      * rejection — see the note at the return statement.

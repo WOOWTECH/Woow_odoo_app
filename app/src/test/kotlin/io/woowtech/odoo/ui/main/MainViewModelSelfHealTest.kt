@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.main
 
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -85,5 +86,53 @@ class MainViewModelSelfHealTest {
 
             assertFalse(healed)
             verify(exactly = 1) { sessionReauthenticator.reauthenticateForHost("odoo.example.com") }
+        }
+
+
+    // ──────────────────────────────────────────────────────────
+    // Story 8-2 (P0-3) Hazard A — the WebView self-heal must bind the ACTIVE ACCOUNT
+    // ──────────────────────────────────────────────────────────
+    //
+    // `reauthenticateForHost` resolves with `firstOrNull` over `lastLogin DESC`; its own KDoc calls
+    // that a GUESS. With two accounts on one Odoo server, the active account's WebView expiry
+    // re-authenticated the most-recently-used SIBLING — refreshing the wrong session and, once a
+    // session id actually flows into the WebView, presenting B's session under A's account.
+    //
+    // The two tests above still pass because `accountRepository` is relaxed, so
+    // `getActiveAccountOnce()` returns null and the fallback runs. They now cover the FALLBACK only.
+
+    private fun account(id: String, host: String) = io.woowtech.odoo.domain.model.OdooAccount(
+        id = id,
+        serverUrl = "https://$host",
+        database = "db",
+        username = "user",
+        displayName = "User",
+    )
+
+    @Test
+    fun `Given the expiry is on the active account's own host then that ACCOUNT is re-authenticated`() =
+        runTest {
+            coEvery { accountRepository.getActiveAccountOnce() } returns account("acc-B", "shared.odoo.com")
+            every { sessionReauthenticator.reauthenticateForAccount("acc-B") } returns true
+
+            val healed = viewModel.selfHealActiveAccount("shared.odoo.com")
+
+            assertTrue(healed)
+            verify(exactly = 1) { sessionReauthenticator.reauthenticateForAccount("acc-B") }
+            // The decisive half: the host path must NOT be taken, because it would pick the
+            // most-recently-used sibling on that same host.
+            verify(exactly = 0) { sessionReauthenticator.reauthenticateForHost(any()) }
+        }
+
+    @Test
+    fun `Given the expiry is from a different host then it falls back rather than refreshing an unrelated account`() =
+        runTest {
+            coEvery { accountRepository.getActiveAccountOnce() } returns account("acc-B", "shared.odoo.com")
+            every { sessionReauthenticator.reauthenticateForHost("other.odoo.com") } returns false
+
+            viewModel.selfHealActiveAccount("other.odoo.com")
+
+            verify(exactly = 0) { sessionReauthenticator.reauthenticateForAccount(any()) }
+            verify(exactly = 1) { sessionReauthenticator.reauthenticateForHost("other.odoo.com") }
         }
 }

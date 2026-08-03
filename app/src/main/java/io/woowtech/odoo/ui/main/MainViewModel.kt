@@ -104,9 +104,15 @@ class MainViewModel @Inject constructor(
         reloginSignal.clear()
     }
 
-    fun getSessionId(serverUrl: String): String? {
-        return accountRepository.getSessionId(serverUrl)
-    }
+    /**
+     * The `session_id` for [accountId].
+     *
+     * ⚠️ Takes an ACCOUNT ID, not a server URL (story 8-2, P0-3). Sessions are keyed by account, so
+     * passing a URL here silently returns null — and a null session makes the WebView load
+     * unauthenticated, bounce to `/web/login`, and end in a re-login loop. Both are `String`, so the
+     * compiler cannot catch the substitution; the parameter name is the only guard.
+     */
+    fun getSessionId(accountId: String): String? = accountRepository.getSessionId(accountId)
 
     /**
      * Attempts to silently re-authenticate the active account's expired WebView session for [host],
@@ -115,7 +121,7 @@ class MainViewModel @Inject constructor(
      * routes share one single-flight lock, one-retry cap, bad-credential STOP, and circuit breaker
      * and can never race or resend a known-bad password.
      *
-     * Returns true when a fresh session cookie was established on the shared cookie jar; the caller
+     * Returns true when a fresh session was established for that account in the shared session store; the caller
      * must then read the refreshed session id via [getSessionId] and re-inject it into the WebView's
      * `CookieManager`. Returns false when recovery is impossible (no stored password, bad
      * credentials, non-https/unknown host, or an open circuit), in which case the caller must
@@ -123,9 +129,26 @@ class MainViewModel @Inject constructor(
      *
      * Runs the (blocking) re-auth on [Dispatchers.IO]; safe to call from the main thread.
      */
+    /**
+     * Re-authenticates the ACTIVE account after its WebView session expired.
+     *
+     * Resolves by account, not by [host]: with two accounts on one Odoo server, host resolution
+     * picks the most-recently-used sibling and would refresh the wrong session (story 8-2, Hazard A).
+     * [host] is retained only as a safety check that the expiry came from the active account's own
+     * server.
+     */
     suspend fun selfHealActiveAccount(host: String): Boolean {
         return withContext(Dispatchers.IO) {
-            sessionReauthenticator.reauthenticateForHost(host)
+            val active = accountRepository.getActiveAccountOnce()
+            val activeHost = active?.fullServerUrl
+                ?.removePrefix("https://")?.removePrefix("http://")?.substringBefore('/')
+            if (active != null && activeHost.equals(host, ignoreCase = true)) {
+                sessionReauthenticator.reauthenticateForAccount(active.id)
+            } else {
+                // The expiry did not come from the active account's own server — fall back to host
+                // resolution, which is a guess, rather than refreshing an unrelated account.
+                sessionReauthenticator.reauthenticateForHost(host)
+            }
         }
     }
 

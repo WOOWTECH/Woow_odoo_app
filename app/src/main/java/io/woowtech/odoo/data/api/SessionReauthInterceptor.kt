@@ -30,7 +30,7 @@ import java.net.HttpURLConnection
  * distinction, circuit breaker, no credential logging — live in that engine), then replays the request
  * exactly **once**. The retry carries [SessionReauthenticator.RETRY_MARKER_HEADER] and the interceptor
  * also refuses to re-enter for an already-marked request, so there is a hard one-retry cap and no loop.
- * The refreshed session cookie is attached to the retried request by the client's own `CookieJar`.
+ * The refreshed session cookie is re-resolved per account and set on the retried request — the client has no `CookieJar` (story 8-2, P0-3).
  */
 class SessionReauthInterceptor(
     private val reauthenticator: SessionReauthenticator,

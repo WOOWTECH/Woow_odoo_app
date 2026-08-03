@@ -218,7 +218,7 @@ fun MainScreen(
         Box(modifier = Modifier.fillMaxSize()) {
             account?.let { acc ->
                 // Get session ID and sync to WebView's CookieManager
-                val sessionId = viewModel.getSessionId(acc.fullServerUrl)
+                val sessionId = viewModel.getSessionId(acc.id)
 
                 // Only surface the pending deep link to the WebView when it belongs to the
                 // currently active account. It is NOT consumed here (that would be a state-set
@@ -228,6 +228,7 @@ fun MainScreen(
                     ?.url
 
                 OdooWebView(
+                    accountId = acc.id,
                     serverUrl = acc.fullServerUrl,
                     database = acc.database,
                     sessionId = sessionId,
@@ -238,7 +239,7 @@ fun MainScreen(
                     onWebViewCreated = { webView = it },
                     onLoadingChanged = { isLoading = it },
                     onSelfHeal = { host -> viewModel.selfHealActiveAccount(host) },
-                    getFreshSessionId = { url -> viewModel.getSessionId(url) },
+                    getFreshSessionId = { accountId -> viewModel.getSessionId(accountId) },
                     onReloginRequired = onMenuClick,
                 )
             }
@@ -293,6 +294,8 @@ private fun NotificationPermissionBanner(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun OdooWebView(
+    /** The account this WebView is showing. Session lookups are keyed by it (story 8-2, P0-3). */
+    accountId: String,
     serverUrl: String,
     database: String,
     sessionId: String?,
@@ -303,7 +306,12 @@ fun OdooWebView(
     onWebViewCreated: (WebView) -> Unit,
     onLoadingChanged: (Boolean) -> Unit,
     onSelfHeal: suspend (host: String) -> Boolean,
-    getFreshSessionId: (serverUrl: String) -> String?,
+    /**
+     * Returns the current `session_id` for an ACCOUNT ID (story 8-2, P0-3) — not a server URL.
+     * Sessions are keyed by account; passing a URL returns null and lands the WebView in a
+     * re-login loop.
+     */
+    getFreshSessionId: (accountId: String) -> String?,
     onReloginRequired: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -319,6 +327,7 @@ fun OdooWebView(
     // The WebViewClient and update{} block are created once but must read the LATEST params on
     // every callback / recomposition, so wrap the deep-link inputs the same way.
     val currentServerUrl by rememberUpdatedState(serverUrl)
+    val currentAccountId by rememberUpdatedState(accountId)
     val currentDatabase by rememberUpdatedState(database)
     val currentDeepLinkUrl by rememberUpdatedState(deepLinkUrl)
     val currentOnDeepLinkConsumed by rememberUpdatedState(onDeepLinkConsumed)
@@ -618,7 +627,10 @@ fun OdooWebView(
                                     if (healed) {
                                         // Re-inject the refreshed session cookie (host-scoped, same
                                         // proven path as the initial load) and reload the Odoo page.
-                                        val freshSessionId = currentGetFreshSessionId(targetServerUrl)
+                                        // Keyed by ACCOUNT, not the server URL. Passing the URL
+                                        // here returned null on every load and put the WebView in a
+                                        // re-login loop (story 8-2 review finding #1).
+                                        val freshSessionId = currentGetFreshSessionId(currentAccountId)
                                         isolateCookiesForAccount(
                                             serverUrl = targetServerUrl,
                                             sessionId = freshSessionId,

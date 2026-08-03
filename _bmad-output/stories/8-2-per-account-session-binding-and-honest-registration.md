@@ -1,6 +1,7 @@
 # Story 8-2 — Register under the right account, and tell the truth when the server says no
 
-- **Status:** review — WI-1..WI-6 implemented; full `:app:testDebugUnitTest` suite green (416 tests).
+- **Status:** review-fixes-applied — WI-1..WI-6 implemented, then seven defects from an adversarial
+  review of `0d6d6ca` + `f130842` were fixed, **two of them blockers I introduced**.
   The gating question below is **still unanswered** and remains a gate on whether the fix is
   SUFFICIENT — not on whether it is necessary.
 - **Repo:** android · branch `dev_spec_drift_refine` (base `d096570`)
@@ -314,6 +315,35 @@ key and never on its message.
 **These bodies are derived from source, not captured.** 待伺服器恢復後驗證: capture real wire bodies
 for register-success / register-reject / unregister-true / unregister-false and diff them against the
 fixtures before trusting them.
+
+### Code review round — defects found in `0d6d6ca` + `f130842`
+
+Two blockers, both mine, both invisible to a fully green 416-test suite.
+
+| # | Defect | Fix |
+|---|---|---|
+| 1 | **BLOCKER — the WebView session injection was never migrated.** `MainScreen.kt:221` still called `viewModel.getSessionId(acc.fullServerUrl)` after I re-keyed the store to account ids. Both are `String`, so nothing failed to compile. Every single-account login would have gone: session stored under the account's id → `cookieStore["https://…"]` → **null** → WebView loads unauthenticated → `/web/login` → self-heal → null again → `selfHealAttempted` already set → **re-login prompt, in a loop**. This is the app's main screen, on every login. I was asked in the review brief to check exactly this and did not; a `grep` for `getSessionId` was sufficient. | Call sites pass `acc.id`; parameters renamed to `accountId`; `OdooWebView` now takes the account id explicitly and the self-heal re-injection uses it. |
+| 2 | **BLOCKER — the login session was filed under a throwaway random UUID, and my comment claiming otherwise was fabricated.** I wrote "OdooAccount derives a deterministic id from serverUrl+database+username". It does not — `OdooAccount.kt:11` is `UUID.randomUUID()`. On every FIRST login the id used to store the session and the id later persisted were two different random UUIDs. Consequences: a live authenticated session retained for the process lifetime and never cleared by logout, and the first FCM registration POSTing with **no Cookie header at all**. | The persisted row is now built ONCE, before authenticating, and its id reused. The false comment is replaced with the actual constraint and why it matters. |
+| 3 | `reauthenticateForAccount` bypassed the single-flight mutex and the in-lock circuit re-check, while the class KDoc still promised both. A WebView expiry and an FCM expiry for the same account could send the stored password twice concurrently — defeating guardrail 3, which exists so a known-bad password is never re-sent. | Both paths now share one single-flight lock **keyed by account id**. Keying by host would have let the two paths race whenever they resolved differently. |
+| 4 | `Cookie.parseAll(request.url, response.headers)` reads only the FINAL response, but the deleted jar was called by `BridgeInterceptor` inside the redirect loop and captured **every hop**. An Odoo behind a proxy that 302s the auth POST would set its cookie on the redirect, leaving the store empty — and `AuthResult.Success` still returned. | Documented as a known behavioural narrowing with the redirect case named. Not fixable without re-introducing a jar, which P0-3 exists to remove; 待伺服器恢復後驗證 whether any deployment redirects the auth POST. |
+| 5 | `performReauth` returned `true` for any `AuthResult.Success`, even when no cookie was stored. The interceptor then re-resolved and set the **expired** cookie as "fresh", burned the single retry, and logged that the session was refreshed. | A success that leaves no session id is now logged and treated as **not refreshed**. |
+| 6 | **`FcmServerOutcome.Unreadable` was completely untested — and register threw on it.** So a server whose `result` is not an object (`result: null`, an array, a bare value, no `result` at all) would fail every registration on every cold start **forever**, and never reach the tenant-id write either, permanently losing deep-link routing. That is strictly worse than the silent success this story replaced. The fail-closed rationale — "a false failure costs one POST" — holds for a transient unreadable body, not for a shape mismatch. | `Unreadable` on register is now logged loudly and allowed to stand; a rejection we can READ is still fatal. New `FcmServerOutcomeTest` covers all eleven shapes in both directions. |
+| 7 | The WebView self-heal still resolved by host even though `MainViewModel` holds the active account — Hazard A left unfixed on the UI path, while `resolveAccountForHost`'s KDoc now says in ⚠️ terms that callers who know the account **must** not use it. | `selfHealActiveAccount` binds the active account when the expiry came from its own host, and falls back to host resolution otherwise. Two tests; the existing two now cover the fallback only, and say so. |
+
+**Also corrected — my own overclaim in the story.** The WI-4 note presented the key migration as
+complete ("`getSessionId`, `getSessionCookies` and `clearCookies` are all account-keyed"). The "Still
+NOT proven" list was scrupulous about server-side facts and silent about the one thing that was fully
+checkable offline: **who calls the renamed API**. That is the gap finding #1 fell through.
+
+**And a test-soundness correction.** The story said the per-account-cookie test is "sound only because
+of `NO_COOKIES` (premise pinned by its own test)". The chain is not that: the test builds its **own**
+client and sets `NO_COOKIES` locally, so its soundness comes from that line, not from the production
+pin — which is a good but *separate* structural test of a different object. The test does genuinely
+discriminate (a host-keyed provider makes both POSTs carry the same cookie and it fails), but the
+stated reason was wrong.
+
+**Six stale KDoc blocks** still described the removed `CookieJar` as the mechanism attaching cookies —
+sitting next to a new comment saying putting a jar back is a P0. All corrected.
 
 ## Change Log
 - 2026-08-03: Authored from the party-mode round. P0-3's root cause relocated from the FCM cookie jar

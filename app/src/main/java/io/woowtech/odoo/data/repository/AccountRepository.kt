@@ -46,34 +46,31 @@ class AccountRepository @Inject constructor(
     ): AuthResult {
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
 
-        // The account id must be known BEFORE authenticating, because the session cookies are now
-        // stored under it (story 8-2, P0-3). OdooAccount derives a deterministic id from
-        // serverUrl+database+username, so an existing account keeps its id and a new one gets the
-        // same id it will be persisted under.
+        // The account id must be known BEFORE authenticating, because the session cookies are stored
+        // under it (story 8-2, P0-3).
+        //
+        // ⚠️ `OdooAccount.id` defaults to a RANDOM UUID — it is NOT derived from
+        // serverUrl+database+username. So the row that will be persisted must be built ONCE, here,
+        // and its id reused for both the authenticate call and the insert. Constructing a throwaway
+        // OdooAccount just to read an id would file the login's session under an id nothing ever
+        // looks up: never cleared on logout, and the first FCM registration would go out with no
+        // Cookie header at all.
         val existingAccount = accountDao.findAccount(fullUrl, database, username)
-        val accountId = existingAccount?.id
-            ?: OdooAccount(
-                serverUrl = fullUrl,
-                database = database,
-                username = username,
-                displayName = username,
-            ).id
+        val pending = existingAccount ?: OdooAccount(
+            serverUrl = fullUrl,
+            database = database,
+            username = username,
+            displayName = username,
+        )
 
-        val result = odooClient.authenticate(accountId, fullUrl, database, username, password)
+        val result = odooClient.authenticate(pending.id, fullUrl, database, username, password)
 
         if (result is AuthResult.Success) {
 
-            val account = existingAccount?.copy(
+            val account = pending.copy(
                 displayName = result.displayName,
                 userId = result.userId,
                 lastLogin = System.currentTimeMillis(),
-                isActive = true
-            ) ?: OdooAccount(
-                serverUrl = fullUrl,
-                database = database,
-                username = username,
-                displayName = result.displayName,
-                userId = result.userId,
                 isActive = true
             )
 
@@ -137,7 +134,7 @@ class AccountRepository @Inject constructor(
         // honest meaning of "stop sending me this account's pushes". Do not restore this
         // call here without first re-checking the server's uniqueness constraint.
 
-        // Try to re-authenticate (this overwrites the cookie jar for the host)
+        // Try to re-authenticate (this replaces THIS account's stored session only)
         val result = odooClient.authenticate(
             accountId,
             account.fullServerUrl,
@@ -168,9 +165,11 @@ class AccountRepository @Inject constructor(
      * The original reason for the single-account scope — "switch has just unregistered the
      * previously-active account on purpose, and re-registering all accounts would undo that" — was
      * **deleted with that unregister** in story 8-1. The scope is still correct, but for a different
-     * and more basic reason: the session cookie jar is keyed by HOST
-     * (`OdooJsonRpcClient.cookieStore`), so at this point in the switch only the switched-to
-     * account has a live session. Registering the others here would POST under the wrong identity.
+     * and more basic reason: this runs immediately after the switch's re-authentication, so the
+     * switched-to account is the one whose session was just refreshed. Sessions are now per-account
+     * (story 8-2), so registering the others here would no longer POST under the wrong identity —
+     * it would simply be redundant work that `registerTokenForAllAccounts` already does on every
+     * cold start and token refresh. Widening the scope here is safe but pointless.
      * (Login instead uses [FcmTokenRepository.reconcileOnAccountAvailable], which upserts the token
      * for every logged-in account.)
      *
@@ -281,12 +280,14 @@ class AccountRepository @Inject constructor(
         //
         // ⚠️ SAME-HOST MULTI-ACCOUNT HAZARD (this note is the surviving record of a trap that
         // used to be documented in `switchAccount`, whose comment block story 8-1 removed).
-        // The session cookie jar is keyed by HOST alone, and the server deletes by
+        // The server deletes by
         // `user_id = env.uid` resolved from the SESSION — the request body carries only the
         // token. So removing a NON-ACTIVE account that shares a host with the active one
         // deletes the ACTIVE account's device row instead. `logout()` is safe today because it
-        // always targets the active account; this path is not. Fix the per-account session
-        // binding (story 8-2) before wiring a remove-account UI to this.
+        // always targets the active account. Story 8-2 FIXED the per-account session binding, so
+        // this path now sends the removed account's own cookie and deletes the right row — but the
+        // fix is not verified against a live server yet (待伺服器恢復後驗證), so confirm before
+        // wiring a remove-account UI to this.
         fcmTokenRepository?.let { repo ->
             repo.unregisterToken(accountId)
                 .onSuccess { Timber.d("FCM token unregistered for account %s before removal", accountId) }
