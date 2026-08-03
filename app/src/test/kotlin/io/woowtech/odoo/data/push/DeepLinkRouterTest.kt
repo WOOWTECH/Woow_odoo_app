@@ -223,4 +223,75 @@ class DeepLinkRouterTest {
         assertInstanceOf(DeepLinkRoute.SwitchAndApply::class.java, route)
         assertEquals("acc-B", (route as DeepLinkRoute.SwitchAndApply).accountId)
     }
+
+    // ---------------------------------------------------------------------
+    // P2-9 root cause — an ACCOUNT-scoped key ends the ambiguity at the source
+    // ---------------------------------------------------------------------
+    //
+    // Dropping an ambiguous tenant id is safe and costs those users their deep links.
+    // The server now stamps the `woow.fcm.device` row id on every push, which is unique
+    // per (token, user) BY CONSTRUCTION — so the two-users-on-one-database case that no
+    // client-side fix could resolve becomes routable again.
+
+    private val aliceOnShared = RoutableAccount(
+        id = "acc-alice", tenantId = "odoo18_ecpay", serverHost = "shared.woowtech.io",
+        deviceId = "101",
+    )
+    private val bobOnShared = RoutableAccount(
+        id = "acc-bob", tenantId = "odoo18_ecpay", serverHost = "shared.woowtech.io",
+        deviceId = "102",
+    )
+
+    @Test
+    fun `Given two users on one database when the device id is present then it routes to the right one`() {
+        val route = DeepLinkRouter.route(
+            deviceId = "102",
+            tenantId = "odoo18_ecpay",
+            actionUrl = "/web#active_id=mail.channel_7",
+            accounts = listOf(aliceOnShared, bobOnShared),
+            isLoggedIn = allLoggedIn,
+        )
+        assertInstanceOf(DeepLinkRoute.SwitchAndApply::class.java, route)
+        assertEquals("acc-bob", (route as DeepLinkRoute.SwitchAndApply).accountId)
+    }
+
+    @Test
+    fun `Given a device id that matches nothing then it drops rather than falling back to the ambiguous tenant`() {
+        // Falling back would re-introduce the guess this key exists to remove — and the
+        // server sent a device id, so an unmatched one means our row is stale, not absent.
+        val route = DeepLinkRouter.route(
+            deviceId = "999",
+            tenantId = "odoo18_ecpay",
+            actionUrl = "/web#active_id=mail.channel_7",
+            accounts = listOf(aliceOnShared, bobOnShared),
+            isLoggedIn = allLoggedIn,
+        )
+        assertInstanceOf(DeepLinkRoute.Drop::class.java, route)
+    }
+
+    @Test
+    fun `Given no device id in the payload then the tenant-id path is unchanged`() {
+        // Older server, or an account registered before this shipped. Must not regress.
+        val route = DeepLinkRouter.route(
+            deviceId = null,
+            tenantId = "tenant-B",
+            actionUrl = "/web#active_id=mail.channel_7",
+            accounts = accounts,
+            isLoggedIn = allLoggedIn,
+        )
+        assertInstanceOf(DeepLinkRoute.SwitchAndApply::class.java, route)
+        assertEquals("acc-B", (route as DeepLinkRoute.SwitchAndApply).accountId)
+    }
+
+    @Test
+    fun `Given a device id but the account is not logged in then it drops`() {
+        val route = DeepLinkRouter.route(
+            deviceId = "102",
+            tenantId = "odoo18_ecpay",
+            actionUrl = "/web#active_id=mail.channel_7",
+            accounts = listOf(aliceOnShared, bobOnShared),
+            isLoggedIn = { it != "acc-bob" },
+        )
+        assertInstanceOf(DeepLinkRoute.Drop::class.java, route)
+    }
 }

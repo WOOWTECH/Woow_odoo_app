@@ -270,6 +270,15 @@ class FcmTokenRepositoryImpl(
             // notifications can be routed to it (multi-account deep-link isolation). Best-effort:
             // an older server that does not return a tenant id leaves the column null and the
             // account simply keeps current-behaviour routing until a newer server responds.
+            // P2-9 root cause: persist the ACCOUNT-scoped routing key the server returns.
+            // Unlike the tenant id there is no ambiguity to guard against — a device row id
+            // is unique per (fcm_token, user_id) by construction, which is why it exists.
+            FcmRegistrationResponse.parseDeviceId(responseBody)?.let { deviceId ->
+                if (deviceId != account.deviceId) {
+                    accountDao.updateDeviceId(id = accountId, deviceId = deviceId)
+                }
+            }
+
             val tenantId = FcmRegistrationResponse.parseTenantId(responseBody)
             if (tenantId != null && tenantId != account.tenantId) {
                 // Story 8-1 (P2-9) WI-2: a colliding tenant id IS persisted — deliberately — and
@@ -590,6 +599,25 @@ object FcmRegistrationResponse {
      * accepting either a `tenant_id` or `odoo_tenant_id` key, and only non-blank string/number
      * values are accepted.
      */
+    /**
+     * Returns the `device_id` from a registration response, or null.
+     *
+     * This is the ACCOUNT-scoped push routing key (P2-9). The server has always returned it;
+     * the client simply never stored it, and routed on a tenant id that cannot identify an
+     * account. Accepts a number or a string — Odoo returns an int, but a JSON-RPC layer that
+     * stringifies it must not silently break routing.
+     */
+    fun parseDeviceId(responseBody: String?): String? {
+        if (responseBody.isNullOrBlank()) return null
+        return runCatching {
+            val root = parser.fromJson(responseBody, JsonObject::class.java) ?: return null
+            val result = root.getAsJsonObject("result") ?: return null
+            val element = result.get("device_id") ?: return null
+            if (!element.isJsonPrimitive) return null
+            element.asString.takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
     fun parseTenantId(responseBody: String?): String? {
         if (responseBody.isNullOrBlank()) return null
         return runCatching {

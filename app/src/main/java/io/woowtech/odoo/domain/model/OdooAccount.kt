@@ -28,6 +28,19 @@ data class OdooAccount(
      * unresolved tenant id causes the deep link to be dropped rather than mis-routed.
      */
     val tenantId: String? = null,
+
+    /**
+     * The ACCOUNT-scoped push routing key: the id of this account's `woow.fcm.device` row
+     * (P2-9 root cause).
+     *
+     * Prefer this over [tenantId] when routing a notification. A tenant id names a TENANT —
+     * the server resolves it to the database name — so two users on one database share it
+     * unavoidably and it cannot select between them.
+     *
+     * Null until the next successful FCM registration; the router falls back to [tenantId]
+     * while it is.
+     */
+    val deviceId: String? = null,
 ) {
     val fullServerUrl: String
         get() = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"

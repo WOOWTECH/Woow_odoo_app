@@ -58,6 +58,9 @@ class WoowFcmService : FirebaseMessagingService() {
         // Opaque originating tenant id (added by the version-gated plugin). Absent for old
         // senders — the tap then falls back to current active-account behaviour.
         val tenantId = data["odoo_tenant_id"]
+        // ACCOUNT-scoped routing key (P2-9). Absent from older senders, in which case the
+        // tap falls back to the tenant id — which cannot separate two users on one database.
+        val deviceId = data["odoo_device_id"]
 
         notificationHelper.showNotification(
             title = title,
@@ -65,6 +68,7 @@ class WoowFcmService : FirebaseMessagingService() {
             actionUrl = actionUrl,
             eventType = eventType,
             tenantId = tenantId,
+            deviceId = deviceId,
         )
     }
 

@@ -695,4 +695,46 @@ class FcmTokenRepositoryTest {
 
         assertEquals(FcmRequestAccount("acc-A"), tag)
     }
+
+
+    // ---------------------------------------------------------------------
+    // P2-9 root cause — persist the ACCOUNT-scoped routing key
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `Given a registration response when registering then the device id is persisted`() = runTest {
+        // The server has ALWAYS returned device_id; the client simply never stored it, and
+        // routed on a tenant id that cannot identify an account. Two users on one database
+        // share a tenant id unavoidably — this key is unique per (fcm_token, user_id).
+        val a = makeAccount("a", serverUrl = "https://a.test")
+        coEvery { accountDao.getAllAccountsList() } returns listOf(a)
+        coEvery { accountDao.getAccountById("a") } returns a
+        coEvery { accountDao.countAccountsWithTenantId(any(), any()) } returns 0
+        every { encryptedPrefs.getFcmToken() } returns null
+
+        repoWith(fakeClient { req -> jsonResponse(req, 200, registerAccepted) })
+            .registerTokenForAllAccounts("tok")
+
+        coVerify(exactly = 1) { accountDao.updateDeviceId(id = "a", deviceId = "7") }
+    }
+
+    @Test
+    fun `Given an int device id when parsing then it is read as a string`() {
+        // Odoo returns an int. FCM data values are strings, and the account column is TEXT,
+        // so a parser that only accepted a JSON string would silently store nothing.
+        val parsed = FcmRegistrationResponse.parseDeviceId(
+            """{"jsonrpc":"2.0","id":1,"result":{"device_id":7,"odoo_tenant_id":"t"}}""",
+        )
+        assertEquals("7", parsed)
+    }
+
+    @Test
+    fun `Given a response with no device id then parsing yields null`() {
+        // An older server. Must not throw, and must leave the column alone so the router
+        // keeps falling back to the tenant id.
+        assertEquals(
+            null,
+            FcmRegistrationResponse.parseDeviceId("""{"jsonrpc":"2.0","result":{"ok":true}}"""),
+        )
+    }
 }

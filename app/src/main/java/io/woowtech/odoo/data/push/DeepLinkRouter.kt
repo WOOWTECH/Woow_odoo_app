@@ -12,6 +12,13 @@ data class RoutableAccount(
     val id: String,
     val tenantId: String?,
     val serverHost: String,
+    /**
+     * The ACCOUNT-scoped routing key — this account's `woow.fcm.device` row id (P2-9).
+     *
+     * Null until the next successful FCM registration, which is why [tenantId] remains the
+     * fallback rather than being replaced.
+     */
+    val deviceId: String? = null,
 )
 
 /**
@@ -54,6 +61,8 @@ sealed interface DeepLinkRoute {
 object DeepLinkRouter {
 
     /**
+     * @param deviceId the ACCOUNT-scoped routing key from the FCM payload, or null when the server
+     *   is older than this key. Preferred over [tenantId] whenever present — see below.
      * @param tenantId the opaque tenant id from the FCM payload, or null/blank for old-plugin payloads
      * @param actionUrl the relative Odoo deep-link path from the payload
      * @param accounts all locally known accounts
@@ -61,6 +70,7 @@ object DeepLinkRouter {
      * @return the routing decision; see [DeepLinkRoute]
      */
     fun route(
+        deviceId: String? = null,
         tenantId: String?,
         actionUrl: String,
         accounts: List<RoutableAccount>,
@@ -68,6 +78,29 @@ object DeepLinkRouter {
     ): DeepLinkRoute {
         if (actionUrl.isBlank()) {
             return DeepLinkRoute.Drop("blank action url")
+        }
+
+        // P2-9 root cause: prefer the ACCOUNT-scoped key when the server sent one.
+        //
+        // A tenant id names a TENANT — the server resolves it to the Odoo database name — so
+        // two users on ONE database share it unavoidably and it cannot select between them.
+        // The device row id is unique per (fcm_token, user_id) by construction, which is the
+        // whole reason it was added to the payload.
+        //
+        // A device id that matches NOTHING drops rather than falling back to the tenant id.
+        // Falling back would re-introduce exactly the guess this key exists to remove, and an
+        // unmatched id means our stored row is stale — not that the server failed to identify
+        // the account.
+        if (!deviceId.isNullOrBlank()) {
+            val target = accounts.firstOrNull { it.deviceId == deviceId }
+                ?: return DeepLinkRoute.Drop("unresolved device id")
+            if (!isLoggedIn(target.id)) {
+                return DeepLinkRoute.Drop("target account not logged in")
+            }
+            if (!DeepLinkValidator.isValid(url = actionUrl, serverHost = target.serverHost)) {
+                return DeepLinkRoute.Drop("action url failed validation for target host")
+            }
+            return DeepLinkRoute.SwitchAndApply(accountId = target.id, url = actionUrl)
         }
 
         // Old-plugin payload: no tenant id at all -> current behaviour (host-validated against the

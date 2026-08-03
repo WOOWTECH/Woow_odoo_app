@@ -42,6 +42,7 @@ class NotificationHelper @Inject constructor(
         actionUrl: String? = null,
         eventType: String? = null,
         tenantId: String? = null,
+        deviceId: String? = null,
     ) {
         val notificationId = System.currentTimeMillis().toInt()
 
@@ -49,6 +50,7 @@ class NotificationHelper @Inject constructor(
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             actionUrl?.let { putExtra(EXTRA_ACTION_URL, it) }
             tenantId?.let { putExtra(EXTRA_TENANT_ID, it) }
+            deviceId?.let { putExtra(EXTRA_DEVICE_ID, it) }
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -80,6 +82,9 @@ class NotificationHelper @Inject constructor(
     companion object {
         const val EXTRA_ACTION_URL = "odoo_action_url"
         const val EXTRA_TENANT_ID = "odoo_tenant_id"
+
+        /** ACCOUNT-scoped routing key (P2-9). Preferred over [EXTRA_TENANT_ID] when present. */
+        const val EXTRA_DEVICE_ID = "odoo_device_id"
         private const val GROUP_DEFAULT = "odoo_messages"
     }
 }

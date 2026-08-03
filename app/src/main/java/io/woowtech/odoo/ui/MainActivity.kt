@@ -145,6 +145,7 @@ class MainActivity : FragmentActivity() {
     private fun handleDeepLinkIntent(intent: Intent?) {
         val actionUrl = intent?.getStringExtra(NotificationHelper.EXTRA_ACTION_URL) ?: return
         val tenantId = intent.getStringExtra(NotificationHelper.EXTRA_TENANT_ID)
+        val deviceId = intent.getStringExtra(NotificationHelper.EXTRA_DEVICE_ID)
 
         activityScope.launch(Dispatchers.IO) {
             val accounts = accountRepository.getAllAccountsOnce()
@@ -153,11 +154,13 @@ class MainActivity : FragmentActivity() {
                     id = account.id,
                     tenantId = account.tenantId,
                     serverHost = account.serverHost(),
+                    deviceId = account.deviceId,
                 )
             }
 
             when (
                 val route = DeepLinkRouter.route(
+                    deviceId = deviceId,
                     tenantId = tenantId,
                     actionUrl = actionUrl,
                     accounts = routableAccounts,
