@@ -13,7 +13,7 @@ if (file("google-services.json").exists()) {
 
 android {
     namespace = "io.woowtech.odoo"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.woowtech.odoo"
