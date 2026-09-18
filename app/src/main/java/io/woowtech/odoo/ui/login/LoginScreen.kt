@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,8 +45,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +70,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.woowtech.odoo.R
 import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
 
@@ -79,18 +82,11 @@ fun LoginScreen(
     WoowFixedBrandTheme {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // 與 iOS LoginView 對齊：純色背景，不用品牌色漸層。
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                    )
-                )
-            )
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(
             modifier = Modifier
@@ -111,7 +107,7 @@ fun LoginScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.back_button),
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -119,60 +115,41 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(48.dp))
             }
 
-            // Logo
             Spacer(modifier = Modifier.height(24.dp))
 
-            // App Logo
+            // 品牌圓標。白底，所以用與 iOS 同一張純圓標（無白色襯底）。
             Image(
                 painter = painterResource(id = R.drawable.woow_logo),
                 contentDescription = null,
-                modifier = Modifier.size(88.dp)
+                modifier = Modifier.size(80.dp)
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.sp
-                ),
-                color = Color.White
-            )
-
-            Spacer(modifier = Modifier.height(40.dp))
-
-            // Title
-            Text(
-                text = stringResource(R.string.login_title),
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Bold
                 ),
-                color = Color.White
+                color = MaterialTheme.colorScheme.onBackground
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = stringResource(R.string.login_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.85f)
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
-            // Form Card
-            Card(
+            // 不用 Card：Material 3 的 Card 會依 elevation 疊上一層 surfaceTint
+            // （tint 來自 colorScheme），錯誤態時整張卡片會變色。iOS 也沒有卡片。
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.White
-                ),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = 8.dp
-                )
+                    .padding(horizontal = 24.dp)
             ) {
                 AnimatedContent(
                     targetState = uiState.step,
@@ -255,7 +232,7 @@ private fun ServerInfoForm(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Server URL
@@ -264,7 +241,6 @@ private fun ServerInfoForm(
             onValueChange = onServerUrlChange,
             label = stringResource(R.string.server_url),
             placeholder = stringResource(R.string.server_url_hint),
-            leadingIcon = Icons.Default.Cloud,
             prefix = stringResource(R.string.https_prefix),
             isError = serverUrlError != null,
             errorMessage = serverUrlError,
@@ -285,7 +261,6 @@ private fun ServerInfoForm(
             onValueChange = onDatabaseChange,
             label = stringResource(R.string.database_name),
             placeholder = stringResource(R.string.database_name_hint),
-            leadingIcon = Icons.Default.Storage,
             isError = databaseError != null,
             errorMessage = databaseError,
             keyboardOptions = KeyboardOptions(
@@ -340,7 +315,7 @@ private fun CredentialsForm(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Username
@@ -349,7 +324,6 @@ private fun CredentialsForm(
             onValueChange = onUsernameChange,
             label = stringResource(R.string.username),
             placeholder = stringResource(R.string.username_hint),
-            leadingIcon = Icons.Default.Person,
             isError = usernameError != null,
             errorMessage = usernameError,
             enabled = !isLoading,
@@ -370,7 +344,6 @@ private fun CredentialsForm(
             onValueChange = onPasswordChange,
             label = stringResource(R.string.password),
             placeholder = stringResource(R.string.password_hint),
-            leadingIcon = Icons.Default.Lock,
             isError = passwordError != null,
             errorMessage = passwordError,
             enabled = !isLoading,
@@ -469,7 +442,6 @@ private fun StyledTextField(
     onValueChange: (String) -> Unit,
     label: String,
     placeholder: String,
-    leadingIcon: ImageVector,
     isError: Boolean = false,
     errorMessage: String? = null,
     enabled: Boolean = true,
@@ -479,37 +451,35 @@ private fun StyledTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
+    // 與 iOS LoginView 對齊：標籤放在欄位「上方」，欄位本身是無邊框的填色圓角矩形。
+    // 不用 OutlinedTextField 的浮動標籤與前置圖示 —— iOS 兩者都沒有。
     Column(modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isError) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+        )
+
+        TextField(
             value = value,
             onValueChange = onValueChange,
-            label = {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            },
             placeholder = {
                 Text(
                     text = placeholder,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                )
-            },
-            leadingIcon = {
-                Icon(
-                    imageVector = leadingIcon,
-                    contentDescription = null,
-                    tint = if (isError) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    }
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                 )
             },
             prefix = prefix?.let {
                 {
                     Text(
                         text = it,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                     )
                 }
@@ -521,38 +491,37 @@ private fun StyledTextField(
             visualTransformation = visualTransformation,
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                // Text colors
+            textStyle = MaterialTheme.typography.bodyLarge,
+            shape = RoundedCornerShape(12.dp),
+            colors = TextFieldDefaults.colors(
                 focusedTextColor = MaterialTheme.colorScheme.onSurface,
                 unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 disabledTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                // Container colors
-                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                errorContainerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f),
-                // Border colors - HIGH VISIBILITY
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                errorBorderColor = MaterialTheme.colorScheme.error,
-                // Label colors
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                errorLabelColor = MaterialTheme.colorScheme.error
+                // 填色固定用 surfaceVariant：不隨 elevation 疊 surfaceTint，
+                // 也不在錯誤態整塊變色（錯誤只靠標籤與下方訊息表示）。
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                errorContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                // 無底線：iOS 的欄位沒有任何邊框或底線
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+                errorIndicatorColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary
             ),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
         )
 
-        // Error message
         if (isError && errorMessage != null) {
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = errorMessage,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 16.dp)
+                modifier = Modifier.padding(start = 4.dp)
             )
         }
     }
