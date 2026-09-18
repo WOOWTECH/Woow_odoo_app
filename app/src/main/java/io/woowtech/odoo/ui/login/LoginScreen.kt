@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -73,6 +74,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.woowtech.odoo.R
 import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
+
+/**
+ * 登入表單在大螢幕上的寬度上限，對齊 iOS `LoginView` 的
+ * `.frame(maxWidth: 500)`。平板上不讓欄位橫向拉滿整個螢幕。
+ */
+private val FORM_MAX_WIDTH = 500.dp
 
 @Composable
 fun LoginScreen(
@@ -148,6 +155,10 @@ fun LoginScreen(
             // （tint 來自 colorScheme），錯誤態時整張卡片會變色。iOS 也沒有卡片。
             Column(
                 modifier = Modifier
+                    // 與 iOS `.frame(maxWidth: 500)` 對齊：平板／大螢幕上限寬置中，
+                    // 不讓表單橫向拉滿。順序重要 —— widthIn 必須在 fillMaxWidth 之前，
+                    // 否則 fillMaxWidth 會把 minWidth 撐到父層寬度而使上限失效。
+                    .widthIn(max = FORM_MAX_WIDTH)
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
             ) {
@@ -193,6 +204,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 Card(
                     modifier = Modifier
+                        .widthIn(max = FORM_MAX_WIDTH)
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp),
                     shape = RoundedCornerShape(12.dp),
