@@ -18,7 +18,7 @@ android {
     defaultConfig {
         applicationId = "io.woowtech.odoo"
         minSdk = 29
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 21
         versionName = "1.4.1"
 
