@@ -69,12 +69,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
+import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
 
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
     onLoginSuccess: () -> Unit
 ) {
+    WoowFixedBrandTheme {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Box(
@@ -234,6 +236,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.weight(1f))
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
     }
 }
 

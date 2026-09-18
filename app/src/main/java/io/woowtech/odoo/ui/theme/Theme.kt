@@ -10,6 +10,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -118,6 +119,41 @@ fun WoowTechOdooTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        content = content
+    )
+}
+
+/**
+ * 登入前畫面專用：把 [MaterialTheme] 的品牌色**固定**為 [WoowTechBlue]，
+ * 不受設定頁那個主題色選擇器影響。
+ *
+ * 為什麼：
+ * - 登入前沒有帳號脈絡，「要套誰的主題色」沒有答案 —— 沿用上一個帳號的顏色，
+ *   等於把別人的品牌色漏到一個還不屬於他的畫面上。
+ * - 主題色的用途是讓客戶把 App **裡面**（他自己的 Odoo）品牌化；登入畫面是本
+ *   產品自己的門面，必須維持品牌藍。
+ *
+ * 用法：包住整個畫面的最外層 composable。包起來之後，畫面內所有
+ * `MaterialTheme.colorScheme.primary` / `primaryContainer` 都會自動取得固定色，
+ * 不需要逐一改呼叫點。
+ *
+ * 只覆寫 primary 系列；surface／background／error 等仍沿用當前明暗配色，
+ * 深色模式因此不受影響。
+ */
+@Composable
+fun WoowFixedBrandTheme(content: @Composable () -> Unit) {
+    val base = MaterialTheme.colorScheme
+    MaterialTheme(
+        colorScheme = base.copy(
+            primary = WoowTechBlue,
+            primaryContainer = if (base.background.luminance() > 0.5f) {
+                PrimaryContainerLight
+            } else {
+                PrimaryContainerDark
+            }
+        ),
+        typography = MaterialTheme.typography,
+        shapes = MaterialTheme.shapes,
         content = content
     )
 }

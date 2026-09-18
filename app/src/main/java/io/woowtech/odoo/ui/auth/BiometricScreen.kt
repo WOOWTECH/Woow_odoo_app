@@ -54,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
+import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
 
 /**
  * Biometric authentication screen. There is no "skip" path — if the user cannot or will
@@ -71,6 +72,7 @@ fun BiometricScreen(
     onUsePinClick: () -> Unit,
     onRecover: () -> Unit = {},
 ) {
+    WoowFixedBrandTheme {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -368,5 +370,6 @@ fun BiometricScreen(
                 }
             }
         }
+    }
     }
 }

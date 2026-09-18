@@ -57,6 +57,7 @@ import androidx.lifecycle.Lifecycle
 import io.woowtech.odoo.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
 
 /** Horizontal amplitude (dp) of the wrong-PIN shake displacement. */
 private const val SHAKE_AMPLITUDE_DP = 10
@@ -70,6 +71,7 @@ fun PinScreen(
     // biometric screen's "Use PIN" so the user can return to the face prompt.
     showBack: Boolean = true,
 ) {
+    WoowFixedBrandTheme {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by viewModel.settings.collectAsState()
@@ -275,6 +277,7 @@ fun PinScreen(
 
             Spacer(modifier = Modifier.height(40.dp))
         }
+    }
     }
 }
 
