@@ -81,7 +81,6 @@
     <string name="language">语言</string>
     <string name="language_english">English</string>
     <string name="language_chinese">繁体中文</string>
-    <string name="language_chinese_cn">简体中文</string>
     <string name="timezone">时区</string>
 
     <!-- v1.0.16: Odoo Preferences -->
