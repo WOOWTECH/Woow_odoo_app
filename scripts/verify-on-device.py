@@ -48,6 +48,18 @@ def red(vid, msg):
     print(f"\033[31m  ❌ {vid}: {msg}\033[0m")
 
 
+
+# App 顯示名稱依裝置語系而異（AP-15 改名）：預設語系為英文 "woowtech platform"，
+# 中文語系為「渥屋系統」。任何斷言都必須同時接受兩者，否則換一台語系不同的
+# 裝置就會誤報失敗。字串來源：app/src/main/res/values*/strings.xml 的 app_name。
+APP_TITLES = ("woowtech platform", "渥屋系統")
+
+
+def app_title_visible(d, timeout=2):
+    """Return True if the app-bar/brand title is on screen in ANY supported locale."""
+    return any(d(text=t).exists(timeout=timeout) for t in APP_TITLES)
+
+
 def check(vid, desc, condition):
     if condition:
         green(vid, desc)
@@ -156,7 +168,7 @@ if biometric_visible:
           "Auth screen re-appears after background→foreground",
           auth_reappears)
 else:
-    main_visible = d(text="WoowTech Odoo").exists(timeout=2)
+    main_visible = app_title_visible(d, timeout=2)
     if main_visible:
         # App lock not enabled — test bg→fg anyway to confirm no crash
         d.press("home")
@@ -260,9 +272,9 @@ check("V08a-C07",
       "App launches without crash (brand colors compiled)",
       app_running)
 
-top_bar = d(text="WoowTech Odoo").exists(timeout=3)
+top_bar = app_title_visible(d, timeout=3)
 check("V08b-C07",
-      "App bar with 'WoowTech Odoo' title visible (themed)",
+      "App bar with app title visible (themed) — accepts any supported locale",
       top_bar)
 
 # ═══════════════════════════════════════════════════════════
