@@ -31,12 +31,31 @@ interface AccountDao {
     suspend fun findAccount(serverUrl: String, database: String, username: String): OdooAccount?
 
     /**
-     * Resolves the local account that owns the given opaque [tenantId]. Returns null when no
-     * account has registered that tenant id yet, which the deep-link router treats as an
-     * unresolved tenant (the notification is dropped, never mis-routed to the active account).
+     * Resolves the local account that owns the given opaque [tenantId], **only when exactly one
+     * account carries it**. Returns null when no account has registered that tenant id yet *and*
+     * when two or more accounts share it — both are "unresolved" as far as routing is concerned,
+     * and the deep-link router drops the notification rather than mis-routing it to the active
+     * account.
+     *
+     * The `COUNT(*) = 1` sub-select is the refusal, expressed in SQL. The previous `LIMIT 1`
+     * silently collapsed an ambiguous tenant id into whichever row SQLite happened to return
+     * first — the "take a first match" behaviour the server plugin's `notification_targeting.py`
+     * contract explicitly forbids ("Clients must COUNT and refuse an ambiguous value rather than
+     * take a first match"). `tenantId` has no UNIQUE constraint (see [AppDatabase.MIGRATION_1_2]),
+     * so duplicates are reachable in the real schema.
      */
-    @Query("SELECT * FROM accounts WHERE tenantId = :tenantId LIMIT 1")
+    @Query(
+        "SELECT * FROM accounts WHERE tenantId = :tenantId " +
+            "AND (SELECT COUNT(*) FROM accounts WHERE tenantId = :tenantId) = 1"
+    )
     suspend fun getAccountByTenantId(tenantId: String): OdooAccount?
+
+    /**
+     * Number of local accounts carrying [tenantId]. Anything other than 1 means the tenant id
+     * cannot be resolved to a single account; callers must refuse rather than pick one.
+     */
+    @Query("SELECT COUNT(*) FROM accounts WHERE tenantId = :tenantId")
+    suspend fun countAccountsByTenantId(tenantId: String): Int
 
     /**
      * Persists the [tenantId] returned by the Odoo server for the account with [id]. Called

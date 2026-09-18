@@ -34,8 +34,9 @@ sealed interface DeepLinkRoute {
 
     /**
      * The link must be discarded and the active account left untouched. [reason] is for logging
-     * only. This is returned for an unresolved tenant id, a target account that is not logged in,
-     * and a link that fails host validation — never a fall-back to the active account.
+     * only. This is returned for an unresolved tenant id, an ambiguous tenant id (shared by two or
+     * more local accounts), a target account that is not logged in, and a link that fails host
+     * validation — never a fall-back to the active account.
      */
     data class Drop(val reason: String) : DeepLinkRoute
 }
@@ -47,6 +48,9 @@ sealed interface DeepLinkRoute {
  * The frozen security contract this encodes:
  * - **Present-but-unresolved tenant id -> [DeepLinkRoute.Drop]**, never a fall-back to the active
  *   account (that would leak account B's notification into account A).
+ * - **Ambiguous tenant id (matched by 2+ local accounts) -> [DeepLinkRoute.Drop]**. The server
+ *   plugin's `notification_targeting.py` states the client contract: "Clients must COUNT and
+ *   refuse an ambiguous value rather than take a first match."
  * - **Target account not logged in -> [DeepLinkRoute.Drop]**.
  * - **Link fails [DeepLinkValidator] against the resolved account's host -> [DeepLinkRoute.Drop]**.
  * - **Missing tenant id (old plugin) -> [DeepLinkRoute.ApplyToActive]**, preserving prior behaviour.
@@ -76,7 +80,15 @@ object DeepLinkRouter {
             return DeepLinkRoute.ApplyToActive(actionUrl)
         }
 
-        val target = accounts.firstOrNull { it.tenantId == tenantId }
+        // COUNT and refuse: an ambiguous tenant id (two or more local accounts carrying the same
+        // value) is unresolved, not "resolved to the first one". Taking a first match here would
+        // route the owner's notification into whichever account happens to sort first.
+        val matches = accounts.filter { it.tenantId == tenantId }
+        if (matches.size > 1) {
+            return DeepLinkRoute.Drop("ambiguous tenant id")
+        }
+
+        val target = matches.singleOrNull()
             ?: return DeepLinkRoute.Drop("unresolved tenant id")
 
         if (!isLoggedIn(target.id)) {
