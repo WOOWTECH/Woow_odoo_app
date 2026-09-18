@@ -11,6 +11,13 @@ if (file("google-services.json").exists()) {
     apply(plugin = libs.plugins.google.services.get().pluginId)
 }
 
+// EP-02A: reproducible dependency resolution evidence.
+// Locks the release/debug runtime+compile classpaths so an artifact can be
+// tied to an exact resolved dependency set.
+dependencyLocking {
+    lockAllConfigurations()
+}
+
 android {
     namespace = "io.woowtech.odoo"
     compileSdk = 36
