@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +57,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -119,24 +121,11 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // App Logo
-            Box(
-                modifier = Modifier
-                    .size(88.dp)
-                    .background(
-                        color = Color.White.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "W",
-                    style = MaterialTheme.typography.displayMedium.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = Color.White
-                )
-            }
+            Image(
+                painter = painterResource(id = R.drawable.woow_logo),
+                contentDescription = null,
+                modifier = Modifier.size(88.dp)
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 

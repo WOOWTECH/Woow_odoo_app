@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- App Info -->
-    <string name="app_name">渥屋系統</string>
+    <string name="app_name">woowtech platform</string>
     <string name="app_version">1.0.3</string>
     <string name="copyright">© 2026 WoowTech</string>
 
