@@ -98,34 +98,46 @@ cloudflared tunnel --url http://localhost:8069
 
 ## ADB Automated Login
 
-```bash
-# Fill login fields via uiautomator2 (requires: pip3 install uiautomator2)
-python3 << 'EOF'
-import uiautomator2 as u2, time
+> **Do not type into these fields with the default IME.** Gboard / SwiftKey / MIUI
+> autocorrect silently mangles the input — `trycloudflare` becomes `try cloudflare`,
+> `admin` becomes `Admin` — and the result looks like "tunnel unreachable" or "wrong
+> password" rather than an input bug. `scripts/test_config.py` ships the helpers that
+> switch to ADBKeyboard and put the user's IME back; this is the same hard rule the
+> repo's `CLAUDE.md` states. It also holds the tunnel URL, so there is nothing to
+> paste in below.
 
-TUNNEL_URL = "YOUR_TUNNEL_URL_HERE"  # e.g. directions-joe-itunes-feel.trycloudflare.com
-DB_NAME = "odoo18_ecpay"
-USERNAME = "test@woowtech.com"
-PASSWORD = "test1234"
+```bash
+# Run from scripts/ so test_config is importable.
+# Requires: pip3 install uiautomator2
+cd scripts && python3 << 'EOF'
+import time
+import uiautomator2 as u2
+from test_config import ODOO_HOST, ODOO_DB, ODOO_USER, ODOO_PASS, enable_adb_keyboard, restore_ime
 
 d = u2.connect()
+prev_ime = enable_adb_keyboard()
+try:
+    # Screen 1: Server URL + Database
+    edits = d(className="android.widget.EditText")
+    edits[0].send_keys(ODOO_HOST)
+    time.sleep(0.3)
+    edits[1].send_keys(ODOO_DB)
+    d(text="下一步").click()
+    time.sleep(3)
 
-# Screen 1: Server URL + Database
-edits = d(className="android.widget.EditText")
-edits[0].set_text(TUNNEL_URL)
-time.sleep(0.3)
-edits[1].set_text(DB_NAME)
-d(text="下一步").click()
-time.sleep(3)
-
-# Screen 2: Username + Password
-edits = d(className="android.widget.EditText")
-edits[0].set_text(USERNAME)
-time.sleep(0.3)
-edits[1].set_text(PASSWORD)
-d(text="登入").click()
+    # Screen 2: Username + Password
+    edits = d(className="android.widget.EditText")
+    edits[0].send_keys(ODOO_USER)
+    time.sleep(0.3)
+    edits[1].send_keys(ODOO_PASS)
+    d(text="登入").click()
+finally:
+    restore_ime(prev_ime)   # leave the user's IME as found
 EOF
 ```
+
+To point this at a different server, set `ODOO_URL` (and optionally `ODOO_DB`,
+`ODOO_USER`, `ODOO_PASS`) in the environment rather than editing the snippet.
 
 ---
 
