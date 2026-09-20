@@ -1,6 +1,6 @@
 # WoowTech Odoo — Android
 
-> Native Android companion app for the Odoo ERP platform, built entirely in Kotlin with Jetpack Compose. This repository is the **reference implementation** that the iOS port (`Woow_ios_app`) mirrors feature-for-feature.
+> Native Android companion app for the Odoo ERP platform, built entirely in Kotlin with Jetpack Compose. This repository is the **reference implementation** that the iOS port (`Woow_odoo_ios`) mirrors feature-for-feature.
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?logo=kotlin)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack%20Compose-2024.02-4285F4?logo=jetpackcompose)](https://developer.android.com/jetpack/compose)
@@ -43,13 +43,13 @@
 
 ### Relationship to the iOS Port
 
-This Android app is the **source of truth** for product behavior. The iOS port (`Woow_ios_app`, SwiftUI + Swift 5.9) mirrors the same feature surface, the same Odoo JSON-RPC contract, and the same FCM event types. Any behavior change here is expected to be replicated on iOS — see `docs/plans/2026-03-25-ios-porting-plan.md` and `docs/plans/2026-03-25-ios-implementation-milestones.md`.
+This Android app is the **source of truth** for product behavior. The iOS port (`Woow_odoo_ios`, SwiftUI + Swift 5.9) mirrors the same feature surface, the same Odoo JSON-RPC contract, and the same FCM event types. Any behavior change here is expected to be replicated on iOS — see `docs/plans/2026-03-25-ios-porting-plan.md` and `docs/plans/2026-03-25-ios-implementation-milestones.md`.
 
 ```mermaid
 flowchart LR
     Odoo[Odoo 18 Server<br/>+ woow_fcm_push module]
-    Android[Woow_ha_app / Android<br/>Kotlin + Compose]
-    iOS[Woow_ios_app / iOS<br/>Swift + SwiftUI]
+    Android[Woow_odoo_app / Android<br/>Kotlin + Compose]
+    iOS[Woow_odoo_ios / iOS<br/>Swift + SwiftUI]
     Firebase[(Firebase<br/>FCM + APNs)]
 
     Odoo -- JSON-RPC 2.0 --> Android
@@ -279,8 +279,7 @@ WoowTechOdoo/
 │       │       │   ├── data_extraction_rules.xml
 │       │       │   └── file_paths.xml             # FileProvider paths
 │       │       └── mipmap-*/ic_launcher*.webp
-│       ├── test/                                  # JUnit 5 unit tests (MockK + Turbine)
-│       └── androidTest/                           # Instrumented / Compose UI tests
+│       └── test/                                  # JUnit 5 unit tests (MockK + Turbine)
 ├── build.gradle.kts                      # Top-level plugin aliases
 ├── settings.gradle.kts                   # Root project name, module includes
 ├── gradle.properties                     # JVM args, androidX flags
@@ -883,11 +882,18 @@ Unknown `event_type` falls back to the `odoo_messages` group.
 | Kind | Framework | Location |
 | ---- | --------- | -------- |
 | Unit (pure Kotlin) | JUnit 5 + MockK + Turbine | `app/src/test/` |
-| Instrumented | JUnit 4 + Espresso + Compose UI Test | `app/src/androidTest/` |
 | On-device smoke | `uiautomator2` (Python) | `scripts/verify-on-device.py` |
 | E2E production | `uiautomator2` | `scripts/e2e-production-test.py` |
 
-Current status (per `docs/plans/2026-03-23-test-plan.md`): **178 unit tests** / **30 device checks** / **22 E2E tests** / **7 Odoo module tests**.
+> **There is no `app/src/androidTest/` source set.** The Espresso / Compose-UI-Test
+> dependencies are declared in `app/build.gradle.kts`, but no instrumented tests have
+> been written — on-device coverage comes from the two `uiautomator2` Python scripts
+> instead. Do not cite an instrumented suite that does not exist.
+
+Current status: **404 unit tests** across 42 files in `app/src/test/`, counted from the
+source. `docs/plans/2026-03-23-test-plan.md` still reports the 178 that existed when it
+was written; treat this README's count as the current one and that plan as a historical
+record of its own sprint.
 
 ### 12.2 Run Commands
 
@@ -1141,7 +1147,7 @@ python3 scripts/verify-on-device.py # if a device is connected
 - Website — https://aiot.woowtech.io
 - Email — woowtech@designsmart.com.tw
 - Repo — https://github.com/WOOWTECH/Woow_odoo_app
-- iOS port — https://github.com/WOOWTECH/Woow_ios_app
+- iOS port — https://github.com/WOOWTECH/Woow_odoo_ios
 - Odoo FCM module — https://github.com/WOOWTECH/woow_odoo_fcm_push
 
 ---
