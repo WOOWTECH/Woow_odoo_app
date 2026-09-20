@@ -88,10 +88,11 @@ app/src/main/java/io/woowtech/odoo/
 - CookieStore: **ConcurrentHashMap** (thread-safe)
 
 ### Testing
-- **178 unit tests** (JUnit 5 + MockK + Turbine)
-- **30 device checks** (uiautomator2, scripts/verify-on-device.py)
-- **22 E2E production tests** (scripts/e2e-production-test.py)
-- **7 Odoo module tests** (TransactionCase)
+- **404 unit tests** across 42 files (JUnit 5 + MockK + Turbine), counted from `app/src/test/`
+- **52 V-IDs** spanning V01–V26 with sub-checks (uiautomator2, `scripts/verify-on-device.py`)
+- **E2E production suite** (`scripts/e2e-production-test.py`) — 8 boss requirements, see the catalog below
+- Odoo module tests live in the `woow_odoo_fcm_push` repo, not here
+- There is **no `app/src/androidTest/` source set** — the Espresso/Compose-UI-Test deps are declared but no instrumented test exists; device coverage is the uiautomator2 scripts
 - Test naming: `Given X when Y then Z` (Kotlin), `test_{method}_given{X}_returns{Y}` (general)
 
 ### Repository-Event Symmetry (CRITICAL RULE)
@@ -325,7 +326,7 @@ alone — feature regressions live in device behavior.
 
 | # | Script | Coverage | Approx. time | Prereqs |
 |---|---|---|---|---|
-| 1 | `scripts/verify-on-device.py` | 36 V-tests (V01–V26): logging, biometric, FCM, deep-link, color picker, zh-CN, cache clearing, security hardening (FLAG_SECURE / PIN keypad / ProcessLifecycle), location-permission infra | ~10 min | device + USB debugging, app installed + **logged in to live tunnel**, `pm grant POST_NOTIFICATIONS`, `firebase-service-account.json` for V20, Odoo reachable |
+| 1 | `scripts/verify-on-device.py` | 52 V-IDs (V01–V26 + sub-checks): logging, biometric, FCM, deep-link, color picker, zh-CN, cache clearing, security hardening (FLAG_SECURE / PIN keypad / ProcessLifecycle), location-permission infra | ~10 min | device + USB debugging, app installed + **logged in to live tunnel**, `pm grant POST_NOTIFICATIONS`, `firebase-service-account.json` for V20, Odoo reachable |
 | 2 | `scripts/e2e_15_clockin_full.py` | E2E-15: WebView clock-in via OWL with GPS verification end-to-end (JSON-RPC snapshot → JS-injected clock action → JSON-RPC verify) | ~2 min | location pre-granted (`pm grant ACCESS_FINE_LOCATION` + `ACCESS_COARSE_LOCATION`), `hr_attendance` installed on Odoo |
 | 3 | `scripts/e2e-production-test.py` | 8 boss requirements: FCM push (chatter / DM / activity), biometric on bg→fg, color picker theme change, zh-CN switch, cache clear preserves login, deep link from notification | ~15 min | `firebase-service-account.json`, Odoo with users + chatter |
 | 4 | `scripts/e2e-verification-report.py` | Reporter — consumes results from above and generates `docs/verification-report/verification-report.md` with screenshots | — | run after the others |
@@ -366,15 +367,23 @@ finally:
 `scripts/verify-on-device.py:perform_login` already does this — copy that
 pattern for any new login/PIN entry helper.
 
-**Hard rule on test config (single source of truth):** these scripts hardcode
-the dev tunnel URL in module-level constants (e.g.
-`TEST_SERVER_URL`, `e2e_15_clockin_full.py` JSON-RPC URLs). When the
-cloudflared tunnel rotates (every ~24h or after a Mac restart), update those
-constants in lockstep — a stale URL causes cascade failures that look like
-regressions but are not. **Long-term fix tracked separately:** read tunnel
-URL from a single `scripts/test_config.py` (mirroring the iOS
-`SharedTestConfig` pattern) and have all scripts import it. Until that lands,
-update the constants together when the tunnel changes.
+**Hard rule on test config (single source of truth):** `scripts/test_config.py`
+is that single source and **all six scripts import it** — `verify-on-device.py`,
+`e2e-production-test.py`, `e2e_15_clockin_full.py`, `e2e-verification-report.py`,
+`e2e_hprime_android.py`, `e2e_hprime_android_chaos.py`. Nothing hardcodes the
+tunnel URL any more (`verify-on-device.py`'s `TEST_SERVER_URL` is derived from
+`test_config.ODOO_HOST`).
+
+When the cloudflared tunnel rotates (every ~24h or after a Mac restart), change
+**one** place:
+
+```bash
+export ODOO_URL=https://<new>.trycloudflare.com   # preferred, nothing to commit
+# or edit the ODOO_URL default in scripts/test_config.py
+```
+
+Do not go editing per-script constants — there are none left to edit, and adding
+one would reintroduce the cascade failures this centralization removed.
 
 **Screenshot verification (CRITICAL RULE):**
 
@@ -431,7 +440,7 @@ It hooks into `mail.message.create()`, `discuss.channel.message_post()`, and `ma
 |----------|----------|
 | Implementation plan | `docs/plans/2026-03-22-implementation-plan.md` |
 | Test strategy | `docs/plans/2026-03-22-test-strategy.md` |
-| Test plan (178 tests) | `docs/plans/2026-03-23-test-plan.md` |
+| Test plan (historical — 178 tests at time of writing) | `docs/plans/2026-03-23-test-plan.md` |
 | Final verification | `docs/plans/2026-03-24-final-verification-report.md` |
 | Verification report | `docs/verification-report/verification-report.md` |
 | FCM setup guide | `docs/verification-report/woow-fcm-push-setup-guide.md` |
