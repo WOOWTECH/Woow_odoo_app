@@ -39,13 +39,14 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.Pin
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
@@ -84,6 +85,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import io.woowtech.odoo.BuildConfig
 import io.woowtech.odoo.R
 import kotlinx.coroutines.launch
 
@@ -311,21 +313,34 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Help & Support Section
+            // 支援、隱私權政策、刪除帳號都指向渥屋自己的公開頁面（不再連到 odoo.com，
+            // 避免暗示與 Odoo S.A. 有關）。網址放在字串資源裡、每個語系各一份，所以
+            // 開哪一頁永遠跟畫面實際顯示的語言一致：英文 UI → -en 頁，繁中/簡中 → 無後綴頁。
+            // 「刪除帳號」是 Play 帳戶建立申報要求的 App 內入口。
             SettingsSection(title = stringResource(R.string.help_support)) {
                 SettingsItem(
                     icon = Icons.AutoMirrored.Filled.HelpCenter,
-                    title = stringResource(R.string.odoo_help_center),
-                    subtitle = stringResource(R.string.odoo_help_center_subtitle),
-                    onClick = { openUrl(context, "https://www.odoo.com/help") }
+                    title = stringResource(R.string.support_title),
+                    subtitle = stringResource(R.string.support_subtitle),
+                    onClick = { openUrl(context, context.getString(R.string.url_support)) }
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
 
                 SettingsItem(
-                    icon = Icons.Default.Forum,
-                    title = stringResource(R.string.odoo_community_forum),
-                    subtitle = stringResource(R.string.odoo_community_forum_subtitle),
-                    onClick = { openUrl(context, "https://www.odoo.com/forum") }
+                    icon = Icons.Default.PrivacyTip,
+                    title = stringResource(R.string.privacy_policy_title),
+                    subtitle = stringResource(R.string.privacy_policy_subtitle),
+                    onClick = { openUrl(context, context.getString(R.string.url_privacy_policy)) }
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+
+                SettingsItem(
+                    icon = Icons.Default.PersonRemove,
+                    title = stringResource(R.string.delete_account_title),
+                    subtitle = stringResource(R.string.delete_account_subtitle),
+                    onClick = { openUrl(context, context.getString(R.string.url_account_deletion)) }
                 )
             }
 
@@ -359,7 +374,8 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Info,
                     title = stringResource(R.string.app_version_title),
-                    subtitle = stringResource(R.string.app_version),
+                    // 直接讀建置時的 versionName，避免「關於」頁跟實際版本脫節（原本寫死 1.0.3）。
+                    subtitle = BuildConfig.VERSION_NAME,
                     onClick = {}
                 )
             }

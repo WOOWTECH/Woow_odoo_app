@@ -2,7 +2,6 @@
 <resources>
     <!-- App Info -->
     <string name="app_name">woowtech platform</string>
-    <string name="app_version">1.0.3</string>
     <string name="copyright">© 2026 WoowTech</string>
 
     <!-- Login Screen -->
@@ -107,10 +106,16 @@
     <string name="cache_cleared">Cache cleared successfully</string>
 
     <string name="help_support">Help &amp; Support</string>
-    <string name="odoo_help_center">Odoo Help Center</string>
-    <string name="odoo_help_center_subtitle">Official documentation and guides</string>
-    <string name="odoo_community_forum">Odoo Community Forum</string>
-    <string name="odoo_community_forum_subtitle">Get help from the community</string>
+    <!-- 渥屋公開合規頁面；網址跟著 UI 語言走（英文 UI → -en 頁，繁中/簡中 → 無後綴頁） -->
+    <string name="support_title">Support</string>
+    <string name="support_subtitle">FAQ and how to contact WOOW TECH</string>
+    <string name="privacy_policy_title">Privacy Policy</string>
+    <string name="privacy_policy_subtitle">How this app handles your data</string>
+    <string name="delete_account_title">Delete Account</string>
+    <string name="delete_account_subtitle">Request deletion of your account and data</string>
+    <string name="url_support">https://aiot.woowtech.io/odoo-support-en</string>
+    <string name="url_privacy_policy">https://aiot.woowtech.io/odoo-privacy-en</string>
+    <string name="url_account_deletion">https://aiot.woowtech.io/odoo-account-deletion-en</string>
 
     <string name="about">About</string>
     <string name="visit_website">Visit Website</string>
