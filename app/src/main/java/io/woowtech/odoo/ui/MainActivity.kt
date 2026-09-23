@@ -2,7 +2,6 @@ package io.woowtech.odoo.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -47,10 +46,6 @@ import javax.inject.Inject
  * which screen was visible. The observer reference is stored so it can be explicitly removed
  * in [onDestroy], preventing observer leaks. (L1 fix)
  *
- * FLAG_SECURE is set for the entire window in [onCreate] so the auth screens are never
- * exposed in the Recents thumbnail, even during the brief gap that would arise if the flag
- * were set per-screen via a [androidx.compose.runtime.DisposableEffect]. (L6/M2 fix)
- *
  * Deep-link host validation (C2): reads the active account's server host from
  * [AccountRepository] before passing it to [DeepLinkValidator], so external-host URLs are
  * rejected. If there is no active account, all deep links are rejected.
@@ -72,11 +67,6 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // L6/M2: Set FLAG_SECURE at the window level once, covering the entire app lifetime.
-        // This eliminates the rotation gap where per-screen DisposableEffects would briefly
-        // drop the flag between teardown and re-composition on a config change.
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
         // L1: Store the observer reference so it can be removed in onDestroy.
         // ProcessLifecycleOwner lives for the entire process; without explicit removal,

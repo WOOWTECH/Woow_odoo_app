@@ -17,7 +17,7 @@ import timber.log.Timber
  * - The release APK uses `applicationId = "io.woowtech.odoo"` while debug uses
  *   `io.woowtech.odoo.debug` — they cannot share data even if both installed.
  * - Invalid input is LOGGED and SKIPPED, never crashes the app. This matters
- *   because FLAG_SECURE redacts crash screens making them un-debuggable.
+ *   because a crash here would be hard to attribute to a test hook.
  *
  * Usage from adb (debug builds only):
  *   adb shell am start -n io.woowtech.odoo.debug/io.woowtech.odoo.ui.MainActivity \

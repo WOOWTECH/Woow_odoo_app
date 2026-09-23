@@ -61,9 +61,6 @@ import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
  * not authenticate with biometrics and has a PIN configured they are routed to [PinScreen].
  * If neither biometric nor PIN is available the caller is responsible for routing the user
  * to PIN setup before arriving at this screen.
- *
- * FLAG_SECURE is applied at the window level in MainActivity.onCreate (L6 fix), so no
- * per-screen DisposableEffect is needed here.
  */
 @Composable
 fun BiometricScreen(
