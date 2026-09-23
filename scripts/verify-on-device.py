@@ -23,20 +23,49 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
     APP_ACTIVITY as ACTIVITY,
     APP_PACKAGE as PKG,
+    FIREBASE_PROJECT_ID,
+    FIREBASE_SA_FILE,
     ODOO_DB,
     ODOO_HOST,
     ODOO_PASS,
     ODOO_URL,
     ODOO_USER,
+    VERIFY_REPORT_FILE,
 )
+
+if not (ODOO_URL and ODOO_DB and ODOO_USER and ODOO_PASS):
+    print("ERROR: Odoo test server not configured. Set ODOO_URL, ODOO_DB, ODOO_USER "
+          "and ODOO_PASS (env vars or the gitignored .env.test) — see scripts/test_config.py.")
+    sys.exit(2)
+
 PASS = 0
 FAIL = 0
+SKIP = 0
 RESULTS = []
+
+# Every check ID this script can report. Used to compute "defined vs executed"
+# so a run that silently drops checks (or executes nothing) can never look green.
+# A group-level ID (e.g. "V22-C482a7bf", emitted when a setup step fails)
+# accounts for all of that group's sub-checks.
+DEFINED_CHECKS = [
+    "V01-C01", "V02a-C02", "V02b-C02", "V03-C02", "V04-C04", "V05-C04",
+    "V06-C06", "V07a-C06", "V07b-C06", "V08a-C07", "V08b-C07", "V09-C09",
+    "V10a-C08", "V10b-C08", "V10c-C08", "V11a-C13", "V11b-C13",
+    "V13a-C15", "V13b-C15", "V14a-C17", "V14b-C17", "V15-G4",
+    "V16a-G5", "V16b-G5", "V17-G3", "V18-G6", "V19-G7",
+    "V20a", "V20b", "V20c", "V21-C482a7bf",
+    "V22a-C482a7bf", "V22b-C482a7bf", "V24-C482a7bf",
+    "V23-C482a7bf", "V23b-C482a7bf",
+    "V26a-Cb1aaa75", "V26b-Cb1aaa75", "V26c-Cb1aaa75", "V26d-Cb1aaa75",
+    "V25-C482a7bf",
+]
+REPORTED = []  # (vid, status) in execution order; status in PASS/FAIL/SKIP
 
 
 def green(vid, msg):
     global PASS
     PASS += 1
+    REPORTED.append((vid, "PASS"))
     RESULTS.append(f"✅ {vid}: {msg}")
     print(f"\033[32m  ✅ {vid}: {msg}\033[0m")
 
@@ -44,8 +73,19 @@ def green(vid, msg):
 def red(vid, msg):
     global FAIL
     FAIL += 1
+    REPORTED.append((vid, "FAIL"))
     RESULTS.append(f"❌ {vid}: {msg}")
     print(f"\033[31m  ❌ {vid}: {msg}\033[0m")
+
+
+def skip(vid, msg):
+    """Record a check that was NOT executed (precondition/resource missing).
+    Counted separately — never as a pass."""
+    global SKIP
+    SKIP += 1
+    REPORTED.append((vid, "SKIP"))
+    RESULTS.append(f"⏭️ {vid}: SKIPPED — {msg}")
+    print(f"\033[33m  ⏭️  {vid}: SKIPPED — {msg}\033[0m")
 
 
 
@@ -73,13 +113,75 @@ def section(title):
     print(f"\033[1m{'─' * 60}\033[0m")
 
 
-def adb_cmd(args):
-    """Run an ADB shell command and return stdout."""
+def adb_cmd(args, timeout=30):
+    """Run an ADB shell command and return stdout.
+
+    30 s default: on the Pixel 7a / Android 17, `dumpsys package` normally
+    takes ~2.5 s but spiked past 10 s mid-run (e.g. right after a cache
+    clear), which killed the whole run with an uncaught TimeoutExpired."""
     result = subprocess.run(
         ["adb", "shell"] + args,
-        capture_output=True, text=True, timeout=10
+        capture_output=True, text=True, timeout=timeout
     )
     return result.stdout
+
+
+# `mCurrentFocus=Window{9a1b u0 io.woowtech.odoo.debug/io.woowtech.odoo.ui.MainActivity}`
+# `mFocusedApp=ActivityRecord{1234 u0 io.woowtech.odoo.debug/io.woowtech.odoo.ui.MainActivity t33219}`
+# Captures the token after the user id: a package for app windows, or a bare
+# window name (e.g. "NotificationShade") for system windows.
+_FOCUS_RE = re.compile(r"(mCurrentFocus|mFocusedApp)=\w+\{\S+ u\d+ ([^/}\s]+)")
+
+
+def foreground_package():
+    """Package of the window that currently has input focus, via adb.
+
+    Replaces `d.app_current()`, which on Android 17 returns the wrong package
+    even when our window is demonstrably focused. Reads `mCurrentFocus`
+    (the focused window; a system window such as NotificationShade is
+    returned by name, so it never masquerades as our app) and falls back to
+    `mFocusedApp` (the focused activity) only when mCurrentFocus is null,
+    e.g. mid-transition. The grep runs on-device so only two short lines
+    cross the wire. Returns None if neither can be parsed.
+    """
+    out = adb_cmd(["dumpsys window displays | grep -E 'mCurrentFocus|mFocusedApp'"],
+                  timeout=15)
+    found = dict((k, pkg) for k, pkg in _FOCUS_RE.findall(out))
+    return found.get("mCurrentFocus") or found.get("mFocusedApp")
+
+
+def app_in_foreground(timeout=3.0):
+    """True if our app holds focus. Polls briefly to ride out transitions."""
+    deadline = time.time() + timeout
+    while True:
+        if foreground_package() == PKG:
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.5)
+
+
+# Menu (hamburger) button: Compose exposes it via content-desc only
+# (R.string.content_description_menu). zh-TW / zh-CN / English.
+MENU_DESCS = ("開啟選單", "打开菜单", "Open menu")
+
+
+def open_menu():
+    """Tap the main-screen menu button. Returns False (never raises) if absent."""
+    for desc in MENU_DESCS:
+        btn = d(description=desc)
+        if btn.exists(timeout=2):
+            btn.click()
+            return True
+    for desc in MENU_DESCS:
+        btn = d(descriptionContains=desc)
+        if btn.exists(timeout=1):
+            btn.click()
+            return True
+    return False
+
+
+MENU_MISSING = "Menu button found (content-desc 開啟選單 / 打开菜单 / Open menu)"
 
 
 def launch_app():
@@ -99,8 +201,16 @@ def dismiss_biometric():
 # ─── Connect ─────────────────────────────────────────────
 print("Connecting to device...")
 d = u2.connect()
-device_name = d.info.get("productName", "unknown")
-sdk = d.info.get("sdkInt", "?")
+try:
+    _info = d.info
+    device_name = _info.get("productName", "unknown")
+    sdk = _info.get("sdkInt", "?")
+except Exception as _e:
+    # Android 17: d.info raises RPCUnknownError ("ApplicationSharedMemory not
+    # initialized"). getprop gives the same facts without the RPC.
+    print(f"  (d.info unavailable: {type(_e).__name__}; using getprop)")
+    device_name = adb_cmd(["getprop", "ro.product.model"]).strip() or "unknown"
+    sdk = adb_cmd(["getprop", "ro.build.version.sdk"]).strip() or "?"
 print(f"Connected: {device_name} (Android SDK {sdk})")
 print()
 
@@ -175,7 +285,7 @@ else:
         time.sleep(2)
         d.app_start(PKG, ACTIVITY)
         time.sleep(3)
-        still_running = d.app_current()["package"] == PKG
+        still_running = app_in_foreground()
         check("V03-C02",
               "App survives background→foreground (app lock not enabled, auth re-prompt requires enabling App Lock in Settings)",
               still_running)
@@ -267,7 +377,7 @@ if has_channel:
 section("V08-C07: Brand Colors (B1.1)")
 
 launch_app()
-app_running = d.app_current()["package"] == PKG
+app_running = app_in_foreground()
 check("V08a-C07",
       "App launches without crash (brand colors compiled)",
       app_running)
@@ -283,21 +393,7 @@ check("V08b-C07",
 section("V09-C09: Simplified Chinese (B2)")
 
 # Navigate: Main → Menu → Settings → Language
-menu_found = False
-for desc in ["开启菜单", "開啟選單", "Menu", "menu", "Open menu"]:
-    btn = d(descriptionContains=desc)
-    if btn.exists(timeout=1):
-        btn.click()
-        menu_found = True
-        break
-
-if not menu_found:
-    # Try clicking the hamburger icon by content description pattern
-    btn = d(className="android.widget.ImageButton")
-    if btn.exists(timeout=1):
-        btn.click()
-        menu_found = True
-
+menu_found = open_menu()
 time.sleep(2)
 
 if menu_found:
@@ -342,7 +438,7 @@ if menu_found:
         check("V09-C09", "Settings screen accessible from menu", False)
         d.press("back")
 else:
-    check("V09-C09", "Menu button found", False)
+    check("V09-C09", MENU_MISSING, False)
 
 time.sleep(1)
 d.press("back")
@@ -355,22 +451,13 @@ section("V10-C08: Color Picker (B1.2)")
 launch_app()
 
 # Navigate: Menu → Settings → Theme Color
-menu_ok = False
-for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
-    btn = d(descriptionContains=desc)
-    if btn.exists(timeout=1):
-        btn.click()
-        menu_ok = True
-        break
-if not menu_ok:
-    btn = d(className="android.widget.ImageButton")
-    if btn.exists(timeout=1):
-        btn.click()
-        menu_ok = True
+menu_ok = open_menu()
 time.sleep(2)
 
 settings_ok = False
 for text in ["设置", "設定", "Settings"]:
+    if not menu_ok:
+        break
     btn = d(text=text)
     if btn.exists(timeout=2):
         btn.click()
@@ -378,7 +465,9 @@ for text in ["设置", "設定", "Settings"]:
         break
 time.sleep(2)
 
-if settings_ok:
+if not menu_ok:
+    check("V10a-C08", MENU_MISSING, False)
+elif settings_ok:
     # Click theme color
     for text in ["主题颜色", "主題顏色", "Theme Color"]:
         btn = d(textContains=text)
@@ -415,47 +504,41 @@ section("V11-C13: Cache Clearing (B4.2)")
 launch_app()
 
 # Navigate to Settings
-menu_ok2 = False
-for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
-    btn = d(descriptionContains=desc)
-    if btn.exists(timeout=1):
-        btn.click()
-        menu_ok2 = True
-        break
-if not menu_ok2:
-    d(className="android.widget.ImageButton").click()
-time.sleep(2)
+if not open_menu():
+    check("V11a-C13", MENU_MISSING, False)
+else:
+    time.sleep(2)
 
-for text in ["设置", "設定", "Settings"]:
-    btn = d(text=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
+    for text in ["设置", "設定", "Settings"]:
+        btn = d(text=text)
+        if btn.exists(timeout=2):
+            btn.click()
+            break
+    time.sleep(2)
 
-# Scroll to Clear Cache
-for _ in range(3):
+    # Scroll to Clear Cache
+    for _ in range(3):
+        cache_btn = (d(textContains="Clear Cache") or
+                     d(textContains="清除快取") or
+                     d(textContains="清除缓存"))
+        if cache_btn.exists(timeout=1):
+            break
+        d.swipe(0.5, 0.7, 0.5, 0.3)
+        time.sleep(1)
+
     cache_btn = (d(textContains="Clear Cache") or
                  d(textContains="清除快取") or
                  d(textContains="清除缓存"))
-    if cache_btn.exists(timeout=1):
-        break
-    d.swipe(0.5, 0.7, 0.5, 0.3)
-    time.sleep(1)
-
-cache_btn = (d(textContains="Clear Cache") or
-             d(textContains="清除快取") or
-             d(textContains="清除缓存"))
-if cache_btn.exists(timeout=2):
-    check("V11a-C13", "Clear Cache button found in Settings", True)
-    cache_btn.click()
-    time.sleep(2)
-    still_settings = (d(textContains="Settings").exists(timeout=2) or
-                      d(textContains="设置").exists(timeout=2) or
-                      d(textContains="設定").exists(timeout=2))
-    check("V11b-C13", "App stays on Settings after cache clear (login preserved)", still_settings)
-else:
-    check("V11a-C13", "Clear Cache button found", False)
+    if cache_btn.exists(timeout=2):
+        check("V11a-C13", "Clear Cache button found in Settings", True)
+        cache_btn.click()
+        time.sleep(2)
+        still_settings = (d(textContains="Settings").exists(timeout=2) or
+                          d(textContains="设置").exists(timeout=2) or
+                          d(textContains="設定").exists(timeout=2))
+        check("V11b-C13", "App stays on Settings after cache clear (login preserved)", still_settings)
+    else:
+        check("V11a-C13", "Clear Cache button found", False)
 
 d.press("back")
 time.sleep(1)
@@ -479,7 +562,7 @@ check("V13b-C15", "MESSAGING_EVENT intent filter registered", has_msg_event)
 section("V14-C17: Deep Link Handling (A1.4)")
 
 launch_app()
-still_ok = d.app_current()["package"] == PKG
+still_ok = app_in_foreground()
 check("V14a-C17", "App launches with deep link handler (no crash)", still_ok)
 
 # Send deep link intent
@@ -490,7 +573,7 @@ subprocess.run([
 ], capture_output=True, text=True, timeout=10)
 time.sleep(3)
 
-still_ok2 = d.app_current()["package"] == PKG
+still_ok2 = app_in_foreground()
 check("V14b-C17", "App handles deep link intent without crash", still_ok2)
 
 # ═══════════════════════════════════════════════════════════
@@ -501,42 +584,38 @@ section("V15: Color Picker Changes Theme (User Flow)")
 launch_app()
 
 # Navigate to Settings → Theme Color
-for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
-    btn = d(descriptionContains=desc)
-    if btn.exists(timeout=1):
-        btn.click()
-        break
+if not open_menu():
+    check("V15-G4", MENU_MISSING, False)
 else:
-    d(className="android.widget.ImageButton").click()
-time.sleep(2)
+    time.sleep(2)
 
-for text in ["设置", "設定", "Settings"]:
-    btn = d(text=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
+    for text in ["设置", "設定", "Settings"]:
+        btn = d(text=text)
+        if btn.exists(timeout=2):
+            btn.click()
+            break
+    time.sleep(2)
 
-# Open color picker
-for text in ["主题颜色", "主題顏色", "Theme Color"]:
-    btn = d(textContains=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
+    # Open color picker
+    for text in ["主题颜色", "主題顏色", "Theme Color"]:
+        btn = d(textContains=text)
+        if btn.exists(timeout=2):
+            btn.click()
+            break
+    time.sleep(2)
 
-# Tap the Apply button (applies currently selected color)
-apply_btn = d(text="Apply") or d(text="套用") or d(text="应用")
-if apply_btn.exists(timeout=2):
-    apply_btn.click()
-    time.sleep(1)
-    # After apply, dialog should close and we're back on Settings
-    still_in_settings = (d(textContains="Settings").exists(timeout=2) or
-                         d(textContains="设置").exists(timeout=2) or
-                         d(textContains="設定").exists(timeout=2))
-    check("V15-G4", "Color picker: tap Apply → dialog closes, back on Settings", still_in_settings)
-else:
-    check("V15-G4", "Color picker Apply button found", False)
+    # Tap the Apply button (applies currently selected color)
+    apply_btn = d(text="Apply") or d(text="套用") or d(text="应用")
+    if apply_btn.exists(timeout=2):
+        apply_btn.click()
+        time.sleep(1)
+        # After apply, dialog should close and we're back on Settings
+        still_in_settings = (d(textContains="Settings").exists(timeout=2) or
+                             d(textContains="设置").exists(timeout=2) or
+                             d(textContains="設定").exists(timeout=2))
+        check("V15-G4", "Color picker: tap Apply → dialog closes, back on Settings", still_in_settings)
+    else:
+        check("V15-G4", "Color picker Apply button found", False)
 
 d.press("back")
 time.sleep(1)
@@ -550,76 +629,75 @@ section("V16: zh-CN Language Switch (User Flow)")
 launch_app()
 
 # Navigate: Menu → Settings → Language
-for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
-    btn = d(descriptionContains=desc)
-    if btn.exists(timeout=1):
-        btn.click()
-        break
+if not open_menu():
+    check("V16a-G5", MENU_MISSING, False)
 else:
-    d(className="android.widget.ImageButton").click()
-time.sleep(2)
+    time.sleep(2)
 
-for text in ["设置", "設定", "Settings"]:
-    btn = d(text=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
-
-# Scroll to Language and tap it
-lang_clicked = False
-for _ in range(3):
-    for text in ["语言", "語言", "Language"]:
-        el = d(text=text)
-        if el.exists(timeout=1):
-            el.click()
-            lang_clicked = True
+    for text in ["设置", "設定", "Settings"]:
+        btn = d(text=text)
+        if btn.exists(timeout=2):
+            btn.click()
             break
-    if lang_clicked:
-        break
-    d.swipe(0.5, 0.7, 0.5, 0.3)
-    time.sleep(1)
+    time.sleep(2)
 
-if lang_clicked:
-    time.sleep(1)
-    # Select 简体中文
-    zhcn = d(text="简体中文")
-    if zhcn.exists(timeout=2):
-        zhcn.click()
-        time.sleep(2)
-
-        # Verify: Settings should now show Chinese text
-        # "安全性" = Security in zh-CN, "外观" = Appearance
-        zh_visible = (d(textContains="安全性").exists(timeout=2) or
-                      d(textContains="外观").exists(timeout=2) or
-                      d(textContains="数据").exists(timeout=2))
-        check("V16a-G5", "After selecting 简体中文, Settings shows simplified Chinese text", zh_visible)
-
-        # Switch back to English to restore state
-        for text in ["语言", "Language"]:
+    # Scroll to Language and tap it
+    lang_clicked = False
+    for _ in range(3):
+        for text in ["语言", "語言", "Language"]:
             el = d(text=text)
             if el.exists(timeout=1):
                 el.click()
+                lang_clicked = True
                 break
-        else:
-            d.swipe(0.5, 0.7, 0.5, 0.3)
-            time.sleep(1)
-            for text in ["语言"]:
+        if lang_clicked:
+            break
+        d.swipe(0.5, 0.7, 0.5, 0.3)
+        time.sleep(1)
+
+    if lang_clicked:
+        time.sleep(1)
+        # Select 简体中文
+        zhcn = d(text="简体中文")
+        if zhcn.exists(timeout=2):
+            zhcn.click()
+            time.sleep(2)
+
+            # Verify: Settings should now show Chinese text
+            # "安全性" = Security in zh-CN, "外观" = Appearance
+            zh_visible = (d(textContains="安全性").exists(timeout=2) or
+                          d(textContains="外观").exists(timeout=2) or
+                          d(textContains="数据").exists(timeout=2))
+            check("V16a-G5", "After selecting 简体中文, Settings shows simplified Chinese text", zh_visible)
+
+            # Switch back to English to restore state
+            for text in ["语言", "Language"]:
                 el = d(text=text)
                 if el.exists(timeout=1):
                     el.click()
                     break
+            else:
+                d.swipe(0.5, 0.7, 0.5, 0.3)
+                time.sleep(1)
+                for text in ["语言"]:
+                    el = d(text=text)
+                    if el.exists(timeout=1):
+                        el.click()
+                        break
 
-        time.sleep(1)
-        eng = d(text="English")
-        if eng.exists(timeout=2):
-            eng.click()
             time.sleep(1)
-        check("V16b-G5", "Restored language to English", True)
+            eng = d(text="English")
+            eng_restored = False
+            if eng.exists(timeout=2):
+                eng.click()
+                eng_restored = True
+                time.sleep(1)
+            check("V16b-G5", "Restored language to English ('English' option found and tapped)",
+                  eng_restored)
+        else:
+            check("V16a-G5", "简体中文 option found in picker", False)
     else:
-        check("V16a-G5", "简体中文 option found in picker", False)
-else:
-    check("V16a-G5", "Language option found in settings", False)
+        check("V16a-G5", "Language option found in settings", False)
 
 d.press("back")
 time.sleep(1)
@@ -644,7 +722,7 @@ subprocess.run([
 time.sleep(3)
 
 # App should still be running (not crashed)
-running = d.app_current()["package"] == PKG
+running = app_in_foreground()
 check("V17-G3", "App survives external URL deep link (rejected by DeepLinkValidator)", running)
 
 # ═══════════════════════════════════════════════════════════
@@ -655,46 +733,42 @@ section("V18: Cache Size Decreases After Clear (User Flow)")
 launch_app()
 
 # Navigate to Settings
-for desc in ["开启菜单", "開啟選單", "Menu", "menu"]:
-    btn = d(descriptionContains=desc)
-    if btn.exists(timeout=1):
-        btn.click()
-        break
+if not open_menu():
+    check("V18-G6", MENU_MISSING, False)
 else:
-    d(className="android.widget.ImageButton").click()
-time.sleep(2)
-
-for text in ["设置", "設定", "Settings"]:
-    btn = d(text=text)
-    if btn.exists(timeout=2):
-        btn.click()
-        break
-time.sleep(2)
-
-# Scroll to Data & Storage, find cache size text
-for _ in range(3):
-    cache_row = (d(textContains="Clear Cache") or
-                 d(textContains="清除快取") or
-                 d(textContains="清除缓存"))
-    if cache_row.exists(timeout=1):
-        break
-    d.swipe(0.5, 0.7, 0.5, 0.3)
-    time.sleep(1)
-
-if cache_row.exists(timeout=2):
-    # Tap clear cache
-    cache_row.click()
     time.sleep(2)
 
-    # After cache clear, verify we're still on settings and no crash
-    # Cache size text may show "0 B", "0 KB", or localized text
-    still_ok = d.app_current()["package"] == PKG
-    settings_visible = (d(textContains="Settings").exists(timeout=2) or
-                        d(textContains="设置").exists(timeout=2) or
-                        d(textContains="設定").exists(timeout=2))
-    check("V18-G6", "Cache cleared successfully — app stable, settings visible", still_ok and settings_visible)
-else:
-    check("V18-G6", "Clear Cache row found", False)
+    for text in ["设置", "設定", "Settings"]:
+        btn = d(text=text)
+        if btn.exists(timeout=2):
+            btn.click()
+            break
+    time.sleep(2)
+
+    # Scroll to Data & Storage, find cache size text
+    for _ in range(3):
+        cache_row = (d(textContains="Clear Cache") or
+                     d(textContains="清除快取") or
+                     d(textContains="清除缓存"))
+        if cache_row.exists(timeout=1):
+            break
+        d.swipe(0.5, 0.7, 0.5, 0.3)
+        time.sleep(1)
+
+    if cache_row.exists(timeout=2):
+        # Tap clear cache
+        cache_row.click()
+        time.sleep(2)
+
+        # After cache clear, verify we're still on settings and no crash
+        # Cache size text may show "0 B", "0 KB", or localized text
+        still_ok = app_in_foreground()
+        settings_visible = (d(textContains="Settings").exists(timeout=2) or
+                            d(textContains="设置").exists(timeout=2) or
+                            d(textContains="設定").exists(timeout=2))
+        check("V18-G6", "Cache cleared successfully — app stable, settings visible", still_ok and settings_visible)
+    else:
+        check("V18-G6", "Clear Cache row found", False)
 
 d.press("back")
 time.sleep(1)
@@ -716,7 +790,7 @@ subprocess.run([
 time.sleep(6)
 
 # App should be running and showing WebView (Odoo content)
-running2 = d.app_current()["package"] == PKG
+running2 = app_in_foreground()
 odoo_loaded = (d(textContains="WoowTech").exists(timeout=2) or
                d(textContains="Contacts").exists(timeout=2) or
                d(textContains="Inbox").exists(timeout=2) or
@@ -729,8 +803,9 @@ check("V19-G7", "Deep link /web#action=contacts — app loaded Odoo content", ru
 # ═══════════════════════════════════════════════════════════
 section("V20: FCM E2E Push Notification")
 
-import os
-SA_FILE = "/Users/alanlin/Woow_odoo_app/app/firebase-service-account.json"
+# Path comes from test_config (FIREBASE_SA_FILE env / .env.test, default
+# app/firebase-service-account.json, which is gitignored).
+SA_FILE = FIREBASE_SA_FILE
 
 if os.path.exists(SA_FILE):
     try:
@@ -773,7 +848,7 @@ if os.path.exists(SA_FILE):
             time.sleep(2)
 
             resp = requests.post(
-                "https://fcm.googleapis.com/v1/projects/woow-odoo-de2cb/messages:send",
+                f"https://fcm.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/messages:send",
                 json={
                     "message": {
                         "token": fcm_token,
@@ -816,7 +891,8 @@ if os.path.exists(SA_FILE):
     except Exception as e:
         check("V20a", f"FCM test error: {e}", False)
 else:
-    print("  ⚠️  firebase-service-account.json not found — skipping FCM E2E test")
+    for _vid in ("V20a", "V20b", "V20c"):
+        skip(_vid, f"Firebase service account not found at {SA_FILE} (set FIREBASE_SA_FILE)")
 
 # ═══════════════════════════════════════════════════════════
 # V21-V24: Security hardening regressions (commit 482a7bf)
@@ -824,25 +900,51 @@ else:
 # in v1.0.21 — silent regressions that unit tests cannot catch.
 # ═══════════════════════════════════════════════════════════
 
-section("V21-C482a7bf: FLAG_SECURE hides auth screen in Recents thumbnail")
-# Window-level FLAG_SECURE in MainActivity.onCreate must mark the window
-# as secure — Android should return a blank/redacted Recents thumbnail.
-# Detection: query WindowManager's flag state via dumpsys.
+section("V21-C482a7bf: FLAG_SECURE is NOT set — screenshots/screen recording allowed")
+# The owner deliberately removed window-level FLAG_SECURE (2026-09-23) so users
+# can take screenshots. This guards against it silently coming back.
+# Detection: find OUR MainActivity window block in `dumpsys window windows`
+# and read its layout flags. Android 17 prints them as `fl=A B C`; older
+# releases print `flags=A B C` or a hex mask `flags=#81810100`
+# (FLAG_SECURE = 0x2000). No fallback: if the window or its flags line can't
+# be found, the check FAILS — an unparseable dump must never read as green.
+FLAG_SECURE_BIT = 0x00002000
+
+
+def main_window_flags(window_dump):
+    """Return the flag tokens of our MainActivity window, or None if not found."""
+    header = re.compile(
+        r"^\s*Window #\d+ Window\{[^}]*\s" + re.escape(f"{PKG}/{ACTIVITY}") + r"\}:\s*$",
+        re.MULTILINE,
+    )
+    m = header.search(window_dump)
+    if not m:
+        return None
+    nxt = re.compile(r"^\s*Window #\d+ ", re.MULTILINE).search(window_dump, m.end())
+    block = window_dump[m.end(): nxt.start() if nxt else len(window_dump)]
+    fm = re.search(r"^\s*(?:fl|flags)=(\S.*)$", block, re.MULTILINE)
+    if not fm:
+        return None
+    value = fm.group(1).strip()
+    hexm = re.match(r"(?:#|0x)([0-9a-fA-F]+)\b", value)
+    if hexm:
+        return ["SECURE"] if int(hexm.group(1), 16) & FLAG_SECURE_BIT else ["(hex, no SECURE bit)"]
+    return value.split()
+
+
 try:
     launch_app()
-    # Trigger an auth screen by force-stopping and relaunching with AppLock on.
-    # Best-effort: if the app is on Main we still check the window-level flag.
-    window_dump = adb_cmd(["dumpsys", "window", "windows"])
-    # The MainActivity window must carry FLAG_SECURE (sets HWC_SECURE / SECURE).
-    main_window_secure = (
-        "io.woowtech.odoo" in window_dump and
-        re.search(r"io\.woowtech\.odoo[^\n]*\n(?:[^\n]*\n){0,30}.*flags=.*SECURE", window_dump, re.DOTALL) is not None
-    )
-    # Fallback check: dumpsys surface_flinger shows secure flag on the surface.
-    if not main_window_secure:
-        sf_dump = adb_cmd(["dumpsys", "SurfaceFlinger", "--list"])
-        main_window_secure = "io.woowtech.odoo" in sf_dump
-    check("V21-C482a7bf", "MainActivity window carries FLAG_SECURE (Recents thumbnail will be redacted)", main_window_secure)
+    if not app_in_foreground(timeout=5):
+        check("V21-C482a7bf", f"MainActivity not in front (focus: {foreground_package()}) — cannot read its window flags", False)
+    else:
+        flags = main_window_flags(adb_cmd(["dumpsys", "window", "windows"], timeout=30))
+        if flags is None:
+            check("V21-C482a7bf", "Could not locate MainActivity window / its fl= line in dumpsys window", False)
+        else:
+            secure = any(t in ("SECURE", "FLAG_SECURE") for t in flags)
+            check("V21-C482a7bf",
+                  f"MainActivity window does NOT carry FLAG_SECURE (screenshots allowed); fl={' '.join(flags)}",
+                  not secure)
 except Exception as e:
     check("V21-C482a7bf", f"FLAG_SECURE check error: {e}", False)
 
@@ -855,7 +957,9 @@ TEST_SERVER_URL = ODOO_HOST  # host-only form (no scheme) for the URL field
 TEST_DB = ODOO_DB
 TEST_USER = ODOO_USER
 TEST_PASSWORD = ODOO_PASS
-TEST_PIN = "1234"
+# SettingsRepository.PIN_LENGTH is 6 and the test-pin hook ignores anything
+# else ("Ignored invalid test-pin"), so a 4-digit PIN never gets seeded.
+TEST_PIN = "123456"
 
 
 def _edits():
@@ -874,6 +978,11 @@ def _center(bounds_str):
 
 def _type_into(idx, text):
     """Click the idx-th EditText and ADB-type text into it. Returns True on success."""
+    fg = foreground_package()
+    if fg != PKG:
+        # Owner's personal phone: never type into another app.
+        print(f"  ⚠️  refusing to type — foreground is {fg!r}, not {PKG}")
+        return False
     e = _edits()
     if len(e) <= idx:
         return False
@@ -888,8 +997,14 @@ def is_webview_visible():
     return "android.webkit.WebView" in d.dump_hierarchy()
 
 
+# Logged-out entry points. A fresh install / `pm clear` now opens straight on
+# the server-URL form (no "Add Account" button), so match its field label too.
+LOGIN_ENTRY_TEXTS = ("新增帳號", "添加账号", "Add Account",
+                     "伺服器網址", "服务器网址", "Server URL")
+
+
 def is_add_account_visible():
-    return d(text="新增帳號").exists(timeout=1) or d(text="Add Account").exists(timeout=1)
+    return any(d(text=t).exists(timeout=1) for t in LOGIN_ENTRY_TEXTS)
 
 
 def perform_login():
@@ -923,10 +1038,10 @@ def perform_login():
         if not (_type_into(0, TEST_USER) and _type_into(1, TEST_PASSWORD)):
             return False
         subprocess.run(["adb", "shell", "input", "keyevent", "111"], timeout=5); time.sleep(1)
-        if d(text="登入").exists(timeout=10):
-            d(text="登入").click()
-        elif d(text="Login").exists(timeout=2):
-            d(text="Login").click()
+        for label in ("登入", "登录", "Login"):
+            if d(text=label).exists(timeout=5):
+                d(text=label).click()
+                break
         # Wait for WebView. 60s budget (was 25s) covers a fresh cloudflared
         # tunnel cold-starting Odoo without a cached session — the path V26's
         # nuclear fallback exercises after pm clear. Faster paths return early.
@@ -1035,12 +1150,21 @@ def ensure_logged_in():
     # Nuclear fallback: pm clear + fresh login. Slow (~30s per test) but
     # deterministic. This is the price of true test independence when
     # Compose state cannot be reliably navigated via uiautomator2.
-    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+    pm_clear_app()
     time.sleep(2)
     d.app_start(PKG, ACTIVITY); time.sleep(6)
     if is_add_account_visible():
         return perform_login()
     return is_webview_visible()
+
+
+def pm_clear_app():
+    """`pm clear` + re-grant POST_NOTIFICATIONS. `pm clear` revokes runtime
+    permissions, and the app's first-launch permission dialog would otherwise
+    cover the login form (CLAUDE.md lists the grant as a suite prerequisite)."""
+    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+    subprocess.run(["adb", "shell", "pm", "grant", PKG,
+                    "android.permission.POST_NOTIFICATIONS"], timeout=10)
 
 
 def apply_test_hook(test_pin=None, app_lock=None, biometric=None, reset_state=False,
@@ -1102,6 +1226,10 @@ def wait_for_pin_keypad(timeout_s=10):
 
 def type_pin_keypad(pin):
     """Tap each digit on the PinScreen keypad."""
+    fg = foreground_package()
+    if fg != PKG:
+        print(f"  ⚠️  refusing to tap PIN — foreground is {fg!r}, not {PKG}")
+        return
     for digit in pin:
         if d(text=digit).exists(timeout=2):
             d(text=digit).click(); time.sleep(0.3)
@@ -1212,20 +1340,29 @@ section("V23-C482a7bf: DeepLinkValidator rejects deep links with no active accou
 # performs its own pm clear setup, the cleanup is "leave app in fresh
 # uninstalled state" which is fine for the end of the test sequence.)
 try:
-    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+    pm_clear_app()
     time.sleep(2)
-    subprocess.run([
-        "adb", "shell", "am", "start",
-        "-a", "android.intent.action.VIEW",
-        "-d", "https://example.com/web#action=contacts",
-        PKG,
-    ], timeout=10)
+    # Deliver the deep link the way a notification tap does (explicit
+    # component + odoo_action_url extra). The previous VIEW intent on
+    # https://example.com never resolved to this app (the manifest only
+    # accepts woowodoo://open), so it asserted nothing.
+    started = subprocess.run([
+        "adb", "shell", "am", "start", "-n", f"{PKG}/{ACTIVITY}",
+        "--es", "odoo_action_url", "/web#action=contacts",
+    ], capture_output=True, text=True, timeout=10)
+    delivered = "Error" not in (started.stdout + started.stderr)
     time.sleep(4)
-    top = adb_cmd(["dumpsys", "activity", "top"])
-    on_main_with_webview = ("MainActivity" in top and "OdooWebView" in top)
-    check("V23-C482a7bf",
-          "Deep link rejected — no auto-navigation to WebView without active account",
-          not on_main_with_webview)
+    # `dumpsys activity top` takes ~10 s on Android 17; the focused-window
+    # helper plus the UI hierarchy answer the same question in <1 s.
+    in_front = app_in_foreground(timeout=5)
+    if not delivered:
+        check("V23-C482a7bf", f"Deep-link intent was not delivered to the app: {started.stdout.strip()}", False)
+    elif not in_front:
+        check("V23-C482a7bf", f"App not in front after deep link (focus: {foreground_package()})", False)
+    else:
+        check("V23-C482a7bf",
+              "Deep link rejected — no auto-navigation to WebView without active account",
+              not is_webview_visible())
 
     logcat = adb_cmd(["logcat", "-d", "-t", "200"])
     rejected_logged = (
@@ -1235,7 +1372,7 @@ try:
     if rejected_logged:
         green("V23b-C482a7bf", "Timber log confirms deep-link rejection")
     else:
-        print("  ℹ  V23b-C482a7bf: no explicit rejection log (soft check)")
+        skip("V23b-C482a7bf", "no explicit rejection log line (soft check, not asserted)")
 except Exception as e:
     check("V23-C482a7bf", f"Deep-link rejection check error: {e}", False)
 
@@ -1266,7 +1403,7 @@ try:
         check(
             "V26a-Cb1aaa75",
             "WebView with setGeolocationEnabled(true) launches without crash",
-            d.app_current()["package"] == PKG,
+            app_in_foreground(),
         )
 
         # V26b: manifest declares the two foreground location permissions
@@ -1307,11 +1444,18 @@ try:
         # V26d: Odoo server has hr_attendance installed (E2E-15 prerequisite)
         try:
             url = f"{ODOO_URL}/jsonrpc"
+            # Resolve the uid instead of assuming 2 (admin), and send the
+            # password — execute_kw's third arg is the password, not the login.
+            uid = requests.post(url, json={
+                "jsonrpc": "2.0", "method": "call", "id": 0,
+                "params": {"service": "common", "method": "login",
+                           "args": [ODOO_DB, ODOO_USER, ODOO_PASS]},
+            }, timeout=10).json().get("result")
             payload = {
                 "jsonrpc": "2.0", "method": "call",
                 "params": {
                     "service": "object", "method": "execute_kw",
-                    "args": [ODOO_DB, 2, ODOO_USER,
+                    "args": [ODOO_DB, uid, ODOO_PASS,
                              "ir.module.module", "search_read",
                              [[["name", "=", "hr_attendance"]]],
                              {"fields": ["state"]}],
@@ -1345,39 +1489,57 @@ section("V25-C482a7bf: Release variant ignores test hooks")
 #   5. apkanalyzer dex packages app-release-unsigned.apk | grep TestHooks
 #      Expected: TestHooks class absent or method body empty (R8 dead-code removal).
 # This test is intentionally skipped in the automated suite; it requires a signed release build.
-print("  ℹ  V25-C482a7bf: @Skip — release-variant test-hook isolation requires manual APK install (see script comments)")
+skip("V25-C482a7bf", "release-variant test-hook isolation requires manual release APK install (see script comments)")
 
 # ═══════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════
 section("VERIFICATION SUMMARY")
-total = PASS + FAIL
-print(f"\n  Total checks: {total}")
-print(f"  \033[32mPassed: {PASS}\033[0m")
-if FAIL > 0:
-    print(f"  \033[31mFailed: {FAIL}\033[0m")
-else:
-    print(f"  Failed: 0")
+
+
+def _group(vid):
+    return re.match(r"V\d+", vid).group(0)
+
+
+# A group-level result ("V22-C482a7bf", no letter suffix) stands in for all of
+# that group's sub-checks — it is emitted when the group's setup failed.
+_reported_ids = {vid for vid, _ in REPORTED}
+_group_level = {_group(v) for v in _reported_ids if re.fullmatch(r"V\d+(-\S+)?", v)}
+NOT_REACHED = [
+    v for v in DEFINED_CHECKS
+    if v not in _reported_ids and _group(v) not in _group_level
+]
+executed = PASS + FAIL
+print(f"\n  Defined checks:  {len(DEFINED_CHECKS)}")
+print(f"  Executed:        {executed}")
+print(f"  \033[32mPassed:          {PASS}\033[0m")
+print(("\033[31m" if FAIL else "") + f"  Failed:          {FAIL}\033[0m")
+print(f"  \033[33mSkipped:         {SKIP}\033[0m")
+print(f"  Not reached:     {len(NOT_REACHED)}" + (f"  ({', '.join(NOT_REACHED)})" if NOT_REACHED else ""))
+GREEN = FAIL == 0 and executed > 0 and not NOT_REACHED
+print(f"\n  Verdict: {'GREEN' if GREEN else 'NOT GREEN'}"
+      + ("" if executed else " — nothing executed"))
 print()
 
-# Write results to markdown
-report_path = "/Users/alanlin/Woow_odoo_app/docs/plans/2026-03-22-device-verification-log.md"
+# Write results to markdown (path from test_config.VERIFY_REPORT_FILE)
+report_path = VERIFY_REPORT_FILE
+os.makedirs(os.path.dirname(os.path.abspath(report_path)), exist_ok=True)
 with open(report_path, "a") as f:
     f.write(f"\n\n## uiautomator2 Verification Run — {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
     f.write(f"| Field | Value |\n")
     f.write(f"|-------|-------|\n")
     f.write(f"| Device | {device_name} (SDK {sdk}) |\n")
     f.write(f"| Package | {PKG} |\n")
-    f.write(f"| Result | **{PASS} passed, {FAIL} failed** |\n\n")
+    f.write(f"| Result | **{len(DEFINED_CHECKS)} defined, {executed} executed, {PASS} passed, "
+            f"{FAIL} failed, {SKIP} skipped, {len(NOT_REACHED)} not reached** |\n\n")
     f.write("| V-ID | Result | Description |\n")
     f.write("|------|--------|-------------|\n")
-    for r in RESULTS:
-        emoji = "PASS" if "✅" in r else "FAIL"
-        clean = r.replace("✅ ", "").replace("❌ ", "")
-        vid = clean.split(":")[0]
-        desc = ":".join(clean.split(":")[1:]).strip()
-        f.write(f"| {vid} | {emoji} | {desc} |\n")
+    for (vid, status), r in zip(REPORTED, RESULTS):
+        desc = r.split(": ", 1)[1] if ": " in r else r
+        f.write(f"| {vid} | {status} | {desc} |\n")
+    for vid in NOT_REACHED:
+        f.write(f"| {vid} | NOT REACHED | check never executed |\n")
     f.write("\n")
 
 print(f"Results appended to {report_path}")
-sys.exit(FAIL)
+sys.exit(0 if GREEN else 1)

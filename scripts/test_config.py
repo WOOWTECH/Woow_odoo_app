@@ -2,10 +2,15 @@
 
 Resolution order for each value:  env var  ->  .env.test file  ->  default.
 
-To rotate the dev tunnel URL, update ONE of:
-  - this file's `ODOO_URL` default (committed)
-  - `.env.test` at repo root (gitignored, local dev)
-  - `ODOO_URL` env var (CI)
+The Odoo test server has NO committed default: supply ODOO_URL, ODOO_DB,
+ODOO_USER and ODOO_PASS via ONE of:
+  - env vars (CI, one-off runs)
+  - `.env.test` at repo root (gitignored — never commit credentials), e.g.
+        ODOO_URL=https://your-odoo.example.com
+        ODOO_DB=yourdb
+        ODOO_USER=tester@example.com
+        ODOO_PASS=...
+Scripts that need the server should refuse to run while ODOO_URL is empty.
 
 This mirrors the iOS `SharedTestConfig` pattern documented in CLAUDE.md
 ("Test Script Catalog -> Hard rule on test config").
@@ -33,16 +38,18 @@ def _get(key: str, default: str) -> str:
     return os.environ.get(key) or _env_file_vars.get(key) or default
 
 
-# ─── Odoo server (live cloudflared tunnel) ──────────────────────────────────
-# When the tunnel rotates, change THIS line (or set ODOO_URL env var).
-ODOO_URL = _get("ODOO_URL", "https://tanks-urgent-randy-ate.trycloudflare.com")
+# ─── Odoo server ────────────────────────────────────────────────────────────
+# No default on purpose: the old trycloudflare tunnel default went dead and
+# produced cascade failures that looked like regressions. Supply ODOO_URL /
+# ODOO_DB / ODOO_USER / ODOO_PASS via env or .env.test (see module docstring).
+ODOO_URL = _get("ODOO_URL", "")
 
 # Host-only form (no scheme), for scripts that type into the app's URL field.
 ODOO_HOST = ODOO_URL.replace("https://", "").replace("http://", "").rstrip("/")
 
-ODOO_DB = _get("ODOO_DB", "odoo18_ecpay")
-ODOO_USER = _get("ODOO_USER", "admin")
-ODOO_PASS = _get("ODOO_PASS", "admin")
+ODOO_DB = _get("ODOO_DB", "")
+ODOO_USER = _get("ODOO_USER", "")
+ODOO_PASS = _get("ODOO_PASS", "")
 
 # ─── Android app under test ─────────────────────────────────────────────────
 APP_PACKAGE = _get("APP_PACKAGE", "io.woowtech.odoo.debug")
@@ -59,6 +66,12 @@ FIREBASE_PROJECT_ID = _get("FIREBASE_PROJECT_ID", "woow-odoo-de2cb")
 VERIFICATION_REPORT_DIR = _get(
     "VERIFICATION_REPORT_DIR",
     str(_REPO_ROOT / "docs" / "verification-report"),
+)
+
+# ─── verify-on-device.py run log (appended after every run) ─────────────────
+VERIFY_REPORT_FILE = _get(
+    "VERIFY_REPORT_FILE",
+    str(_REPO_ROOT / "docs" / "plans" / "2026-03-22-device-verification-log.md"),
 )
 
 
