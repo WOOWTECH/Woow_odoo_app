@@ -252,4 +252,21 @@ class OdooJsonRpcClientTest {
         assertTrue(types.contains(AuthResult.ErrorType.SERVER_ERROR))
         assertTrue(types.contains(AuthResult.ErrorType.UNKNOWN))
     }
+
+    // Play 審查退件 2026-09-23：主機名稱帶尾端空白時 OkHttp 丟 IllegalArgumentException，
+    // 原本以 "Error: Invalid URL host: ..." 原文顯示給使用者。
+    @Test
+    fun `Given host with trailing space when authenticate then returns INVALID_URL without raw exception text`() = runTest {
+        val result = client.authenticate(
+            serverUrl = "https://demo222-odoo.woowtech.io ",
+            database = "demo222",
+            username = "u",
+            password = "p"
+        )
+
+        assertTrue(result is AuthResult.Error)
+        result as AuthResult.Error
+        assertEquals(AuthResult.ErrorType.INVALID_URL, result.type)
+        assertEquals("Invalid server URL", result.message)
+    }
 }

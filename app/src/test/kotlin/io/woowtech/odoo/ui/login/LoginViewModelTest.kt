@@ -521,4 +521,71 @@ class LoginViewModelTest {
         viewModel.clearError()
         assertNull(viewModel.uiState.value.error)
     }
+
+    // ──────────────────────────────────────────────────────────
+    // 輸入正規化（Google Play 審查退件 2026-09-23：
+    // 審查員輸入伺服器網址時多了尾端空白，OkHttp 丟出 Invalid URL host）
+    // ──────────────────────────────────────────────────────────
+
+    @Nested
+    inner class InputNormalization {
+
+        private fun loginWith(server: String, db: String, user: String, pass: String = "secret ") {
+            viewModel.updateServerUrl(server)
+            viewModel.updateDatabase(db)
+            viewModel.goToNextStep()
+            viewModel.updateUsername(user)
+            viewModel.updatePassword(pass)
+            viewModel.login {}
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+
+        @Test
+        fun `Given reviewer input with trailing spaces when login then trimmed values reach authenticate`() = runTest {
+            loginWith("https://demo222-odoo.woowtech.io ", "demo222 ", " app.tester.b@woowtest.invalid ")
+
+            coVerify {
+                accountRepository.authenticate(
+                    serverUrl = "https://demo222-odoo.woowtech.io",
+                    database = "demo222",
+                    username = "app.tester.b@woowtest.invalid",
+                    password = "secret "
+                )
+            }
+        }
+
+        @Test
+        fun `Given doubled scheme when login then a single https scheme is used`() = runTest {
+            loginWith("https://https://demo222-odoo.woowtech.io", "demo222", "u")
+
+            coVerify { accountRepository.authenticate("https://demo222-odoo.woowtech.io", "demo222", "u", any()) }
+        }
+
+        @Test
+        fun `Given pasted browser URL with path and fragment when login then only the host is used`() = runTest {
+            loginWith("HTTPS://demo222-odoo.woowtech.io/web#action=menu", "demo222", "u")
+
+            coVerify { accountRepository.authenticate("https://demo222-odoo.woowtech.io", "demo222", "u", any()) }
+        }
+
+        @Test
+        fun `Given uppercase http scheme with leading space when goToNextStep then HTTPS is required`() = runTest {
+            viewModel.updateServerUrl(" HTTP://demo222-odoo.woowtech.io")
+            viewModel.updateDatabase("demo222")
+            viewModel.goToNextStep()
+
+            assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
+            assertEquals("HTTPS is required for security", viewModel.uiState.value.serverUrlError)
+        }
+
+        @Test
+        fun `Given host with illegal characters when goToNextStep then stays on server step with URL error`() = runTest {
+            viewModel.updateServerUrl("demo222 odoo.woowtech.io")
+            viewModel.updateDatabase("demo222")
+            viewModel.goToNextStep()
+
+            assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
+            assertEquals("Invalid server URL", viewModel.uiState.value.serverUrlError)
+        }
+    }
 }
