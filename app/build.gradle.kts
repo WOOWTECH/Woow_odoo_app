@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -18,6 +20,30 @@ dependencyLocking {
     lockAllConfigurations()
 }
 
+// Release signing. Credentials are read from, in order of precedence:
+//   1. keystore.properties at the repo root (gitignored)
+//   2. Gradle properties WOOW_RELEASE_* (e.g. in the user-level gradle.properties)
+//   3. Environment variables of the same names (for CI)
+// When no credentials are present the release signing config is simply not
+// created and `bundleRelease` produces an unsigned artifact, exactly as before.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+
+fun signingValue(name: String): String? =
+    keystoreProps.getProperty(name)
+        ?: providers.gradleProperty(name).orNull
+        ?: System.getenv(name)
+
+val releaseStoreFile = signingValue("WOOW_RELEASE_STORE_FILE")
+val releaseStorePassword = signingValue("WOOW_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("WOOW_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = signingValue("WOOW_RELEASE_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+).all { !it.isNullOrBlank() } && file(releaseStoreFile!!).exists()
+
 android {
     namespace = "io.woowtech.odoo"
     compileSdk = 36
@@ -26,7 +52,7 @@ android {
         applicationId = "io.woowtech.odoo"
         minSdk = 29
         targetSdk = 36
-        versionCode = 21
+        versionCode = 22
         versionName = "1.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -35,8 +61,20 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
