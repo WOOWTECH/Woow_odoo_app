@@ -136,6 +136,9 @@ class OdooJsonRpcClient @Inject constructor() {
             AuthResult.Error("Connection timeout", AuthResult.ErrorType.NETWORK_ERROR)
         } catch (e: IOException) {
             AuthResult.Error("Network error: ${e.message}", AuthResult.ErrorType.NETWORK_ERROR)
+        } catch (e: IllegalArgumentException) {
+            // OkHttp 對無法解析的網址（例如主機名稱含空白）丟 IllegalArgumentException
+            AuthResult.Error("Invalid server URL", AuthResult.ErrorType.INVALID_URL)
         } catch (e: Exception) {
             AuthResult.Error("Error: ${e.message}", AuthResult.ErrorType.UNKNOWN)
         }

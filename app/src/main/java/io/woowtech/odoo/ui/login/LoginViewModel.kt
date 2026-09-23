@@ -91,12 +91,23 @@ class LoginViewModel @Inject constructor(
         }
 
         // Check URL format (must not start with http://)
-        if (state.serverUrl.startsWith("http://")) {
+        if (ServerUrlInput.isInsecure(state.serverUrl)) {
             _uiState.value = state.copy(serverUrlError = "HTTPS is required for security")
             return
         }
 
-        _uiState.value = state.copy(step = LoginStep.CREDENTIALS, error = null)
+        val normalized = ServerUrlInput.normalize(state.serverUrl)
+        if (normalized == null) {
+            _uiState.value = state.copy(serverUrlError = "Invalid server URL")
+            return
+        }
+
+        _uiState.value = state.copy(
+            step = LoginStep.CREDENTIALS,
+            serverUrl = ServerUrlInput.displayValue(normalized),
+            database = state.database.trim(),
+            error = null
+        )
     }
 
     fun goBack() {
@@ -124,16 +135,17 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = state.copy(isLoading = true, error = null)
 
-            val serverUrl = if (state.serverUrl.startsWith("https://")) {
-                state.serverUrl
-            } else {
-                "https://${state.serverUrl}"
+            val serverUrl = ServerUrlInput.normalize(state.serverUrl)
+            if (serverUrl == null) {
+                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL")
+                return@launch
             }
 
+            // 密碼不修剪：空白可能是密碼的一部分
             val result = accountRepository.authenticate(
                 serverUrl = serverUrl,
-                database = state.database,
-                username = state.username,
+                database = state.database.trim(),
+                username = state.username.trim(),
                 password = state.password
             )
 
