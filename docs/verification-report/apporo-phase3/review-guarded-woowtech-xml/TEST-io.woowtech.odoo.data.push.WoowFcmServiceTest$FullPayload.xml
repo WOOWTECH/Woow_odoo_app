@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.WoowFcmServiceTest$FullPayload" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:45" hostname="ElmodeMacBook-Air.local" time="0.002">
+  <properties/>
+  <testcase name="Given complete data payload when message received then shows notification with all fields()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$FullPayload" time="0.001"/>
+  <testcase name="Given payload with discuss event type when message received then passes event type()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$FullPayload" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

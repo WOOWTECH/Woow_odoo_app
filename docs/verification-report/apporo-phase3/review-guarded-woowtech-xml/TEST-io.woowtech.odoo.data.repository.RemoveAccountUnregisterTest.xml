@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.RemoveAccountUnregisterTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:46" hostname="ElmodeMacBook-Air.local" time="0.005">
+  <properties/>
+  <testcase name="Given account when removeAccount then unregisterToken is called before deleteAccount()" classname="io.woowtech.odoo.data.repository.RemoveAccountUnregisterTest" time="0.002"/>
+  <testcase name="Given unregister fails when removeAccount then deletion still proceeds()" classname="io.woowtech.odoo.data.repository.RemoveAccountUnregisterTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,1 @@
+42690 Fri Sep 25 00:13:19 2026     /opt/homebrew/bin/idb_companion --udid 607F8597-2EE9-4D1D-ABE8-5DD1BF042221 --grpc-domain-sock /tmp/idb/607F8597-2EE9-4D1D-ABE8-5DD1BF042221_companion.sock --only simulator

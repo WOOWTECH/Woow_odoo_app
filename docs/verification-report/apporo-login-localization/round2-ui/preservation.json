@@ -1,0 +1,46 @@
+{
+  "bootSeconds": 58.476895457999994,
+  "totalSeconds": 68.95,
+  "guestGuardsVerified": true,
+  "failure": "RuntimeError(\"ADB command failed: ('pull', '/sdcard/apporo-localization.xml', '/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round2-ui/previous-failed-dump.xml')\")",
+  "adbTimeouts": [
+    {
+      "command": [
+        "pull",
+        "/sdcard/apporo-localization.xml",
+        "/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round2-ui/previous-failed-dump.xml"
+      ],
+      "seconds": 4.009
+    }
+  ],
+  "diskMinGiB": {
+    "internal": 4.3275604248046875,
+    "external": 7.0473785400390625
+  },
+  "diskSamples": 33,
+  "diskMaxGapSeconds": 2.1488865000000033,
+  "uiCheckpointsExecuted": 0,
+  "localInputChecksExecuted": 0,
+  "dumpsExecuted": 0,
+  "appLaunched": false,
+  "imeChanged": false,
+  "portsClosed": {
+    "5038": true,
+    "5580": true,
+    "5581": true
+  },
+  "ownedPIDsGone": {
+    "96798": true,
+    "96805": true
+  },
+  "sourceFilesUnchanged": 185,
+  "trackedDiffIdentical": true,
+  "avdConfigUnchanged": true,
+  "previousEvidenceHashCounts": {
+    "localization": 54,
+    "localization-followup": 3,
+    "kernel-diagnostic-01": 9
+  },
+  "oldXmlStillValid": "fb3dcd944ce260f387119cbc096b7ad13e1de8c0a7179b78c3799616a3136a1d",
+  "noStagedFiles": true
+}

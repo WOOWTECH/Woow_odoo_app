@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest" tests="5" skipped="3" failures="0" errors="0" timestamp="2026-09-25T03:50:05" hostname="ElmodeMacBook-Air.local" time="0.003">
+  <properties/>
+  <testcase name="Given Keystore available when getEncryptCipher then returns AES-GCM cipher()" classname="io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="Given key exists when deleteKey then hasKey returns false()" classname="io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="Given encrypt cipher IV when getDecryptCipher then returns decrypt cipher()" classname="io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest" time="0.0">
+    <skipped/>
+  </testcase>
+  <testcase name="Given fresh instance when hasKey on JVM then returns false (no Android Keystore on JVM)()" classname="io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest" time="0.002"/>
+  <testcase name="Given BIOMETRIC_KEY_ALIAS constant then matches expected stable value()" classname="io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

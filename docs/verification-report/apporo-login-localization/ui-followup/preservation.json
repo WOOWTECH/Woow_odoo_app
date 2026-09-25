@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-09-25T06:46:44.752716+00:00",
+  "portsClosed": {
+    "5038": true,
+    "5580": true,
+    "5581": true
+  },
+  "ownedEmulatorPID": 70962,
+  "ownedEmulatorGone": true,
+  "oldXmlRecovered": false,
+  "newDumpExecuted": false,
+  "appLaunched": false,
+  "imeChanged": false,
+  "uidGuardsEstablishedThisBoot": false,
+  "hostSandboxApplied": true,
+  "cleanup": "start-followup.py exception handler terminated its own emulator process group and adb5038",
+  "sourceFilesHashed": 185,
+  "sourceChanges": [],
+  "trackedDiffIdentical": true,
+  "noStagedFiles": true
+}

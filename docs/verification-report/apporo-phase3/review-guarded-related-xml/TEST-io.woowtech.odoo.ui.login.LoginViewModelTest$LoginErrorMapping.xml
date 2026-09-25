@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:47:04" hostname="ElmodeMacBook-Air.local" time="0.056">
+  <properties/>
+  <testcase name="Given unknown error when login then shows the original error message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.014"/>
+  <testcase name="Given invalid credentials error when login then shows invalid username or password message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.006"/>
+  <testcase name="Given HTTPS required error when login then shows secure connection required message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.006"/>
+  <testcase name="Given network error when login then shows unable to connect message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.005"/>
+  <testcase name="Given invalid URL error when login then shows invalid server URL message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.005"/>
+  <testcase name="Given server error when login then shows server error message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.005"/>
+  <testcase name="Given database not found error when login then shows database not found message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.005"/>
+  <testcase name="Given session expired error when login then shows session expired message()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.004"/>
+  <testcase name="Given login error when onSuccess callback should NOT be invoked()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginErrorMapping" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

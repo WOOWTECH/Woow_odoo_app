@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:27" hostname="ElmodeMacBook-Air.local" time="0.002">
+  <properties/>
+  <testcase name="Given no current url when plan then FullLoad (cold start)()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given already on same web path then plan is still FullLoad (no fragment-poke race)()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given differing case hosts when hostMatches then true()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given path-only deep link when plan then FullLoad()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given relative deep link when pathOf then returns path before fragment()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given path traversal link when plan then null (rejected, no load)()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given a page loaded on B when hostMatches target B then true()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given form deep link on Odoo18 then plan is FullLoad to the record()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given Odoo18 SPA on odoo and web deep link then plan is FullLoad carrying the fragment()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given null loaded url when hostMatches then false()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given absolute odoo url when pathOf then returns odoo path()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given validated deep link when fullLoadUrl then preserves fragment()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given prefix-spoofing host link when plan then null (rejected, no load)()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.001"/>
+  <testcase name="Given warm path-only link with no fragment when plan then FullLoad()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <testcase name="Given a page still on A when hostMatches target B then false (never applied on A)()" classname="io.woowtech.odoo.ui.main.DeepLinkWebPlannerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.CacheClearSemanticsTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:39" hostname="ElmodeMacBook-Air.local" time="0.061">
+  <properties/>
+  <testcase name="Given clearCache when invoked then cache size is recalculated for display()" classname="io.woowtech.odoo.ui.config.CacheClearSemanticsTest" time="0.04"/>
+  <testcase name="Given clearCache when invoked then both app cache and webview storage are cleared()" classname="io.woowtech.odoo.ui.config.CacheClearSemanticsTest" time="0.009"/>
+  <testcase name="Given clearCache when invoked then no stored credential is removed()" classname="io.woowtech.odoo.ui.config.CacheClearSemanticsTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

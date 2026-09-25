@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.SwitchAccountUnregisterTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:50:03" hostname="ElmodeMacBook-Air.local" time="0.219">
+  <properties/>
+  <testcase name="Given switch to same already-active account when called then unregisterToken is not called()" classname="io.woowtech.odoo.data.repository.SwitchAccountUnregisterTest" time="0.088"/>
+  <testcase name="Given previous active account A when switch to B succeeds then A is unregistered before re-auth and B is registered after()" classname="io.woowtech.odoo.data.repository.SwitchAccountUnregisterTest" time="0.091"/>
+  <testcase name="Given no previous active account when switch then unregisterToken is not called()" classname="io.woowtech.odoo.data.repository.SwitchAccountUnregisterTest" time="0.018"/>
+  <testcase name="Given previous-account unregister fails when switch then switch still completes()" classname="io.woowtech.odoo.data.repository.SwitchAccountUnregisterTest" time="0.012"/>
+  <testcase name="Given previous account A when switch to B fails re-auth then A is still unregistered and B is not registered()" classname="io.woowtech.odoo.data.repository.SwitchAccountUnregisterTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

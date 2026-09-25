@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.TestHooksTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:48" hostname="ElmodeMacBook-Air.local" time="0.328">
+  <properties/>
+  <testcase name="Given null intent when applyIfPresent then no settings methods called and no exception()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.008"/>
+  <testcase name="Given test-pin 1234567 too long when applyIfPresent then setPin NOT called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.199"/>
+  <testcase name="Given valid test-pin 123456 when applyIfPresent then setPin called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.016"/>
+  <testcase name="Given setPin throws when applyIfPresent then no exception propagates()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.013"/>
+  <testcase name="Given intent with no extras when applyIfPresent then no settings methods called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.006"/>
+  <testcase name="Given app-lock-enabled=true when applyIfPresent then updateAppLock true called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.012"/>
+  <testcase name="Given location-enabled=false then updateLocationEnabled false called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.013"/>
+  <testcase name="Given test-pin 12 too short when applyIfPresent then setPin NOT called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.017"/>
+  <testcase name="Given biometric-enabled=true when applyIfPresent then updateBiometric true canEnable true called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.021"/>
+  <testcase name="Given test-pin abc when applyIfPresent then setPin NOT called and warning logged()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.01"/>
+  <testcase name="Given reset-state=true when applyIfPresent then resetFailedPinAttempts called()" classname="io.woowtech.odoo.ui.TestHooksTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

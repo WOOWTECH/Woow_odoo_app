@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" tests="21" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:58" hostname="ElmodeMacBook-Air.local" time="0.268">
+  <properties/>
+  <testcase name="Given no stored token when unregisterToken then returns failure()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.013"/>
+  <testcase name="Given a reachable server returning HTTP 500 when register then a hard failure surfaces()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.009"/>
+  <testcase name="Given token when registerTokenForAllAccounts then saves token to EncryptedPrefs()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.007"/>
+  <testcase name="Given no token stored when getStoredToken then returns null()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.002"/>
+  <testcase name="Given no accounts when registerTokenForAllAccounts then returns success()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.013"/>
+  <testcase name="Given the per-account POST throws CancellationException when register then it propagates (never swallowed)()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.014"/>
+  <testcase name="Given no accounts when reconcileToken then short-circuits without registering and returns success()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.007"/>
+  <testcase name="Given at least one account when reconcileToken then saves and registers the current token()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.013"/>
+  <testcase name="Given already-current token when reconcileToken runs twice then behavior is stable()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.007"/>
+  <testcase name="Given reconcileOnAccountAvailable fired twice when redundant then both succeed and re-register (idempotent)()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.004"/>
+  <testcase name="Given a reachable account when registerTokenForAllAccounts then success and token saved()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.006"/>
+  <testcase name="Given one live and one unreachable account when register then success and the live account is still POSTed()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.062"/>
+  <testcase name="Given account not found when registerToken then returns failure()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.006"/>
+  <testcase name="Given account not found when unregisterToken then returns failure()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.006"/>
+  <testcase name="Given 2 accounts when registerTokenForAllAccounts then attempts registration for each()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.01"/>
+  <testcase name="Given token stored when getStoredToken then returns it()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.002"/>
+  <testcase name="Given a stored token and two accounts when reconcileOnAccountAvailable then a register is POSTed for each account()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.009"/>
+  <testcase name="Given no token has arrived yet when reconcileOnAccountAvailable then it is a no-op success with no POST()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.007"/>
+  <testcase name="Given every account is unreachable when register then failure (nothing registered anywhere)()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.008"/>
+  <testcase name="Given a token arrived before any account when the account later appears then reconcileOnAccountAvailable registers it()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.038"/>
+  <testcase name="Given the register POST throws CancellationException when reconcileOnAccountAvailable then it propagates()" classname="io.woowtech.odoo.data.repository.FcmTokenRepositoryTest" time="0.019"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.DeepLinkRouterTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:24" hostname="ElmodeMacBook-Air.local" time="0.002">
+  <properties/>
+  <testcase name="Given active A and tenant B when route then switches to B never A()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given resolved tenant B but url points to a foreign host when route then drops()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given blank tenant id when route then applies to active account()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given resolved tenant B and absolute url on B's own host when route then switches to B()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given tenant A and A's own url when route then switches to A (same-account regression)()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given no tenant id (old plugin) when route then applies to active account()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given unresolved tenant id when route then drops never falls back to active account()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given tenant B but B has no persisted tenant id yet when route then drops()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given blank action url when route then drops()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <testcase name="Given resolved tenant B but B not logged in when route then drops()" classname="io.woowtech.odoo.data.push.DeepLinkRouterTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

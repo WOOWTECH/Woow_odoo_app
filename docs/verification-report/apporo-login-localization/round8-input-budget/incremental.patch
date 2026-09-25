@@ -1,0 +1,517 @@
+--- round7/launcher.py
++++ round8/launcher.py
+@@ -1,4 +1,4 @@
+-"""One approved boot plus bounded offline UI session; no rebuild/install/auth request."""
++"""Offline round8 candidate; runtime needs separate approval. No rebuild/install/auth."""
+ import datetime
+ import hashlib
+ import importlib.util
+@@ -15,7 +15,7 @@
+ from connectivity import verify_no_default_network
+ 
+ ROOT = Path(__file__).resolve().parents[4]
+-EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round7-connectivity-budget')
++EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round8-input-budget')
+ GUARD_PATH = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/release-preparation/build-lane-20260925/guard.py')
+ _spec = importlib.util.spec_from_file_location('release_resource_guard', GUARD_PATH)
+ resource_guard = importlib.util.module_from_spec(_spec)
+@@ -180,20 +180,38 @@
+                 action();self.receipt['cleanup'].append(dict(step=name,status='completed',at=utc()))
+             except Exception as exc:
+                 self.receipt['cleanup'].append(dict(step=name,status='error',error=repr(exc),at=utc()))
+-        if self.previous_ime is not None and self.server_owned and port_open(5038):
+-            def guest_cleanup(args):
+-                result=self.run(self.adb_command+['shell']+args,maximum=2,cleanup=True)
+-                if result.get('exit')!=0:raise RuntimeError('Guest cleanup command failed')
++        guest_needed=self.previous_ime is not None or self.receipt.get('appLaunched',False)
++        outcome={name:'not-attempted' if guest_needed else 'not-required' for name in
++                 ('forceStopApp','restoreImeCommand','disableHelperIme','forceStopHelper','originalImeFinalReadback')}
++        self.receipt.update(guestCleanupOutcome=outcome,guestCleanupRequired=guest_needed,
++                            guestCleanupCommandsCompleted=not guest_needed,originalImeReadbackMatched=None)
++        if guest_needed and self.server_owned and port_open(5038):
++            def guest_cleanup(name,args):
++                # One shared40s clock; never reset it per command, no resend after timeout.
++                limit=remaining_timeout(self.total_deadline,5)
++                # If invocation/receipt writing raises, execution is unknown, not "not attempted".
++                outcome[name]='failed'
++                result=self.run(self.adb_command+['shell']+args,maximum=limit,cleanup=True)
++                outcome[name]=('unknown-timeout' if result.get('timeout') else
++                               'acknowledged' if result.get('exit')==0 and result.get('timeout') is False else 'failed')
++                if outcome[name]!='acknowledged':raise RuntimeError('Guest cleanup command incomplete; actual state unknown')
+                 return result['stdout']
+-            attempt('force-stop own App',lambda:guest_cleanup(['am','force-stop','com.apporo.odoo.debug']))
+-            attempt('restore previous IME',lambda:guest_cleanup(['ime','set',self.previous_ime]))
+-            attempt('disable helper IME',lambda:guest_cleanup(['ime','disable','com.github.uiautomator/.AdbKeyboard']))
+-            attempt('force-stop helper',lambda:guest_cleanup(['am','force-stop','com.github.uiautomator']))
+-            def confirm_ime():
+-                actual=guest_cleanup(['settings','get','secure','default_input_method'])
+-                self.receipt['restoredIME']=actual
+-                assert actual==self.previous_ime
+-            attempt('confirm restored IME',confirm_ime)
++            attempt('force-stop own App',lambda:guest_cleanup('forceStopApp',['am','force-stop','com.apporo.odoo.debug']))
++            if self.previous_ime is not None:
++                attempt('restore previous IME',lambda:guest_cleanup('restoreImeCommand',['ime','set',self.previous_ime]))
++                attempt('disable helper IME',lambda:guest_cleanup('disableHelperIme',['ime','disable','com.github.uiautomator/.AdbKeyboard']))
++                attempt('force-stop helper',lambda:guest_cleanup('forceStopHelper',['am','force-stop','com.github.uiautomator']))
++                def confirm_ime():
++                    actual=guest_cleanup('originalImeFinalReadback',['settings','get','secure','default_input_method'])
++                    self.receipt['restoredIME']=actual
++                    self.receipt['originalImeReadbackMatched']=actual==self.previous_ime
++                    outcome['originalImeFinalReadback']='matched' if actual==self.previous_ime else 'mismatched'
++                    assert actual==self.previous_ime
++                attempt('confirm restored IME',confirm_ime)
++            else:
++                for name in ('restoreImeCommand','disableHelperIme','forceStopHelper','originalImeFinalReadback'):
++                    outcome[name]='not-required'
++            self.receipt['guestCleanupCommandsCompleted']=all(value in ('acknowledged','matched','mismatched','not-required') for value in outcome.values())
+         def signal_job(sig):
+             if self.job is not None and self.job.poll() is None:
+                 event=dict(signal=signal.Signals(sig).name,pid=self.job.pid,pgid=self.job.pid,
+@@ -223,9 +241,11 @@
+                 time.sleep(.25)
+             self.receipt['portsClosed']=closed
+             self.receipt['ownedQemuExited']=self.job is None or self.job.poll() is not None
+-            self.receipt['cleanupResolved']=all(closed.values()) and self.receipt['ownedQemuExited']
++            self.receipt['hostCleanupResolved']=all(closed.values()) and self.receipt['ownedQemuExited']
++            # Backward compatibility only: this is NOT overall guest cleanup success.
++            self.receipt['cleanupResolved']=self.receipt['hostCleanupResolved']
+         except Exception as exc:
+-            self.receipt['cleanupResolved']=False;self.receipt['portVerificationError']=repr(exc)
++            self.receipt['hostCleanupResolved']=False;self.receipt['cleanupResolved']=False;self.receipt['portVerificationError']=repr(exc)
+         finally:
+             self.monitor_done.set()
+             if self.monitor is not None:self.monitor.join(timeout=1.5)
+@@ -301,6 +321,14 @@
+         return self.receipt
+ 
+ 
++def successful(receipt):
++    guest_ok=not receipt.get('guestCleanupRequired',True) or (
++        receipt.get('guestCleanupCommandsCompleted') is True and
++        (receipt.get('originalImeReadbackMatched') is True or
++         receipt.get('guestCleanupOutcome',{}).get('originalImeFinalReadback')=='not-required'))
++    return receipt.get('status')=='offline-ui-complete' and receipt.get('hostCleanupResolved') is True and guest_ok
++
++
+ def main():
+     os.umask(0o077)
+     EVIDENCE.mkdir(mode=0o700,exist_ok=False)  # one attempt, no overwrites/retry
+@@ -316,8 +344,8 @@
+     from ui_driver import exercise
+     result=probe.execute(exercise)
+     # Never print raw kernel/ADB output or environment secrets.
+-    print(json.dumps({k:result.get(k) for k in ('status','failure','oldXmlRecovered','cleanupResolved','totalElapsedSeconds')}))
+-    return 0 if result['status']=='offline-ui-complete' and result['cleanupResolved'] else 1
++    print(json.dumps({k:result.get(k) for k in ('status','failure','oldXmlRecovered','hostCleanupResolved','guestCleanupOutcome','guestCleanupCommandsCompleted','originalImeReadbackMatched','totalElapsedSeconds')}))
++    return 0 if successful(result) else 1
+ 
+ 
+ if __name__=='__main__':
+--- round7/test_connectivity.py
++++ round8/test_connectivity.py
+@@ -161,11 +161,13 @@
+         for name in ('installed_artifacts.py', 'root_transition.py', 'phone_ready.py', 'readiness.py', 'system_ui_wait.py'):
+             with self.subTest(name=name):self.assertEqual((here/name).read_bytes(), (before/name).read_bytes())
+         original = '    def cleanup(self):'+(before/'launcher.py').read_text().split('    def cleanup(self):')[1].split('    def execute(')[0]
+-        self.assertEqual(inspect.getsource(launcher.Probe.cleanup).rstrip(), original.rstrip())
++        # Round8 changes only guest cleanup observation/reporting; frozen host tail remains.
++        self.assertEqual(inspect.getsource(launcher.Probe.cleanup).split('        def signal_job')[1].split('        try:\n            for _')[0],
++                         original.split('        def signal_job')[1].split('        try:\n            for _')[0])
+ 
+ 
+ class ConnectivityIntegrationTests(unittest.TestCase):
+-    def execute(self, fail_gate=None):
++    def execute(self, fail_gate=None, ui_failure=None):
+         full = saved_connectivity('round5-installed-pull')['stdout']
+         started = launcher.time.monotonic()
+         clock = [started]
+@@ -212,6 +214,7 @@
+                 elif args == ('shell', 'ime', 'list', '-a', '-s'):out = ui_driver.IME
+                 return dict(exit=0, timeout=False, stdout=out, stderr='')
+             p.adb = Mock(side_effect=adb)
++            if ui_failure is not None:ui.return_value.run.side_effect=lambda:ui_failure(p)
+             with patch.object(p, 'cleanup', wraps=p.cleanup) as cleanup:
+                 result = p.execute(ui_driver.exercise)
+                 cleanup.assert_called_once()
+@@ -228,7 +231,7 @@
+                 self.assertIsNone(p.previous_ime)
+                 self.assertFalse(any(c.args[:2] == ('shell', 'ime') for c in p.adb.call_args_list))
+             else:
+-                self.assertEqual(result['status'], 'offline-ui-complete')
++                self.assertEqual(result['status'], 'failed-or-blocked' if ui_failure else 'offline-ui-complete')
+                 self.assertEqual(len(connectivity_calls), 3)
+                 self.assertEqual([x[0] for x in connectivity_calls], [started+260, started+260, started+732])
+                 self.assertEqual(result['uiWorkLimitSeconds'], 720)
+--- round7/test_input_budget.py
++++ round8/test_input_budget.py
+@@ -0,0 +1,240 @@
++"""Offline only: class-specific input budget, sticky stop, and guest/host receipts."""
++import base64
++from contextlib import ExitStack
++from pathlib import Path
++import tempfile
++import threading
++import unittest
++from unittest.mock import Mock, patch
++import xml.etree.ElementTree as ET
++
++import launcher
++from ui_driver import UI, IME, words
++from readiness import field
++
++RAW='  https://https://example.invalid  '
++FIXTURE=launcher.EVIDENCE.parent/'localization/en-US-light-login.xml'
++
++
++class InputBudgetTests(unittest.TestCase):
++    def setUp(self):
++        self.stack=ExitStack();self.addCleanup(self.stack.close)
++        self.directory=Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
++        self.clock=[100.0]
++        self.stack.enter_context(patch('launcher.time.monotonic',side_effect=lambda:self.clock[0]))
++        self.stack.enter_context(patch('launcher.port_open',return_value=True))
++        self.p=Mock();self.p.stop=threading.Event();self.p.receipt={};self.p.work_deadline=820
++        self.p.adb_command=['fake-adb'];self.ui=UI(self.p);self.ui.directory=self.directory
++        self.ui.locale='en-US';self.ui.w=words('en-US')
++        self.root=ET.parse(FIXTURE).getroot()
++        field(self.root,self.ui.w['server_url']).set('text',RAW)
++        field(self.root,self.ui.w['server_url']).set('focused','true')
++        self.ui.ready=Mock(return_value=(self.root,Path('readback.xml')))
++        self.ui.image=Mock(return_value=Path('readback.png'))
++        self.commands=[];self.send_seconds=12;self.result=dict(exit=0,timeout=False,stdout='Broadcast completed',stderr='')
++        def shell(*args,**kwargs):
++            self.commands.append((args,kwargs))
++            if args[:3]==('settings','get','secure'):return dict(stdout=IME)
++            if 'ADB_KEYBOARD_SET_TEXT' in args:
++                self.clock[0]+=self.send_seconds
++                return self.result
++            return dict(exit=0,timeout=False,stdout='')
++        self.p.shell.side_effect=shell
++        self.p.run.return_value=dict(exit=0,timeout=False,stdout='')
++
++    def sends(self):return [x for x in self.commands if 'ADB_KEYBOARD_SET_TEXT' in x[0]]
++
++    def test_12_second_success_with_exact_raw_readback_only(self):
++        self.ui.enter('server_url',RAW)
++        self.assertEqual(1,len(self.sends()));args,kw=self.sends()[0]
++        self.assertEqual(15,kw['maximum']);self.assertFalse(kw['required'])
++        self.assertEqual(RAW,base64.b64decode(args[-1]).decode())
++        self.assertEqual(RAW,self.ui.inputs[0]['actual']);self.assertEqual('PASS',self.ui.inputs[0]['result'])
++        self.assertEqual({220}, {c.kwargs['deadline'] for c in self.ui.ready.call_args_list})
++        self.assertTrue(all(kw.get('maximum')==4 for args,kw in self.commands if 'ADB_KEYBOARD_SET_TEXT' not in args))
++        self.p.run.assert_not_called()
++
++    def test_partial_timeout_may_be_applied_never_resend_or_hide_or_pass(self):
++        self.result=dict(exit=None,timeout=True,stdout='Broadcasting: Intent ...',stderr='command timeout')
++        with self.assertRaises(RuntimeError):self.ui.enter('server_url',RAW)
++        self.assertTrue(self.p.stop.is_set());self.assertTrue(self.ui.failed)
++        self.assertEqual('unknown',self.p.receipt['inputAttempts'][0]['appliedToGuest'])
++        self.assertFalse(any('ADB_KEYBOARD_HIDE' in a for a,k in self.commands))
++        self.assertEqual([],self.ui.inputs);self.assertEqual([],self.ui.results)
++        self.assertEqual(4,self.p.run.call_count) # one XML/PNG observation, no interpretation
++        with self.assertRaises(RuntimeError):self.ui.enter('server_url',RAW)
++        with self.assertRaises(RuntimeError):self.ui.tap(field(self.root,self.ui.w['server_url']))
++        self.assertEqual(1,len(self.sends()));self.assertEqual(4,self.p.run.call_count)
++
++    def test_raw_readback_mismatch_cannot_pass_even_after_command_success(self):
++        field(self.root,self.ui.w['server_url']).set('text',RAW.strip())
++        with self.assertRaisesRegex(ValueError,'raw input'):self.ui.enter('server_url',RAW)
++        self.assertEqual([],self.ui.inputs);self.assertTrue(self.p.stop.is_set())
++        self.assertEqual(1,len(self.sends()))
++
++    def test_command_clamps_remaining_screen_deadline(self):
++        def ready(*args,**kwargs):
++            if 'focused' in args[0]:self.clock[0]=217
++            return self.root,Path('readback.xml')
++        self.ui.ready.side_effect=ready;self.send_seconds=1
++        self.ui.enter('server_url',RAW)
++        self.assertEqual(3,self.sends()[0][1]['maximum'])
++
++    def test_command_clamps_remaining_ui_work_deadline(self):
++        self.p.work_deadline=107;self.send_seconds=1
++        self.ui.enter('server_url',RAW)
++        self.assertEqual(7,self.sends()[0][1]['maximum'])
++
++    def test_exhausted_budget_never_sends_or_uses_cleanup_reserve(self):
++        self.p.work_deadline=100
++        with self.assertRaises(TimeoutError):self.ui.enter('server_url',RAW)
++        self.assertEqual([],self.commands);self.p.run.assert_not_called()
++        self.assertEqual('skipped-no-work-budget',self.p.receipt['failureObservation']['status'])
++
++    def test_late_completion_never_hides_or_passes(self):
++        self.p.work_deadline=105;self.send_seconds=6
++        with self.assertRaises(TimeoutError):self.ui.enter('server_url',RAW)
++        self.assertEqual([],self.ui.inputs);self.p.run.assert_not_called()
++        self.assertFalse(any('ADB_KEYBOARD_HIDE' in a for a,k in self.commands))
++
++    def test_observation_failure_latches_and_does_not_mask_primary_failure(self):
++        self.result=dict(exit=None,timeout=True,stdout='partial')
++        self.p.run.side_effect=RuntimeError('forensic failed')
++        with self.assertRaisesRegex(RuntimeError,'may already be applied'):self.ui.enter('server_url',RAW)
++        self.assertEqual(1,self.p.run.call_count)
++        self.assertEqual('observation-failed',self.p.receipt['failureObservation']['status'])
++        self.assertTrue(self.p.stop.is_set())
++
++    def test_observation_stops_at_work_deadline_without_touching_reserve(self):
++        self.result=dict(exit=None,timeout=True,stdout='partial');self.p.work_deadline=115
++        def observe(*args,**kw):
++            self.assertTrue(self.p.stop.is_set());self.assertLessEqual(kw['maximum'],3)
++            self.clock[0]+=3
++            return dict(exit=0,timeout=False,stdout='')
++        self.p.run.side_effect=observe
++        with self.assertRaises(RuntimeError):self.ui.enter('server_url',RAW)
++        self.assertEqual(1,self.p.run.call_count)
++
++    def test_forensic_failure_still_reaches_actual_execute_cleanup(self):
++        from test_connectivity import ConnectivityIntegrationTests
++        def fail(probe):
++            # Use the real enter/failure path inside the real execute/finally cleanup.
++            self.ui.p=probe
++            probe.shell=Mock(side_effect=lambda *args,**kw:
++                dict(stdout=IME) if args[:3]==('settings','get','secure') else
++                dict(exit=None,timeout=True,stdout='possibly applied'))
++            probe.run=Mock(side_effect=RuntimeError('observation failed'))
++            self.ui.enter('server_url',RAW)
++        ConnectivityIntegrationTests().execute(ui_failure=fail)
++        self.assertEqual('observation-failed',self.ui.p.receipt['failureObservation']['status'])
++        self.assertEqual('failed-or-blocked',self.ui.p.receipt['status'])
++        self.assertEqual([],self.ui.inputs)
++
++    def test_focus_consumes_screen_budget_no_broadcast_after_expiry(self):
++        def ready(*args,**kwargs):
++            if 'focused' in args[0]:self.clock[0]=220
++            return self.root,Path('readback.xml')
++        self.ui.ready.side_effect=ready
++        with self.assertRaises(TimeoutError):self.ui.enter('server_url',RAW)
++        self.assertEqual([],self.sends());self.p.run.assert_not_called()
++
++    def test_timeout_flag_with_exit_zero_and_matching_raw_is_still_unknown(self):
++        self.result=dict(exit=0,timeout=True,stdout='partial')
++        with self.assertRaises(RuntimeError):self.ui.enter('server_url',RAW)
++        self.assertEqual([],self.ui.inputs);self.assertEqual(1,len(self.sends()))
++
++    def test_nonzero_command_never_hides_retries_or_passes(self):
++        self.result=dict(exit=1,timeout=False,stdout='error')
++        with self.assertRaises(RuntimeError):self.ui.enter('server_url',RAW)
++        self.assertFalse(any('ADB_KEYBOARD_HIDE' in a for a,k in self.commands))
++        self.assertEqual([],self.ui.inputs);self.assertEqual(1,len(self.sends()))
++
++    def test_probe_latch_rejects_subsequent_mutation_before_subprocess(self):
++        with patch.object(launcher,'EVIDENCE',self.directory):
++            probe=launcher.Probe();probe.stop.set()
++            with patch.object(launcher.subprocess,'run') as run:
++                with self.assertRaisesRegex(RuntimeError,'requested stop'):
++                    probe.shell('am','broadcast','-a','ADB_KEYBOARD_SET_TEXT')
++                run.assert_not_called()
++
++    def test_password_never_sent(self):
++        with self.assertRaises(AssertionError):self.ui.enter('password','forbidden')
++        self.assertEqual([],self.commands)
++
++    def test_readiness_failure_latches_before_one_capture(self):
++        self.ui.ready=UI.ready.__get__(self.ui)
++        self.ui.readiness_snapshot=Mock(side_effect=RuntimeError('dump failed'))
++        def observe(*args,**kwargs):
++            self.assertTrue(self.p.stop.is_set())
++            return dict(exit=0,timeout=False,stdout='')
++        self.p.run.side_effect=observe
++        with self.assertRaises(RuntimeError):self.ui.enter('server_url',RAW)
++        self.assertEqual(4,self.p.run.call_count);self.assertEqual([],self.sends())
++
++
++class GuestCleanupTests(unittest.TestCase):
++    def cleanup(self, timeout=False, remaining=100, ime='original.IME', previous=True, receipt_error=False):
++        clock=[100.0];calls=[]
++        with tempfile.TemporaryDirectory() as d, patch.object(launcher,'EVIDENCE',Path(d)), \
++             patch.object(launcher.time,'monotonic',side_effect=lambda:clock[0]), \
++             patch.object(launcher,'port_open',return_value=True) as port, \
++             patch.object(launcher.os,'kill') as kill, patch.object(launcher.os,'killpg') as killpg:
++            p=launcher.Probe();p.total_deadline=100+remaining;p.server_owned=True
++            p.previous_ime='original.IME' if previous else None
++            p.receipt['status']='offline-ui-complete'
++            def run(args,maximum=4,cleanup=False):
++                calls.append((args,maximum,clock[0],p.total_deadline))
++                self.assertLessEqual(clock[0]+maximum,p.total_deadline)
++                clock[0]+=maximum if timeout else .1
++                if 'kill-server' in args:port.return_value=False
++                if receipt_error and 'shell' in args and 'settings' not in args:
++                    raise OSError('receipt write failed after possible mutation')
++                return dict(exit=None if timeout and 'settings' not in args else 0,
++                            timeout=timeout and 'settings' not in args,stdout=ime)
++            p.run=Mock(side_effect=run)
++            p.cleanup();kill.assert_not_called();killpg.assert_not_called()
++            return p.receipt,calls
++
++    def test_four_guest_timeouts_not_retried_final_ime_match_host_separate(self):
++        r,calls=self.cleanup(timeout=True)
++        guest=[c for c in calls if 'shell' in c[0]]
++        self.assertEqual(5,len(guest));self.assertTrue(all(c[1]==5 for c in guest))
++        self.assertEqual({140},{c[3] for c in calls})
++        self.assertTrue(r['hostCleanupResolved']);self.assertTrue(r['cleanupResolved'])
++        self.assertTrue(r['originalImeReadbackMatched']);self.assertEqual('original.IME',r['restoredIME'])
++        self.assertEqual(4,list(r['guestCleanupOutcome'].values()).count('unknown-timeout'))
++        self.assertFalse(r['guestCleanupCommandsCompleted']);self.assertFalse(launcher.successful(r))
++
++    def test_all_acknowledged_and_ime_verified_required_for_success(self):
++        r,_=self.cleanup()
++        self.assertTrue(r['guestCleanupCommandsCompleted']);self.assertTrue(launcher.successful(r))
++        self.assertEqual(4,list(r['guestCleanupOutcome'].values()).count('acknowledged'))
++
++    def test_mismatched_ime_cannot_be_masked_by_host_success(self):
++        r,_=self.cleanup(ime='wrong.IME')
++        self.assertTrue(r['hostCleanupResolved']);self.assertTrue(r['guestCleanupCommandsCompleted'])
++        self.assertFalse(r['originalImeReadbackMatched']);self.assertFalse(launcher.successful(r))
++
++    def test_shared_clock_exhaustion_never_resets_missing_steps_unknown(self):
++        r,calls=self.cleanup(timeout=True,remaining=7)
++        guest=[c for c in calls if 'shell' in c[0]]
++        self.assertEqual([5,2],[c[1] for c in guest]);self.assertEqual({107},{c[3] for c in calls})
++        self.assertIn('not-attempted',r['guestCleanupOutcome'].values())
++        self.assertFalse(r['guestCleanupCommandsCompleted']);self.assertFalse(launcher.successful(r))
++
++    def test_receipt_error_after_possible_mutation_is_not_claimed_unattempted(self):
++        r,calls=self.cleanup(receipt_error=True)
++        self.assertEqual(5,len([c for c in calls if 'shell' in c[0]]))
++        self.assertEqual(4,list(r['guestCleanupOutcome'].values()).count('failed'))
++        self.assertTrue(r['hostCleanupResolved']);self.assertTrue(r['originalImeReadbackMatched'])
++        self.assertFalse(r['guestCleanupCommandsCompleted']);self.assertFalse(launcher.successful(r))
++
++    def test_not_required_only_when_no_guest_actions(self):
++        r,calls=self.cleanup(previous=False)
++        self.assertFalse(any('shell' in c[0] for c in calls))
++        self.assertFalse(r['guestCleanupRequired'])
++        self.assertEqual({'not-required'},set(r['guestCleanupOutcome'].values()))
++        self.assertTrue(launcher.successful(r))
++
++
++if __name__=='__main__':unittest.main()
+--- round7/ui_driver.py
++++ round8/ui_driver.py
+@@ -30,7 +30,7 @@
+     def __init__(self,probe):
+         self.p=probe;self.directory=launcher.EVIDENCE
+         self.sequence=0;self.results=[];self.inputs=[];self.locale=None;self.w=None
+-        self.wait_used=False
++        self.wait_used=False;self.failed=False;self.failure_evidence_used=False
+         self.p.receipt['systemUiWaitCount']=0
+ 
+     def persist(self):
+@@ -114,14 +114,46 @@
+         finally:
+             self.p.record(dict(event));self.p.save()
+ 
+-    def ready(self,stage,credential=False,extra=lambda root:True):
++    def failure(self, stage, deadline, error):
++        # Latch before any observation. Only cleanup and this one read-only capture remain.
++        self.failed=True;self.p.stop.set()
++        if self.failure_evidence_used:return
++        self.failure_evidence_used=True
++        event=dict(stage=stage,error=repr(error),status='observation-only',commands=[])
++        self.p.receipt['failureObservation']=event
++        deadline=min(deadline,self.p.work_deadline)
++        def observe(args,maximum):
++            limit=launcher.remaining_timeout(deadline,maximum)
++            result=self.forensic(args,maximum=limit)
++            event['commands'].append(result)
++            if result.get('exit')!=0 or result.get('timeout') is not False:
++                raise RuntimeError('Failure observation unavailable; no retry')
++        try:
++            if self.p.work_deadline-time.monotonic()<=0 or deadline-time.monotonic()<=0:
++                event['status']='skipped-no-work-budget';return
++            self.sequence+=1
++            name=f'{self.sequence:03d}-{stage}-FAILED'
++            guest='/sdcard/apporo-round8-'+name
++            observe(['shell','uiautomator','dump',guest+'.xml'],60)
++            self.p.receipt['newDump']=True
++            observe(['pull',guest+'.xml',str(self.directory/(name+'.xml'))],15)
++            observe(['shell','screencap','-p',guest+'.png'],8)
++            observe(['pull',guest+'.png',str(self.directory/(name+'.png'))],15)
++            event.update(xml=name+'.xml',screenshot=name+'.png')
++        except Exception as exc:
++            event.update(status='observation-failed',observationError=repr(exc))
++        finally:
++            self.p.save()
++
++    def ready(self,stage,credential=False,extra=lambda root:True,deadline=None):
++        if self.failed:raise RuntimeError('UI stopped; no further action')
+         labels=[self.w['username'],self.w['password']] if credential else [self.w['server_url'],self.w['database_name']]
+         button=self.w['login_button'] if credential else self.w['next_button']
+-        deadline=min(time.monotonic()+120,self.p.work_deadline)
++        deadline=min(time.monotonic()+120,self.p.work_deadline) if deadline is None else min(deadline,self.p.work_deadline)
+         try:
+             return await_ready(lambda end:self.readiness_snapshot(stage,end),lambda root:form_ready(root,labels,button) and extra(root),deadline)
+-        except Exception:
+-            self.image(stage+'-FAILED',diagnostic=True)
++        except Exception as exc:
++            self.failure(stage,deadline,exc)
+             raise
+ 
+     def checkpoint(self,name,expected,credential=False):
+@@ -130,9 +162,10 @@
+         self.results.append(dict(id=name,result='PASS',expected=expected,actual=text_node(root,expected).get('text'),xml=xml.name,screenshot=image.name))
+         self.persist()
+ 
+-    def tap(self,node):
++    def tap(self,node,deadline=None):
++        if self.failed:raise RuntimeError('UI stopped; no further mutation')
+         x1,y1,x2,y2=bounds(node)
+-        self.p.shell('input','tap',str((x1+x2)//2),str((y1+y2)//2))
++        self.p.shell('input','tap',str((x1+x2)//2),str((y1+y2)//2),maximum=4 if deadline is None else launcher.remaining_timeout(deadline,4))
+ 
+     def next(self):
+         root,_=self.ready(self.locale+'-before-next')
+@@ -145,20 +178,42 @@
+         self.tap(text_node(root,self.w['login_button']))
+ 
+     def enter(self,key,value,credential=False):
++        if self.failed:raise RuntimeError('UI stopped; no further input')
+         assert key in ('server_url','database_name','username'), 'No password input permitted'
+-        assert self.p.shell('settings','get','secure','default_input_method')['stdout']==IME
+-        label=self.w[key]
+-        root,before=self.ready(self.locale+'-before-input-'+key,credential)
+-        self.tap(field(root,label))
+-        self.ready(self.locale+'-focused-'+key,credential,lambda r:field(r,label).get('focused')=='true')
+-        payload=base64.b64encode(value.encode()).decode()
+-        self.p.shell('am','broadcast','-a','ADB_KEYBOARD_SET_TEXT','-p',HELPER,'--es','text',payload)
+-        self.p.shell('am','broadcast','-a','ADB_KEYBOARD_HIDE','-p',HELPER)
++        deadline=min(time.monotonic()+120,self.p.work_deadline)
+         name=f'{self.locale}-input-{key}-{len(self.inputs)+1}'
+-        root,after=self.ready(name,credential,lambda r:field(r,label).get('text')==value)
+-        image=self.image(name)
+-        self.inputs.append(dict(id=name,fieldLabel=label,expected=value,actual=field(root,label).get('text'),beforeXml=before.name,xml=after.name,screenshot=image.name,result='PASS',method='verified ADBKeyboard base64'))
+-        self.persist()
++        attempt=dict(id=name,expected=value,status='not-sent',appliedToGuest='unknown')
++        self.p.receipt.setdefault('inputAttempts',[]).append(attempt)
++        try:
++            assert self.p.shell('settings','get','secure','default_input_method',maximum=launcher.remaining_timeout(deadline,4))['stdout']==IME
++            label=self.w[key]
++            root,before=self.ready(self.locale+'-before-input-'+key,credential,deadline=deadline)
++            launcher.remaining_timeout(deadline,4)
++            self.tap(field(root,label),deadline=deadline)
++            self.ready(self.locale+'-focused-'+key,credential,lambda r:field(r,label).get('focused')=='true',deadline=deadline)
++            payload=base64.b64encode(value.encode()).decode()
++            limit=launcher.remaining_timeout(deadline,15)
++            attempt['status']='requested-once'
++            result=self.p.shell('am','broadcast','-a','ADB_KEYBOARD_SET_TEXT','-p',HELPER,'--es','text',payload,required=False,maximum=limit)
++            attempt['command']=result
++            if result.get('exit')!=0 or result.get('timeout') is not False:
++                attempt['status']='unknown-command-outcome'
++                raise RuntimeError('SET_TEXT incomplete; may already be applied; never resend')
++            launcher.remaining_timeout(deadline,4)
++            attempt['status']='command-completed-readback-pending'
++            self.p.shell('am','broadcast','-a','ADB_KEYBOARD_HIDE','-p',HELPER,maximum=launcher.remaining_timeout(deadline,4))
++            root,after=self.ready(name,credential,lambda r:field(r,label).get('text')==value,deadline=deadline)
++            actual=field(root,label).get('text')
++            if actual!=value:raise ValueError('Exact raw input readback mismatch')
++            image=self.image(name,deadline=deadline)
++            launcher.remaining_timeout(deadline,1)
++            self.inputs.append(dict(id=name,fieldLabel=label,expected=value,actual=actual,beforeXml=before.name,xml=after.name,screenshot=image.name,result='PASS',method='verified ADBKeyboard base64'))
++            attempt.update(status='verified-raw-readback',appliedToGuest='verified')
++            self.persist()
++        except Exception as exc:
++            attempt['failure']=repr(exc)
++            self.failure(name,deadline,exc)
++            raise
+ 
+     def run(self):
+         for locale in ('en-US','zh-TW','zh-CN'):

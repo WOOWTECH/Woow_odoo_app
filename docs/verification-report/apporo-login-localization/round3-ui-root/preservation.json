@@ -1,0 +1,64 @@
+{
+  "bootSeconds": 79.115102125,
+  "totalSeconds": 85.75,
+  "failedCommand": {
+    "command": [
+      "/Users/elmolin/Library/Android/sdk/platform-tools/adb",
+      "-P",
+      "5038",
+      "-s",
+      "emulator-5580",
+      "shell",
+      "svc",
+      "data",
+      "disable"
+    ],
+    "exit": 20,
+    "stdout": "",
+    "stderr": "cmd: Can't find service: phone",
+    "timeout": false,
+    "seconds": 0.446
+  },
+  "rootCommands": 0,
+  "rootUidQueries": 0,
+  "uiExecuted": 0,
+  "uiPlanned": 21,
+  "inputsExecuted": 0,
+  "inputsPlanned": 18,
+  "newDumpCommands": 0,
+  "appLaunched": false,
+  "imeChanged": false,
+  "startFreeGiB": {
+    "internal": 3.243865966796875,
+    "external": 7.098430633544922
+  },
+  "minFreeGiB": {
+    "internal": 3.2419052124023438,
+    "external": 7.081455230712891
+  },
+  "diskSamples": 42,
+  "maxDiskSampleGapSeconds": 2.110261792000003,
+  "sourceFilesUnchanged": 185,
+  "trackedDiffIdentical": true,
+  "avdConfigUnchanged": true,
+  "priorEvidenceHashCounts": {
+    "localization": 54,
+    "localization-followup": 3,
+    "kernel-diagnostic-01": 9,
+    "round2-ui": 7,
+    "round2-ui-attempt2": 7
+  },
+  "portsClosed": {
+    "5038": true,
+    "5580": true,
+    "5581": true
+  },
+  "ownedPIDsGone": {
+    "50309": true,
+    "50302": true
+  },
+  "noStagedFiles": true,
+  "rootTransitionReached": false,
+  "installedArtifactsReverified": false,
+  "guestUidGuardsReverified": false
+}

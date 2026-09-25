@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.DeepLinkHostValidationTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:26" hostname="ElmodeMacBook-Air.local" time="0.001">
+  <properties/>
+  <testcase name="Given external host URL when isValid then returns false()" classname="io.woowtech.odoo.ui.DeepLinkHostValidationTest" time="0.0"/>
+  <testcase name="Given no active account (empty host) when isValid then returns false for absolute URL()" classname="io.woowtech.odoo.ui.DeepLinkHostValidationTest" time="0.0"/>
+  <testcase name="Given relative web path when isValid then returns true regardless of host()" classname="io.woowtech.odoo.ui.DeepLinkHostValidationTest" time="0.0"/>
+  <testcase name="Given javascript scheme when isValid then returns false()" classname="io.woowtech.odoo.ui.DeepLinkHostValidationTest" time="0.0"/>
+  <testcase name="Given data scheme when isValid then returns false()" classname="io.woowtech.odoo.ui.DeepLinkHostValidationTest" time="0.0"/>
+  <testcase name="Given active account host when isValid with matching host URL then returns true()" classname="io.woowtech.odoo.ui.DeepLinkHostValidationTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

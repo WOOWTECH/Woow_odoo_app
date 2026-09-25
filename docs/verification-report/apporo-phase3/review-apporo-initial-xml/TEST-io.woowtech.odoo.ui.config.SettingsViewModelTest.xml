@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.SettingsViewModelTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:39" hostname="ElmodeMacBook-Air.local" time="0.039">
+  <properties/>
+  <testcase name="Given reduce motion toggled when updateReduceMotion true then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.005"/>
+  <testcase name="Given App Lock enabled via toggle when PIN set then PIN stored BEFORE App Lock enabled()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.012"/>
+  <testcase name="Given settings repository when ViewModel created then exposes settings flow()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.003"/>
+  <testcase name="Given PIN storage fails when enabling App Lock then App Lock is NOT enabled()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.007"/>
+  <testcase name="Given reduce motion toggled when updateReduceMotion false then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.002"/>
+  <testcase name="Given cache repository when ViewModel created then calculates cache size on init()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.005"/>
+  <testcase name="Given zero cache size when ViewModel created then shows 0 B()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

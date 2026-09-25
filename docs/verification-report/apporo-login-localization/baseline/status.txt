@@ -1,0 +1,70 @@
+ M .github/workflows/build.yml
+ M .gitignore
+ M CLAUDE.md
+ M _bmad-output/project-context.md
+ M app/build.gradle.kts
+ M app/gradle.lockfile
+ M app/src/main/AndroidManifest.xml
+ M app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt
+ M app/src/main/java/io/woowtech/odoo/data/local/EncryptedPrefs.kt
+ M app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt
+ M app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepository.kt
+ M app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepositoryImpl.kt
+ M app/src/main/java/io/woowtech/odoo/di/AppModule.kt
+ M app/src/main/java/io/woowtech/odoo/domain/model/AppSettings.kt
+ M app/src/main/java/io/woowtech/odoo/ui/config/SettingsScreen.kt
+ M app/src/main/java/io/woowtech/odoo/ui/config/SettingsViewModel.kt
+ M app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt
+ M app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt
+ M app/src/main/java/io/woowtech/odoo/ui/theme/Color.kt
+ M app/src/main/java/io/woowtech/odoo/ui/theme/Theme.kt
+ M app/src/main/res/values-zh-rCN/strings.xml
+ M app/src/main/res/values-zh-rTW/strings.xml
+ M app/src/main/res/values/strings.xml
+ M app/src/test/kotlin/io/woowtech/odoo/data/api/OdooJsonRpcClientTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/api/SessionReauthInterceptorTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/AccountRepositoryTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenEmptyAccountsTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/LoginRegisterTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/LogoutUnregisterTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/RememberMePersistenceTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/RemoveAccountUnregisterTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/SessionIsolationTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/ui/config/CacheClearSemanticsTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/ui/config/CompliancePageLinksTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/ui/config/SettingsViewModelTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt
+ M app/src/test/kotlin/io/woowtech/odoo/ui/theme/FixedBrandThemeTest.kt
+ M scripts/e2e-production-test.py
+ M scripts/e2e-verification-report.py
+ M scripts/e2e_15_clockin_full.py
+ M scripts/e2e_hprime_android.py
+ M scripts/e2e_hprime_android_chaos.py
+ M scripts/test_config.py
+ M scripts/verify-on-device.py
+?? app/src/apporo/
+?? app/src/main/java/io/woowtech/odoo/brand/
+?? app/src/main/java/io/woowtech/odoo/data/repository/ApporoPushContract.kt
+?? app/src/main/java/io/woowtech/odoo/data/repository/ApporoPushTransport.kt
+?? app/src/main/java/io/woowtech/odoo/data/repository/PushRegistrationStatus.kt
+?? app/src/test/kotlin/io/woowtech/odoo/brand/
+?? app/src/test/kotlin/io/woowtech/odoo/data/api/ApporoManualSessionTest.kt
+?? app/src/test/kotlin/io/woowtech/odoo/data/api/AuthTransportIsolationTest.kt
+?? app/src/test/kotlin/io/woowtech/odoo/data/repository/ApporoAccountSelectionTest.kt
+?? app/src/test/kotlin/io/woowtech/odoo/data/repository/ApporoPushContractTest.kt
+?? app/src/test/kotlin/io/woowtech/odoo/data/repository/ApporoPushTransportTest.kt
+?? app/src/test/kotlin/io/woowtech/odoo/testutil/
+?? app/src/test/kotlin/io/woowtech/odoo/ui/config/PushRegistrationSettingsTest.kt
+?? docs/plans/2026-09-24-apporo-Implementation_Plan.md
+?? docs/plans/2026-09-24-apporo-Test_Plan.md
+?? docs/plans/2026-09-24-apporo-assets.json
+?? docs/plans/2026-09-25-apporo-push-client.md
+?? docs/verification-report/apporo-login-localization/
+?? docs/verification-report/apporo-phase2/
+?? docs/verification-report/apporo-phase3/
+?? scripts/brand_test_target.py
+?? scripts/generate_apporo_assets.py
+?? scripts/tests/
+?? scripts/validate_brand_config.py

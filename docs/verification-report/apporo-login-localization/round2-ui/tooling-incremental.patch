@@ -1,0 +1,455 @@
+--- docs/verification-report/apporo-login-localization/kernel-diagnostic/probe.py
++++ docs/verification-report/apporo-login-localization/round2-ui/launcher.py
+@@ -1,4 +1,4 @@
+-"""One approved 300s diagnostic session. No product launch, input, install or UI dump."""
++"""One approved boot plus bounded offline UI session; no rebuild/install/auth request."""
+ import datetime
+ import hashlib
+ import json
+@@ -13,7 +13,7 @@
+ import time
+ 
+ ROOT = Path(__file__).resolve().parents[4]
+-EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/kernel-diagnostic-01')
++EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round2-ui')
+ SDK = Path('/Users/elmolin/Library/Android/sdk')
+ BASE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/validation/android-emulator-runtime.json')
+ GIB = 1024**3
+@@ -75,6 +75,7 @@
+         self.server_pid = None
+         self.kernel = None
+         self.cleaning = False
++        self.previous_ime = None
+         self.receipt = dict(startedAt=utc(),status='preflight',command=self.emulator_command,
+                             environment={k:self.env[k] for k in (*base['environmentPaths'],
+                             'ADB_SERVER_SOCKET','ANDROID_ADB_SERVER_PORT','ADB_MDNS_AUTO_CONNECT',
+@@ -156,12 +157,28 @@
+ 
+     def cleanup(self):
+         self.cleaning = True
++        # UI cleanup has at most the reserved40s, even on early readiness failure.
++        self.total_deadline = min(self.total_deadline, time.monotonic()+40)
+         # Each step independent; failure must not bypass final receipt or port checks.
+         def attempt(name, action):
+             try:
+                 action();self.receipt['cleanup'].append(dict(step=name,status='completed',at=utc()))
+             except Exception as exc:
+                 self.receipt['cleanup'].append(dict(step=name,status='error',error=repr(exc),at=utc()))
++        if self.previous_ime is not None and self.server_owned and port_open(5038):
++            def guest_cleanup(args):
++                result=self.run(self.adb_command+['shell']+args,maximum=2,cleanup=True)
++                if result.get('exit')!=0:raise RuntimeError('Guest cleanup command failed')
++                return result['stdout']
++            attempt('force-stop own App',lambda:guest_cleanup(['am','force-stop','com.apporo.odoo.debug']))
++            attempt('restore previous IME',lambda:guest_cleanup(['ime','set',self.previous_ime]))
++            attempt('disable helper IME',lambda:guest_cleanup(['ime','disable','com.github.uiautomator/.AdbKeyboard']))
++            attempt('force-stop helper',lambda:guest_cleanup(['am','force-stop','com.github.uiautomator']))
++            def confirm_ime():
++                actual=guest_cleanup(['settings','get','secure','default_input_method'])
++                self.receipt['restoredIME']=actual
++                assert actual==self.previous_ime
++            attempt('confirm restored IME',confirm_ime)
+         def signal_job(sig):
+             if self.job is not None and self.job.poll() is None:
+                 event=dict(signal=signal.Signals(sig).name,pid=self.job.pid,pgid=self.job.pid,
+@@ -169,7 +186,7 @@
+                 self.receipt.setdefault('signals',[]).append(event);self.save()
+                 os.killpg(self.job.pid,sig)
+         def wait_job():
+-            if self.job is not None:self.job.wait(timeout=remaining_timeout(self.total_deadline,22))
++            if self.job is not None:self.job.wait(timeout=remaining_timeout(self.total_deadline-8,22))
+         attempt('owned-qemu SIGTERM',lambda:signal_job(signal.SIGTERM))
+         attempt('owned-qemu graceful wait',wait_job)
+         attempt('owned-qemu SIGKILL if still alive',lambda:signal_job(signal.SIGKILL))
+@@ -200,7 +217,7 @@
+             self.receipt.update(finishedAt=utc(),totalElapsedSeconds=round(time.monotonic()-self.started,3))
+             self.save()
+ 
+-    def execute(self):
++    def execute(self, ui_action=None):
+         try:
+             free={name:shutil.disk_usage(path).free for name,path in [('internal',ROOT),('external','/Volumes/WOOW-BUILD')]}
+             self.receipt['startFreeBytes']=free
+@@ -255,6 +272,12 @@
+             target=EVIDENCE/'previous-failed-dump.xml'
+             self.adb('pull','/sdcard/apporo-localization.xml',str(target),maximum=4)
+             self.receipt.update(oldXmlRecovered=True,oldXmlSHA256=hashlib.sha256(target.read_bytes()).hexdigest(),status='boot-and-recovery-success')
++            if ui_action is not None:
++                self.work_deadline=time.monotonic()+720
++                self.total_deadline=self.work_deadline+40
++                self.receipt.update(uiStartedAt=utc(),uiWorkLimitSeconds=720,uiCleanupReserveSeconds=40)
++                ui_action(self)
++                self.receipt['status']='offline-ui-complete'
+         except Exception as exc:
+             self.receipt.update(status='failed-or-blocked',failure=repr(exc))
+         finally:
+@@ -274,10 +297,11 @@
+             raise RuntimeError('Diagnostic interrupted by host signal '+str(number))
+     signal.signal(signal.SIGTERM,interrupted)
+     signal.signal(signal.SIGINT,interrupted)
+-    result=probe.execute()
++    from ui_driver import exercise
++    result=probe.execute(exercise)
+     # Never print raw kernel/ADB output or environment secrets.
+     print(json.dumps({k:result.get(k) for k in ('status','failure','oldXmlRecovered','cleanupResolved','totalElapsedSeconds')}))
+-    return 0 if result['status']=='boot-and-recovery-success' and result['cleanupResolved'] else 1
++    return 0 if result['status']=='offline-ui-complete' and result['cleanupResolved'] else 1
+ 
+ 
+ if __name__=='__main__':
+--- /dev/null
++++ docs/verification-report/apporo-login-localization/round2-ui/readiness.py
+@@ -0,0 +1,52 @@
++"""Pure hierarchy predicates: never act on a stale or empty Compose tree."""
++import re
++import time
++import xml.etree.ElementTree as ET
++
++PACKAGE='com.apporo.odoo.debug'
++
++
++def bounds(node):
++    values=tuple(map(int,re.findall(r'\d+',node.get('bounds',''))))
++    if len(values)!=4 or values[2]<=values[0] or values[3]<=values[1]:
++        raise ValueError('Unusable observed bounds')
++    return values
++
++
++def field(root,label):
++    candidates=[]
++    for parent in root.iter():
++        children=list(parent)
++        for pos,node in enumerate(children[:-1]):
++            if node.get('package')==PACKAGE and node.get('text')==label:
++                following=children[pos+1]
++                if following.get('package')==PACKAGE and following.get('class')=='android.widget.EditText' and following.get('enabled')=='true':
++                    a,b=bounds(node),bounds(following)
++                    if b[1]>=a[3]:candidates.append(following)
++    return candidates[0] if len(candidates)==1 else None
++
++
++def text_node(root,text,description=False):
++    key='content-desc' if description else 'text'
++    nodes=[n for n in root.iter('node') if n.get('package')==PACKAGE and n.get(key)==text and n.get('enabled')=='true']
++    return nodes[0] if len(nodes)==1 else None
++
++
++def form_ready(root,labels,button):
++    return all(field(root,label) is not None for label in labels) and text_node(root,button) is not None
++
++
++def safe_missing_credentials(root,username,password):
++    user,pwd=field(root,username),field(root,password)
++    return user is not None and pwd is not None and (not user.get('text','').strip() or not pwd.get('text','').strip())
++
++
++def await_ready(fetch,predicate,deadline,clock=time.monotonic,pause=time.sleep):
++    while clock()<deadline:
++        snapshot=fetch(deadline)
++        if clock()>=deadline:
++            raise TimeoutError('Snapshot completed after readiness deadline; no action permitted')
++        if predicate(snapshot[0]):return snapshot
++        remaining=deadline-clock()
++        if remaining>0:pause(min(.5,remaining))
++    raise TimeoutError('Screen readiness deadline exhausted; no action permitted')
+--- /dev/null
++++ docs/verification-report/apporo-login-localization/round2-ui/ui_driver.py
+@@ -0,0 +1,170 @@
++import base64
++import hashlib
++import json
++from pathlib import Path
++import re
++import time
++import xml.etree.ElementTree as ET
++import launcher
++from readiness import bounds,field,text_node,form_ready,safe_missing_credentials,await_ready
++
++PACKAGE='com.apporo.odoo.debug'
++HELPER='com.github.uiautomator'
++IME=HELPER+'/.AdbKeyboard'
++RES=launcher.ROOT/'app/src/main/res'
++KEYS=['server_url','database_name','username','password','next_button','login_button','back_button',
++      'login_server_url_required','login_database_required','login_username_required','login_password_required',
++      'error_https','error_invalid_url']
++
++
++def words(locale):
++    directory={'en-US':'values','zh-TW':'values-zh-rTW','zh-CN':'values-zh-rCN'}[locale]
++    values={n.get('name'):''.join(n.itertext()) for n in ET.parse(RES/directory/'strings.xml').getroot()}
++    return {k:values[k] for k in KEYS}
++
++
++class UI:
++    def __init__(self,probe):
++        self.p=probe;self.directory=launcher.EVIDENCE
++        self.sequence=0;self.results=[];self.inputs=[];self.locale=None;self.w=None
++
++    def persist(self):
++        (self.directory/'ui-results.json').write_text(json.dumps(self.results,ensure_ascii=False,indent=2))
++        (self.directory/'input-results.json').write_text(json.dumps(self.inputs,ensure_ascii=False,indent=2))
++
++    def forensic(self,args,maximum=3):
++        if not launcher.port_open(5038):return {'exit':None,'stderr':'dedicated server absent'}
++        return self.p.run(self.p.adb_command+list(args),maximum=maximum,cleanup=True)
++
++    def dump(self,stage,deadline):
++        self.sequence+=1
++        name=f'{self.sequence:03d}-{stage}'
++        guest='/sdcard/apporo-round2-'+name+'.xml'
++        target=self.directory/(name+'.xml')
++        result=None
++        try:
++            # Reserve pull time inside the screen120s budget; each dump itself<=60s.
++            limit=min(60,deadline-time.monotonic()-5)
++            if limit<=0:raise TimeoutError('No dump/pull budget left for readiness')
++            result=self.p.shell('uiautomator','dump',guest,maximum=limit)
++            self.p.receipt['newDump']=True
++        finally:
++            pulled=self.forensic(['pull',guest,str(target)],maximum=3)
++            (self.directory/(name+'-dump.json')).write_text(json.dumps(dict(command=result,pull=pulled,xmlSaved=target.exists()),indent=2))
++        if not target.exists():raise RuntimeError('Dump XML not available; evidence of pull failure saved')
++        return ET.parse(target).getroot(),target
++
++    def image(self,name,diagnostic=False):
++        guest='/sdcard/apporo-round2-'+name+'.png';target=self.directory/(name+'.png')
++        if diagnostic:
++            capture=self.forensic(['shell','screencap','-p',guest],maximum=3)
++            pulled=self.forensic(['pull',guest,str(target)],maximum=3)
++            (self.directory/(name+'-capture.json')).write_text(json.dumps(dict(capture=capture,pull=pulled),indent=2))
++        else:
++            self.p.shell('screencap','-p',guest,maximum=4)
++            self.p.adb('pull',guest,str(target),maximum=4)
++            assert target.read_bytes().startswith(b'\x89PNG')
++        return target
++
++    def ready(self,stage,credential=False,extra=lambda root:True):
++        labels=[self.w['username'],self.w['password']] if credential else [self.w['server_url'],self.w['database_name']]
++        button=self.w['login_button'] if credential else self.w['next_button']
++        deadline=min(time.monotonic()+120,self.p.work_deadline)
++        try:
++            return await_ready(lambda end:self.dump(stage,end),lambda root:form_ready(root,labels,button) and extra(root),deadline)
++        except Exception:
++            self.image(stage+'-FAILED',diagnostic=True)
++            raise
++
++    def checkpoint(self,name,expected,credential=False):
++        root,xml=self.ready(name,credential,lambda r:text_node(r,expected) is not None)
++        image=self.image(name)
++        self.results.append(dict(id=name,result='PASS',expected=expected,actual=text_node(root,expected).get('text'),xml=xml.name,screenshot=image.name))
++        self.persist()
++
++    def tap(self,node):
++        x1,y1,x2,y2=bounds(node)
++        self.p.shell('input','tap',str((x1+x2)//2),str((y1+y2)//2))
++
++    def next(self):
++        root,_=self.ready(self.locale+'-before-next')
++        self.tap(text_node(root,self.w['next_button']))
++
++    def missing_login(self):
++        root,xml=self.ready(self.locale+'-before-missing-login',True)
++        assert safe_missing_credentials(root,self.w['username'],self.w['password']), 'Never submit complete credentials'
++        self.p.record(dict(action='local missing-field login tap',xml=xml.name,usernameBlank=not field(root,self.w['username']).get('text','').strip(),passwordBlank=not field(root,self.w['password']).get('text','').strip()))
++        self.tap(text_node(root,self.w['login_button']))
++
++    def enter(self,key,value,credential=False):
++        assert key in ('server_url','database_name','username'), 'No password input permitted'
++        assert self.p.shell('settings','get','secure','default_input_method')['stdout']==IME
++        label=self.w[key]
++        root,before=self.ready(self.locale+'-before-input-'+key,credential)
++        self.tap(field(root,label))
++        self.ready(self.locale+'-focused-'+key,credential,lambda r:field(r,label).get('focused')=='true')
++        payload=base64.b64encode(value.encode()).decode()
++        self.p.shell('am','broadcast','-a','ADB_KEYBOARD_SET_TEXT','-p',HELPER,'--es','text',payload)
++        self.p.shell('am','broadcast','-a','ADB_KEYBOARD_HIDE','-p',HELPER)
++        name=f'{self.locale}-input-{key}-{len(self.inputs)+1}'
++        root,after=self.ready(name,credential,lambda r:field(r,label).get('text')==value)
++        image=self.image(name)
++        self.inputs.append(dict(id=name,fieldLabel=label,expected=value,actual=field(root,label).get('text'),beforeXml=before.name,xml=after.name,screenshot=image.name,result='PASS',method='verified ADBKeyboard base64'))
++        self.persist()
++
++    def run(self):
++        for locale in ('en-US','zh-TW','zh-CN'):
++            self.locale=locale;self.w=words(locale)
++            # One intentional cold launch per locale, never a retry after failure.
++            self.p.shell('am','force-stop',PACKAGE)
++            self.p.shell('cmd','locale','set-app-locales',PACKAGE,'--user','0','--locales',locale)
++            self.p.shell('cmd','uimode','night','no')
++            self.p.shell('am','start','-n',PACKAGE+'/io.woowtech.odoo.ui.MainActivity')
++            self.p.receipt['appLaunched']=True
++            self.checkpoint(locale+'-ready-login',self.w['server_url'])
++            self.enter('server_url','  https://https://example.invalid  ')
++            self.next();self.checkpoint(locale+'-database-required',self.w['login_database_required'])
++            self.enter('database_name',' local-db ')
++            self.enter('server_url',' http://example.invalid ')
++            self.next();self.checkpoint(locale+'-https-required',self.w['error_https'])
++            self.enter('server_url','bad host')
++            self.next();self.checkpoint(locale+'-invalid-url',self.w['error_invalid_url'])
++            self.enter('server_url','  https://https://example.invalid  ')
++            self.next()
++            self.missing_login();self.checkpoint(locale+'-username-required',self.w['login_username_required'],True)
++            self.enter('username',' local-user ',True)
++            self.missing_login();self.checkpoint(locale+'-password-required',self.w['login_password_required'],True)
++            root,_=self.ready(locale+'-before-form-back',True,lambda r:text_node(r,self.w['back_button'],True) is not None)
++            self.tap(text_node(root,self.w['back_button'],True))
++            root,xml=self.ready(locale+'-canonical-return',extra=lambda r:field(r,self.w['server_url']).get('text')=='example.invalid' and field(r,self.w['database_name']).get('text')=='local-db')
++            image=self.image(locale+'-canonical-return')
++            self.results.append(dict(id=locale+'-canonical-return',result='PASS',expected={'server_url':'example.invalid','database':'local-db'},actual={'server_url':field(root,self.w['server_url']).get('text'),'database':field(root,self.w['database_name']).get('text')},xml=xml.name,screenshot=image.name));self.persist()
++        self.p.receipt.update(uiCheckpointsPassed=len(self.results),localInputChecksPassed=len(self.inputs),passwordEverEntered=False,completeCredentialsSubmitted=False,blocked=['Settings requires authorized sign-in','server-response auth banners not safely reachable without submitting complete credentials'])
++
++
++def exercise(probe):
++    # Revalidate installed bytes, not merely the on-disk APK left by a unit build.
++    reference=json.loads((launcher.ROOT/'docs/verification-report/apporo-login-localization/apk-verification.json').read_text())
++    helper=json.loads(Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/localization/keyboard-receipt.json').read_text())
++    verified={}
++    for package,expected in [(PACKAGE,reference['sha256']),(HELPER,helper['sha256'])]:
++        listing=probe.shell('pm','path',package)['stdout'].splitlines()
++        assert len(listing)==1 and listing[0].startswith('package:/data/app/')
++        actual=probe.shell('sha256sum',listing[0].removeprefix('package:'))['stdout'].split()[0]
++        assert actual==expected
++        verified[package]=actual
++    package_info=probe.shell('dumpsys','package',PACKAGE)['stdout']
++    assert re.search(r'\bversionCode=1\b',package_info) and 'versionName=1.0-debug' in package_info
++    probe.receipt['installedArtifactSHA256']=verified
++    probe.receipt['installedVersion']='1.0-debug/1'
++    assert 'Active default network: none' in probe.shell('dumpsys','connectivity')['stdout']
++    previous=probe.shell('settings','get','secure','default_input_method')['stdout']
++    assert previous not in ('','null',IME)
++    probe.previous_ime=previous;probe.receipt['previousIME']=previous
++    assert IME in probe.shell('ime','list','-a','-s')['stdout']
++    probe.shell('ime','enable',IME);probe.shell('ime','set',IME)
++    assert probe.shell('settings','get','secure','default_input_method')['stdout']==IME
++    probe.receipt['imeChanged']=True;probe.save()
++    ui=UI(probe)
++    try:ui.run()
++    finally:ui.persist()
+--- /dev/null
++++ docs/verification-report/apporo-login-localization/round2-ui/test_readiness.py
+@@ -0,0 +1,95 @@
++import copy
++import json
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import Mock
++import xml.etree.ElementTree as ET
++from readiness import field,form_ready,await_ready,safe_missing_credentials
++from ui_driver import UI
++
++EVIDENCE=Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android')
++
++
++class ReadinessTests(unittest.TestCase):
++    def setUp(self):
++        self.ready=ET.parse(EVIDENCE/'localization/en-US-light-login.xml').getroot()
++        self.empty=ET.parse(EVIDENCE/'kernel-diagnostic-01/previous-failed-dump.xml').getroot()
++        self.clock=0
++        self.clicked=[]
++
++    def predicate(self,root):return form_ready(root,['Server URL','Database Name'],'Next')
++
++    def pause(self,seconds):self.clock+=seconds
++
++    def test_real_empty_compose_snapshot_never_ready(self):
++        self.assertFalse(self.predicate(self.empty));self.assertIsNone(field(self.empty,'Server URL'))
++
++    def test_observed_label_selects_field_without_global_index(self):
++        self.assertTrue(self.predicate(self.ready))
++        self.assertEqual('android.widget.EditText',field(self.ready,'Database Name').get('class'))
++        self.assertIsNone(field(self.ready,'服务器网址'))
++
++    def test_empty_then_ready_allows_only_ready_snapshot_action(self):
++        snapshots=iter([self.empty,self.ready])
++        def fetch(deadline):self.clock+=1;return next(snapshots),'saved.xml'
++        result=await_ready(fetch,self.predicate,10,clock=lambda:self.clock,pause=self.pause)
++        self.clicked.append(field(result[0],'Server URL'))
++        self.assertEqual(1,len(self.clicked));self.assertIsNotNone(self.clicked[0])
++
++    def test_empty_until_deadline_never_clicks(self):
++        def fetch(deadline):self.clock+=1;return self.empty,'saved-empty.xml'
++        with self.assertRaises(TimeoutError):
++            result=await_ready(fetch,self.predicate,3,clock=lambda:self.clock,pause=self.pause)
++            self.clicked.append(result)
++        self.assertEqual([],self.clicked)
++
++    def test_dump_timeout_is_not_retried_or_clicked(self):
++        fetch=Mock(side_effect=TimeoutError('dump60s'))
++        with self.assertRaises(TimeoutError):
++            result=await_ready(fetch,self.predicate,120,clock=lambda:0,pause=lambda _:None)
++            self.clicked.append(result)
++        self.assertEqual(1,fetch.call_count);self.assertEqual([],self.clicked)
++
++    def test_ready_snapshot_arriving_after_deadline_never_clicks(self):
++        def fetch(deadline):self.clock=121;return self.ready,'late-ready.xml'
++        with self.assertRaises(TimeoutError):
++            result=await_ready(fetch,self.predicate,120,clock=lambda:self.clock,pause=self.pause)
++            self.clicked.append(result)
++        self.assertEqual([],self.clicked)
++
++    def test_duplicate_label_is_ambiguous_not_guessed(self):
++        root=copy.deepcopy(self.ready)
++        for parent in root.iter():
++            children=list(parent)
++            for i,n in enumerate(children[:-1]):
++                if n.get('text')=='Server URL':
++                    parent.append(copy.deepcopy(n));parent.append(copy.deepcopy(children[i+1]));break
++            else:continue
++            break
++        self.assertIsNone(field(root,'Server URL'))
++
++    def test_complete_credentials_are_rejected_but_one_empty_is_allowed(self):
++        root=copy.deepcopy(self.ready)
++        for n in root.iter('node'):
++            if n.get('text')=='Server URL':n.set('text','Username')
++            if n.get('text')=='Database Name':n.set('text','Password')
++        field(root,'Username').set('text','local-user')
++        self.assertTrue(safe_missing_credentials(root,'Username','Password'))
++        field(root,'Password').set('text','not-allowed')
++        self.assertFalse(safe_missing_credentials(root,'Username','Password'))
++
++    def test_failed_dump_still_pulls_and_preserves_own_xml(self):
++        with tempfile.TemporaryDirectory() as directory:
++            p=Mock();p.shell.side_effect=TimeoutError('dump timed out')
++            ui=UI(p);ui.directory=Path(directory)
++            def pull(args,maximum):
++                Path(args[-1]).write_text(ET.tostring(self.empty,encoding='unicode'))
++                return {'exit':0}
++            ui.forensic=pull
++            with self.assertRaises(TimeoutError):ui.dump('timeout',__import__('time').monotonic()+120)
++            self.assertTrue((Path(directory)/'001-timeout.xml').exists())
++            self.assertTrue(json.loads((Path(directory)/'001-timeout-dump.json').read_text())['xmlSaved'])
++
++
++if __name__=='__main__':unittest.main()
+--- docs/verification-report/apporo-login-localization/kernel-diagnostic/test_probe.py
++++ docs/verification-report/apporo-login-localization/round2-ui/test_launcher.py
+@@ -6,7 +6,7 @@
+ import time
+ import unittest
+ from unittest.mock import Mock, patch
+-import probe
++import launcher as probe
+ 
+ 
+ class ProbeTests(unittest.TestCase):
+@@ -58,6 +58,18 @@
+             self.assertEqual('failed-or-blocked',result['status'])
+             self.assertTrue((Path(directory)/'receipt.json').exists())
+ 
++    def test_ime_restore_failure_does_not_skip_owned_server_cleanup(self):
++        with tempfile.TemporaryDirectory() as directory,patch.object(probe,'EVIDENCE',Path(directory)),patch.object(probe,'port_open',return_value=True),patch.object(probe.time,'sleep'):
++            p=probe.Probe();p.previous_ime='original.IME';p.server_owned=True
++            def result(args,**kwargs):
++                if 'set' in args and 'ime' in args:return {'exit':1,'stdout':''}
++                return {'exit':0,'stdout':'original.IME'}
++            p.run=Mock(side_effect=result)
++            p.cleanup()
++            self.assertTrue(any('kill-server' in call.args[0] for call in p.run.call_args_list))
++            self.assertTrue(any(x['step']=='restore previous IME' and x['status']=='error' for x in p.receipt['cleanup']))
++            self.assertTrue((Path(directory)/'receipt.json').exists())
++
+     def test_only_emulator_argument_change_is_show_kernel(self):
+         p=probe.Probe()
+         original=json.loads(probe.BASE.read_text())['command']

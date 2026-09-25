@@ -1,0 +1,68 @@
+--- round8/ui_driver.py
++++ receipt-fix/ui_driver.py
+@@ -143,7 +143,12 @@
+         except Exception as exc:
+             event.update(status='observation-failed',observationError=repr(exc))
+         finally:
+-            self.p.save()
++            try:
++                self.p.save()
++            except Exception as save_error:
++                # Observation is best-effort; never replace the original input error.
++                # Retain the secondary fault in memory for outer cleanup/reporting.
++                event['saveError']=repr(save_error)
+ 
+     def ready(self,stage,credential=False,extra=lambda root:True,deadline=None):
+         if self.failed:raise RuntimeError('UI stopped; no further action')
+--- round8/test_system_ui_wait.py
++++ receipt-fix/test_system_ui_wait.py
+@@ -127,10 +127,11 @@
+         with tempfile.TemporaryDirectory() as directory:
+             ui = self.ui(directory);ui.w = words('zh-TW')
+             ui.readiness_snapshot = Mock(side_effect=[(self.app, Path('wrong-locale.xml')), RuntimeError('stop fixture')])
+-            with patch('readiness.time.sleep'):
++            with patch('readiness.time.sleep'), patch('launcher.port_open',return_value=False):
+                 with self.assertRaises(RuntimeError):ui.ready('en-US-ready-login')
+             self.assertEqual([], ui.results)
+             ui.p.shell.assert_not_called()
++            ui.p.run.assert_not_called()
+ 
+ 
+ if __name__ == '__main__':unittest.main()
+--- round8/test_input_budget.py
++++ receipt-fix/test_input_budget.py
+@@ -105,6 +105,34 @@
+         self.assertEqual('observation-failed',self.p.receipt['failureObservation']['status'])
+         self.assertTrue(self.p.stop.is_set())
+ 
++    def test_observation_save_failure_preserves_original_input_exception(self):
++        original=RuntimeError('original input timeout')
++        def shell(*args,**kwargs):
++            if args[:3]==('settings','get','secure'):return dict(stdout=IME)
++            if 'ADB_KEYBOARD_SET_TEXT' in args:raise original
++            return dict(exit=0,timeout=False,stdout='')
++        self.p.shell.side_effect=shell
++        self.p.save.side_effect=OSError('receipt unavailable')
++        with self.assertRaises(RuntimeError) as caught:self.ui.enter('server_url',RAW)
++        self.assertIs(caught.exception,original)
++        event=self.p.receipt['failureObservation']
++        self.assertEqual(event['error'],repr(original))
++        self.assertIn('receipt unavailable',event['saveError'])
++        self.assertTrue(self.ui.failed);self.assertTrue(self.p.stop.is_set())
++        self.assertEqual([],self.ui.inputs)
++
++    def test_observation_and_save_failures_do_not_replace_raw_mismatch(self):
++        field(self.root,self.ui.w['server_url']).set('text',RAW.strip())
++        self.p.run.side_effect=RuntimeError('capture unavailable')
++        self.p.save.side_effect=OSError('receipt unavailable')
++        with self.assertRaisesRegex(ValueError,'Exact raw input readback mismatch'):
++            self.ui.enter('server_url',RAW)
++        event=self.p.receipt['failureObservation']
++        self.assertIn('capture unavailable',event['observationError'])
++        self.assertIn('receipt unavailable',event['saveError'])
++        self.assertEqual(1,len(self.sends()));self.assertEqual([],self.ui.inputs)
++        self.assertTrue(self.p.stop.is_set())
++
+     def test_observation_stops_at_work_deadline_without_touching_reserve(self):
+         self.result=dict(exit=None,timeout=True,stdout='partial');self.p.work_deadline=115
+         def observe(*args,**kw):

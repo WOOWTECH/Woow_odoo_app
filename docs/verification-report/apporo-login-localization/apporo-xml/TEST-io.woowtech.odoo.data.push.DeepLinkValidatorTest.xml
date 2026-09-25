@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.DeepLinkValidatorTest" tests="19" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:24" hostname="ElmodeMacBook-Air.local" time="0.015">
+  <properties/>
+  <testcase name="[1] javascript:alert(1)" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.006"/>
+  <testcase name="[2] JAVASCRIPT:alert('xss')" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[3] data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[4] DATA:text/html;base64,PHNjcmlwdD4=" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[5] " classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[6]    " classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[1] /web#id=42&amp;model=sale.order&amp;view_type=form" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.001"/>
+  <testcase name="[2] /web#action=contacts" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[3] /web/login" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[4] /web" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.001"/>
+  <testcase name="[1] /website/attacker" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[2] /webhook" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.001"/>
+  <testcase name="[3] /web@evil.com" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[4] /web/../secret" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[5] /web/..%2fsecret" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[6] /web#../../etc/passwd" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[1] https://evil.com/phish" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.001"/>
+  <testcase name="[2] https://attacker.example.com/fake" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <testcase name="[3] ftp://files.example.com" classname="io.woowtech.odoo.data.push.DeepLinkValidatorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

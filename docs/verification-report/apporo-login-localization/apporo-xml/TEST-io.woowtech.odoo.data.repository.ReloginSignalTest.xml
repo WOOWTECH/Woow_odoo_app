@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.ReloginSignalTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:25" hostname="ElmodeMacBook-Air.local" time="0.0">
+  <properties/>
+  <testcase name="Given request when emitted then pending carries account and reason()" classname="io.woowtech.odoo.data.repository.ReloginSignalTest" time="0.0"/>
+  <testcase name="Given fresh signal when read then no request is pending()" classname="io.woowtech.odoo.data.repository.ReloginSignalTest" time="0.0"/>
+  <testcase name="Given pending request when cleared then pending is null again()" classname="io.woowtech.odoo.data.repository.ReloginSignalTest" time="0.0"/>
+  <testcase name="Given repeated identical requests when emitted then a single request stays pending()" classname="io.woowtech.odoo.data.repository.ReloginSignalTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

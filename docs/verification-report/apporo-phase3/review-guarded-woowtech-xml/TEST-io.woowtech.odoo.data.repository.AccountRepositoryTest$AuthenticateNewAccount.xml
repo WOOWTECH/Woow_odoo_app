@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.AccountRepositoryTest$AuthenticateNewAccount" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:45" hostname="ElmodeMacBook-Air.local" time="0.016">
+  <properties/>
+  <testcase name="Given URL already has https when authenticate then does not double-prefix()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$AuthenticateNewAccount" time="0.005"/>
+  <testcase name="Given bare domain when authenticate then prepends https before calling client()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$AuthenticateNewAccount" time="0.005"/>
+  <testcase name="Given new user when authenticate succeeds then creates account and saves password()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$AuthenticateNewAccount" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

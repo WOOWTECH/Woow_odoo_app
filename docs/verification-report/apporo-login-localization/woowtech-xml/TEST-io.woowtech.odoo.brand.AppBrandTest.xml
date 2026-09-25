@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.brand.AppBrandTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:13:57" hostname="ElmodeMacBook-Air.local" time="0.029">
+  <properties/>
+  <testcase name="Given WOOW when resolving brand then legacy identity and every color role remain unchanged()" classname="io.woowtech.odoo.brand.AppBrandTest" time="0.016"/>
+  <testcase name="Given unknown brand when resolving then it fails instead of falling back to WOOW()" classname="io.woowtech.odoo.brand.AppBrandTest" time="0.001"/>
+  <testcase name="Given missing preference when constructing settings then selected brand defaults but saved color survives()" classname="io.woowtech.odoo.brand.AppBrandTest" time="0.001"/>
+  <testcase name="Given Apporo textual roles when measuring WCAG then light and dark contrast exceed AA()" classname="io.woowtech.odoo.brand.AppBrandTest" time="0.009"/>
+  <testcase name="Given Apporo when resolving brand then identity and deterministic palette are independent()" classname="io.woowtech.odoo.brand.AppBrandTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.DeepLinkManagerTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:55" hostname="ElmodeMacBook-Air.local" time="0.039">
+  <properties/>
+  <testcase name="Given link for A when dropIfNotTarget A then link is kept()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given null url when setPending then clears()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given link for B when consumeFor A then returns null and keeps link for B()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given link older than TTL when consumeFor then returns null and clears()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given link set when observed via flow then emits pending then null on consume()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.032"/>
+  <testcase name="Given link for A when consumeFor A then returns url and clears()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given link overwritten when consumeFor then returns latest()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given link within TTL when consumeFor then returns url()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.001"/>
+  <testcase name="Given link for B when dropIfNotTarget A then link is dropped()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <testcase name="Given no pending link when consumeFor then returns null()" classname="io.woowtech.odoo.data.push.DeepLinkManagerTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

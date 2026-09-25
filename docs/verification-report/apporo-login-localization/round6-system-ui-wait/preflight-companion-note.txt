@@ -1,0 +1,1 @@
+Initial read-only preflight stopped before any boot: existing idb_companion PID42690 found. Supervisor independently identified longstanding store companion for 607F8597-2EE9-4D1D-ABE8-5DD1BF042221, authorized preserving it untouched while proceeding. No process/socket operation against that daemon.

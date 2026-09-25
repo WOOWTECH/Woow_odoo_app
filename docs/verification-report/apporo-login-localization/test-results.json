@@ -1,0 +1,26 @@
+{
+  "apporo": {
+    "tests": 507,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": 504,
+    "skips": [
+      "io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest.Given Keystore available when getEncryptCipher then returns AES-GCM cipher()",
+      "io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest.Given key exists when deleteKey then hasKey returns false()",
+      "io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest.Given encrypt cipher IV when getDecryptCipher then returns decrypt cipher()"
+    ]
+  },
+  "woowtech": {
+    "tests": 507,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": 504,
+    "skips": [
+      "io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest.Given Keystore available when getEncryptCipher then returns AES-GCM cipher()",
+      "io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest.Given key exists when deleteKey then hasKey returns false()",
+      "io.woowtech.odoo.ui.auth.BiometricCryptoManagerTest.Given encrypt cipher IV when getDecryptCipher then returns decrypt cipher()"
+    ]
+  }
+}

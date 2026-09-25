@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.auth.AuthOptionsTest" tests="18" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:48" hostname="ElmodeMacBook-Air.local" time="0.011">
+  <properties/>
+  <testcase name="Given the historical brick state when resolving then RecoveryNeeded not a blank screen()" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="Given weak-face device with a PIN when resolving then PinOnly (not stranded)()" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=false pin=false -&gt; RecoveryNeeded" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.001"/>
+  <testcase name="bio=false canUse=false pin=true -&gt; PinOnly" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=true pin=false -&gt; RecoveryNeeded" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=true pin=true -&gt; PinOnly" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=false pin=false -&gt; RecoveryNeeded" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=false pin=true -&gt; PinOnly" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=true pin=false -&gt; BiometricOnly" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.001"/>
+  <testcase name="bio=true canUse=true pin=true -&gt; BiometricAndPin" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=false pin=false is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=false pin=true is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=true pin=false is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=false canUse=true pin=true is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=false pin=false is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=false pin=true is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=true pin=false is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <testcase name="bio=true canUse=true pin=true is never absent" classname="io.woowtech.odoo.ui.auth.AuthOptionsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

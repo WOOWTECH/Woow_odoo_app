@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.AccountRepositoryTest$SwitchAccount" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:29" hostname="ElmodeMacBook-Air.local" time="0.044">
+  <properties/>
+  <testcase name="Given account not found when switchAccount then returns false()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SwitchAccount" time="0.016"/>
+  <testcase name="Given re-authentication fails when switchAccount then returns false and does not activate()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SwitchAccount" time="0.015"/>
+  <testcase name="Given valid account with password when switchAccount and auth succeeds then activates account()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SwitchAccount" time="0.008"/>
+  <testcase name="Given no stored password when switchAccount then returns false()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SwitchAccount" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

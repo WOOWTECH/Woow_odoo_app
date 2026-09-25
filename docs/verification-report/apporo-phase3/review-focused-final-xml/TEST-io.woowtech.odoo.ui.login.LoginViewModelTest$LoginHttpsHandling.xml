@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginHttpsHandling" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:20:52" hostname="ElmodeMacBook-Air.local" time="0.013">
+  <properties/>
+  <testcase name="Given URL already has https when login then does not double-prefix()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginHttpsHandling" time="0.007"/>
+  <testcase name="Given bare domain when login then prepends https and calls repository()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$LoginHttpsHandling" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

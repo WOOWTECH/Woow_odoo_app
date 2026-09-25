@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.local.AccountDaoAmbiguousTenantTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:02" hostname="ElmodeMacBook-Air.local" time="11.358">
+  <properties/>
+  <testcase name="Given accounts with null tenant ids when resolving a real tenant id then returns null" classname="io.woowtech.odoo.data.local.AccountDaoAmbiguousTenantTest" time="11.16"/>
+  <testcase name="Given duplicates when counting then reports the real number of matches" classname="io.woowtech.odoo.data.local.AccountDaoAmbiguousTenantTest" time="0.045"/>
+  <testcase name="Given exactly one account with a tenant id when resolving then returns that account" classname="io.woowtech.odoo.data.local.AccountDaoAmbiguousTenantTest" time="0.055"/>
+  <testcase name="Given two accounts sharing a tenant id when resolving then returns null instead of the first row" classname="io.woowtech.odoo.data.local.AccountDaoAmbiguousTenantTest" time="0.047"/>
+  <testcase name="Given no account with the tenant id when resolving then returns null" classname="io.woowtech.odoo.data.local.AccountDaoAmbiguousTenantTest" time="0.049"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

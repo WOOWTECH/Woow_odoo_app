@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="不同 host（首版既定支援範圍）" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:01" hostname="ElmodeMacBook-Air.local" time="0.003">
+  <properties/>
+  <testcase name="Given hosts differing only by port when reading session then keys stay distinct()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$DifferentHosts" time="0.002"/>
+  <testcase name="Given a delayed response from host A when B is active then A cannot address B cookie bucket()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$DifferentHosts" time="0.0"/>
+  <testcase name="Given different hosts when one account logs out then the other host cookie bucket is untouched()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$DifferentHosts" time="0.001"/>
+  <testcase name="Given two accounts on different hosts when reading session then each maps to its own cookie key()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$DifferentHosts" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

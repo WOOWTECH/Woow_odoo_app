@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.login.LoginErrorResourcesTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:02" hostname="ElmodeMacBook-Air.local" time="0.001">
+  <properties/>
+  <testcase name="Given known auth errors when rendered then both brands use localized resources()" classname="io.woowtech.odoo.ui.login.LoginErrorResourcesTest" time="0.001"/>
+  <testcase name="Given every field validation error when rendered then uses its localized resource()" classname="io.woowtech.odoo.ui.login.LoginErrorResourcesTest" time="0.0"/>
+  <testcase name="Given unknown auth error when rendered then resource is absent to preserve original message()" classname="io.woowtech.odoo.ui.login.LoginErrorResourcesTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

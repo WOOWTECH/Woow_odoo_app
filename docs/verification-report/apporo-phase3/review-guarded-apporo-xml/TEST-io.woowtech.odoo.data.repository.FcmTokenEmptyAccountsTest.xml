@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.FcmTokenEmptyAccountsTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:58" hostname="ElmodeMacBook-Air.local" time="0.116">
+  <properties/>
+  <testcase name="Given saved token after empty registerTokenForAllAccounts when getStoredToken then returns the saved value()" classname="io.woowtech.odoo.data.repository.FcmTokenEmptyAccountsTest" time="0.107"/>
+  <testcase name="Given zero accounts when registerTokenForAllAccounts then token saved but no POST attempted()" classname="io.woowtech.odoo.data.repository.FcmTokenEmptyAccountsTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.LoginRegisterTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:25" hostname="ElmodeMacBook-Air.local" time="0.009">
+  <properties/>
+  <testcase name="Given the reconcile fails when authenticate succeeds then login still completes()" classname="io.woowtech.odoo.data.repository.LoginRegisterTest" time="0.004"/>
+  <testcase name="Given authenticate succeeds then the account-available reconcile is fired exactly once()" classname="io.woowtech.odoo.data.repository.LoginRegisterTest" time="0.002"/>
+  <testcase name="Given authenticate fails then the account-available reconcile is not fired()" classname="io.woowtech.odoo.data.repository.LoginRegisterTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

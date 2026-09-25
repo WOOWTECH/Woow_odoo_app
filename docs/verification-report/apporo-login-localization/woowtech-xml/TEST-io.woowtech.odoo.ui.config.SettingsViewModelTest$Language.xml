@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.SettingsViewModelTest$Language" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:02" hostname="ElmodeMacBook-Air.local" time="0.003">
+  <properties/>
+  <testcase name="Given language selected when updateLanguage English then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$Language" time="0.001"/>
+  <testcase name="Given language selected when updateLanguage Chinese CN then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$Language" time="0.001"/>
+  <testcase name="Given language selected when updateLanguage System then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$Language" time="0.001"/>
+  <testcase name="Given language selected when updateLanguage Chinese TW then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$Language" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.NotificationHelperTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:24" hostname="ElmodeMacBook-Air.local" time="0.0">
+  <properties/>
+  <testcase name="Given EXTRA_ACTION_URL when used as intent key then matches FCM data key convention()" classname="io.woowtech.odoo.data.push.NotificationHelperTest" time="0.0"/>
+  <testcase name="Given NotificationHelper companion when EXTRA_ACTION_URL accessed then equals odoo_action_url()" classname="io.woowtech.odoo.data.push.NotificationHelperTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,161 @@
+--- docs/verification-report/apporo-login-localization/round2-ui/launcher.py
++++ docs/verification-report/apporo-login-localization/round2-ui-attempt2/launcher.py
+@@ -13,12 +13,22 @@
+ import time
+ 
+ ROOT = Path(__file__).resolve().parents[4]
+-EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round2-ui')
++EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round2-ui-attempt2')
+ SDK = Path('/Users/elmolin/Library/Android/sdk')
+ BASE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/validation/android-emulator-runtime.json')
+ GIB = 1024**3
+ PORTS = (5038, 5580, 5581)
+ PACKAGES = ('com.apporo.odoo.debug', 'com.github.uiautomator')
++PRIOR_XML = EVIDENCE.parent/'kernel-diagnostic-01/previous-failed-dump.xml'
++PRIOR_XML_SHA256 = 'fb3dcd944ce260f387119cbc096b7ad13e1de8c0a7179b78c3799616a3136a1d'
++
++
++def verified_prior_xml(path=None):
++    path = PRIOR_XML if path is None else path
++    if not path.is_file():raise RuntimeError('Previously recovered XML missing; stop before launch')
++    actual=hashlib.sha256(path.read_bytes()).hexdigest()
++    if actual!=PRIOR_XML_SHA256:raise RuntimeError('Previously recovered XML hash mismatch; stop before launch')
++    return dict(path=str(path),sha256=actual,source='verified prior host recovery; no repeated guest pull')
+ 
+ 
+ def utc():
+@@ -81,7 +91,7 @@
+                             'ADB_SERVER_SOCKET','ANDROID_ADB_SERVER_PORT','ADB_MDNS_AUTO_CONNECT',
+                             'ADB_MDNS_OPENSCREEN','ADB_LOCAL_TRANSPORT_MAX_PORT','ANDROID_SERIAL',
+                             'ANDROID_HOME','ANDROID_SDK_ROOT')},
+-                            totalLimitSeconds=300,workLimitSeconds=260,
++                            bootWorkLimitSeconds=260,bootCleanupReserveSeconds=40,maxBootThenUiSeconds=1020,
+                             sandboxSHA256=hashlib.sha256(Path(self.sandbox[2]).read_bytes()).hexdigest(),
+                             appLaunched=False,imeChanged=False,install=False,newDump=False,
+                             oldXmlRecovered=False,cleanup=[])
+@@ -219,6 +229,7 @@
+ 
+     def execute(self, ui_action=None):
+         try:
++            self.receipt['priorXmlEvidence']=verified_prior_xml()
+             free={name:shutil.disk_usage(path).free for name,path in [('internal',ROOT),('external','/Volumes/WOOW-BUILD')]}
+             self.receipt['startFreeBytes']=free
+             if not disk_ok(free,starting=True):raise RuntimeError('Start requires >=3GiB on both volumes')
+@@ -269,9 +280,7 @@
+             self.receipt['uids']=uids
+             assert 'Active default network: none' in self.shell('dumpsys','connectivity')['stdout']
+             self.receipt['guestGuardsVerified']=True
+-            target=EVIDENCE/'previous-failed-dump.xml'
+-            self.adb('pull','/sdcard/apporo-localization.xml',str(target),maximum=4)
+-            self.receipt.update(oldXmlRecovered=True,oldXmlSHA256=hashlib.sha256(target.read_bytes()).hexdigest(),status='boot-and-recovery-success')
++            self.receipt['status']='boot-ready-for-ui'
+             if ui_action is not None:
+                 self.work_deadline=time.monotonic()+720
+                 self.total_deadline=self.work_deadline+40
+--- docs/verification-report/apporo-login-localization/round2-ui/test_launcher.py
++++ docs/verification-report/apporo-login-localization/round2-ui-attempt2/test_launcher.py
+@@ -70,6 +70,40 @@
+             self.assertTrue(any(x['step']=='restore previous IME' and x['status']=='error' for x in p.receipt['cleanup']))
+             self.assertTrue((Path(directory)/'receipt.json').exists())
+ 
++    def test_verified_host_xml_needs_no_guest_pull_before_ui(self):
++        with tempfile.TemporaryDirectory() as directory,patch.object(probe,'EVIDENCE',Path(directory)),patch.object(probe.shutil,'disk_usage',return_value=Mock(free=4*probe.GIB)),patch.object(probe,'port_open',return_value=False),patch.object(probe.threading,'Thread'),patch.object(probe.subprocess,'Popen') as launch:
++            p=probe.Probe();launch.return_value.poll.return_value=None;launch.return_value.pid=12345
++            p.run=Mock(return_value={'exit':0,'stdout':''});p.listener_pid=Mock(return_value=1234)
++            calls=[]
++            def adb(*args,**kwargs):
++                calls.append(args);out=''
++                if args==('get-state',):out='device'
++                elif args==('emu','avd','name'):out='Apporo_Odoo_UI_API36\nOK'
++                elif args==('devices',):out='List of devices attached\nemulator-5580\tdevice'
++                elif args[:3]==('shell','getprop','sys.boot_completed'):out='1'
++                elif args[:3]==('shell','getprop','ro.kernel.qemu'):out='1'
++                elif args[:3]==('shell','dumpsys','connectivity'):out='Active default network: none'
++                elif args==('shell','id'):out='uid=0(root)'
++                elif args[:5]==('shell','cmd','package','list','packages'):out='package:'+args[-1]+' uid:10213'
++                return {'exit':0,'stdout':out}
++            p.adb=Mock(side_effect=adb);p.cleanup=Mock();ui=Mock()
++            result=p.execute(ui)
++            if p.kernel is not None:p.kernel.close()
++            ui.assert_called_once_with(p);p.cleanup.assert_called_once()
++            self.assertFalse(any(args[0]=='pull' for args in calls))
++            self.assertEqual('offline-ui-complete',result['status'])
++            self.assertEqual(probe.PRIOR_XML_SHA256,result['priorXmlEvidence']['sha256'])
++
++    def test_missing_or_changed_host_xml_stops_before_launch(self):
++        for content in (None,'altered'):
++            with self.subTest(content=content),tempfile.TemporaryDirectory() as directory,patch.object(probe,'EVIDENCE',Path(directory)),patch.object(probe,'PRIOR_XML',Path(directory)/'old.xml'),patch.object(probe,'port_open',return_value=False),patch.object(probe.subprocess,'Popen') as launch:
++                if content is not None:probe.PRIOR_XML.write_text(content)
++                result=probe.Probe().execute()
++                launch.assert_not_called()
++                self.assertEqual('failed-or-blocked',result['status'])
++                self.assertTrue(result['cleanupResolved'])
++                self.assertTrue((Path(directory)/'receipt.json').exists())
++
+     def test_only_emulator_argument_change_is_show_kernel(self):
+         p=probe.Probe()
+         original=json.loads(probe.BASE.read_text())['command']
+--- docs/verification-report/apporo-login-localization/round2-ui/ui_driver.py
++++ docs/verification-report/apporo-login-localization/round2-ui-attempt2/ui_driver.py
+@@ -32,9 +32,11 @@
+         (self.directory/'ui-results.json').write_text(json.dumps(self.results,ensure_ascii=False,indent=2))
+         (self.directory/'input-results.json').write_text(json.dumps(self.inputs,ensure_ascii=False,indent=2))
+ 
+-    def forensic(self,args,maximum=3):
++    def forensic(self,args,maximum=15):
+         if not launcher.port_open(5038):return {'exit':None,'stderr':'dedicated server absent'}
+-        return self.p.run(self.p.adb_command+list(args),maximum=maximum,cleanup=True)
++        remaining=self.p.work_deadline-time.monotonic()
++        if remaining<=0:return {'exit':None,'stderr':'UI phase deadline exhausted; forensic transfer not started'}
++        return self.p.run(self.p.adb_command+list(args),maximum=min(maximum,remaining),cleanup=True)
+ 
+     def dump(self,stage,deadline):
+         self.sequence+=1
+@@ -44,12 +46,12 @@
+         result=None
+         try:
+             # Reserve pull time inside the screen120s budget; each dump itself<=60s.
+-            limit=min(60,deadline-time.monotonic()-5)
++            limit=min(60,deadline-time.monotonic()-16)
+             if limit<=0:raise TimeoutError('No dump/pull budget left for readiness')
+             result=self.p.shell('uiautomator','dump',guest,maximum=limit)
+             self.p.receipt['newDump']=True
+         finally:
+-            pulled=self.forensic(['pull',guest,str(target)],maximum=3)
++            pulled=self.forensic(['pull',guest,str(target)],maximum=min(15,max(.01,deadline-time.monotonic())))
+             (self.directory/(name+'-dump.json')).write_text(json.dumps(dict(command=result,pull=pulled,xmlSaved=target.exists()),indent=2))
+         if not target.exists():raise RuntimeError('Dump XML not available; evidence of pull failure saved')
+         return ET.parse(target).getroot(),target
+@@ -57,12 +59,12 @@
+     def image(self,name,diagnostic=False):
+         guest='/sdcard/apporo-round2-'+name+'.png';target=self.directory/(name+'.png')
+         if diagnostic:
+-            capture=self.forensic(['shell','screencap','-p',guest],maximum=3)
+-            pulled=self.forensic(['pull',guest,str(target)],maximum=3)
++            capture=self.forensic(['shell','screencap','-p',guest],maximum=8)
++            pulled=self.forensic(['pull',guest,str(target)],maximum=15)
+             (self.directory/(name+'-capture.json')).write_text(json.dumps(dict(capture=capture,pull=pulled),indent=2))
+         else:
+-            self.p.shell('screencap','-p',guest,maximum=4)
+-            self.p.adb('pull',guest,str(target),maximum=4)
++            self.p.shell('screencap','-p',guest,maximum=8)
++            self.p.adb('pull',guest,str(target),maximum=15)
+             assert target.read_bytes().startswith(b'\x89PNG')
+         return target
+ 
+@@ -148,12 +150,12 @@
+     helper=json.loads(Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/localization/keyboard-receipt.json').read_text())
+     verified={}
+     for package,expected in [(PACKAGE,reference['sha256']),(HELPER,helper['sha256'])]:
+-        listing=probe.shell('pm','path',package)['stdout'].splitlines()
++        listing=probe.shell('pm','path',package,maximum=8)['stdout'].splitlines()
+         assert len(listing)==1 and listing[0].startswith('package:/data/app/')
+-        actual=probe.shell('sha256sum',listing[0].removeprefix('package:'))['stdout'].split()[0]
++        actual=probe.shell('sha256sum',listing[0].removeprefix('package:'),maximum=15)['stdout'].split()[0]
+         assert actual==expected
+         verified[package]=actual
+-    package_info=probe.shell('dumpsys','package',PACKAGE)['stdout']
++    package_info=probe.shell('dumpsys','package',PACKAGE,maximum=8)['stdout']
+     assert re.search(r'\bversionCode=1\b',package_info) and 'versionName=1.0-debug' in package_info
+     probe.receipt['installedArtifactSHA256']=verified
+     probe.receipt['installedVersion']='1.0-debug/1'

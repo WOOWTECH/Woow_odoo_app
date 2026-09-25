@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.api.OdooJsonRpcClientTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:24" hostname="ElmodeMacBook-Air.local" time="0.004">
+  <properties/>
+  <testcase name="Given syntactically invalid host when authenticate then returns INVALID_URL without raw exception text()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest" time="0.002"/>
+  <testcase name="Given AuthResult Error when created then contains message and type()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest" time="0.0"/>
+  <testcase name="Given AuthResult Success when created then contains all expected fields()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest" time="0.001"/>
+  <testcase name="Given all ErrorType values when enumerated then all 8 types exist()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

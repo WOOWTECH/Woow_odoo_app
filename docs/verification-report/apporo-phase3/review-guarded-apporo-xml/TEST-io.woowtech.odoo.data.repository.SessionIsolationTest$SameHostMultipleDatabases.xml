@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="同 host 多 DB（支援範圍待 owner 決定 —— 只重現，不修補）" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:59" hostname="ElmodeMacBook-Air.local" time="0.017">
+  <properties/>
+  <testcase name="Given two databases on one host when reading session then both collapse to the same cookie key()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$SameHostMultipleDatabases" time="0.002"/>
+  <testcase name="Given the host derivation when given full account URL then database segment is discarded()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$SameHostMultipleDatabases" time="0.002"/>
+  <testcase name="Given same host accounts when one logs out then the other session is cleared as collateral()" classname="io.woowtech.odoo.data.repository.SessionIsolationTest$SameHostMultipleDatabases" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

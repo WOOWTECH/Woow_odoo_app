@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:02" hostname="ElmodeMacBook-Air.local" time="0.017">
+  <properties/>
+  <testcase name="Given 1 digit when enterPinDigit then NeedMoreDigits and no verify()" classname="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" time="0.003"/>
+  <testcase name="Given 5 digits when enterPinDigit then NeedMoreDigits and no verify()" classname="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" time="0.002"/>
+  <testcase name="Given correct 6-digit PIN when enterPinDigit then Success and verify called exactly once()" classname="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" time="0.005"/>
+  <testcase name="Given 4 digits when enterPinDigit then NeedMoreDigits and no verify (was the false-lockout bug)()" classname="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" time="0.002"/>
+  <testcase name="Given wrong 6-digit PIN when enterPinDigit then WrongPin and verify called exactly once()" classname="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" time="0.002"/>
+  <testcase name="Given wrong 6-digit PIN causing lockout when enterPinDigit then LockedOut()" classname="io.woowtech.odoo.ui.auth.AuthViewModelPinEntryTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:24" hostname="ElmodeMacBook-Air.local" time="0.082">
+  <properties/>
+  <testcase name="Given a blank token when launch reconcile runs then reconcileToken is never called()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.048"/>
+  <testcase name="Given no active accounts when launch reconcile runs then reconcileToken short-circuits and does not throw()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.005"/>
+  <testcase name="Given a failed token fetch when launch reconcile runs then reconcileToken is never called and no exception propagates()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.007"/>
+  <testcase name="Given a reconcile that returns failure when launch reconcile runs then no exception propagates()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.005"/>
+  <testcase name="Given a null token when launch reconcile runs then reconcileToken is never called and no crash()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.002"/>
+  <testcase name="Given an injected IO dispatcher when launch reconcile runs then the register work runs on that dispatcher not Main()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.004"/>
+  <testcase name="Given a fetched token and the launch reconcile runs then reconcileToken is called with that token()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.005"/>
+  <testcase name="Given the same token when launch reconcile runs twice then reconcileToken is invoked each time without side effects()" classname="io.woowtech.odoo.data.push.FcmLaunchReconcileTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

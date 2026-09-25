@@ -1,0 +1,411 @@
+--- before/app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt
++++ after/app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt
+@@ -21,10 +21,10 @@
+     val isLoading: Boolean = false,
+     val error: String? = null,
+     val errorType: AuthResult.ErrorType? = null,
+-    val serverUrlError: String? = null,
+-    val databaseError: String? = null,
+-    val usernameError: String? = null,
+-    val passwordError: String? = null
++    val serverUrlError: LoginFieldError? = null,
++    val databaseError: LoginFieldError? = null,
++    val usernameError: LoginFieldError? = null,
++    val passwordError: LoginFieldError? = null
+ )
+ 
+ enum class LoginStep {
+@@ -81,25 +81,25 @@
+ 
+         // Validate server URL
+         if (state.serverUrl.isBlank()) {
+-            _uiState.value = state.copy(serverUrlError = "Server URL is required")
++            _uiState.value = state.copy(serverUrlError = LoginFieldError.SERVER_URL_REQUIRED)
+             return
+         }
+ 
+         // Validate database
+         if (state.database.isBlank()) {
+-            _uiState.value = state.copy(databaseError = "Database name is required")
++            _uiState.value = state.copy(databaseError = LoginFieldError.DATABASE_REQUIRED)
+             return
+         }
+ 
+         // Check URL format (must not start with http://)
+         if (ServerUrlInput.isInsecure(state.serverUrl)) {
+-            _uiState.value = state.copy(serverUrlError = "HTTPS is required for security")
++            _uiState.value = state.copy(serverUrlError = LoginFieldError.HTTPS_REQUIRED)
+             return
+         }
+ 
+         val normalized = ServerUrlInput.normalize(state.serverUrl)
+         if (normalized == null) {
+-            _uiState.value = state.copy(serverUrlError = "Invalid server URL")
++            _uiState.value = state.copy(serverUrlError = LoginFieldError.INVALID_URL)
+             return
+         }
+ 
+@@ -125,11 +125,11 @@
+ 
+         // Validate credentials
+         if (state.username.isBlank()) {
+-            _uiState.value = state.copy(usernameError = "Username is required")
++            _uiState.value = state.copy(usernameError = LoginFieldError.USERNAME_REQUIRED)
+             return
+         }
+         if (state.password.isBlank()) {
+-            _uiState.value = state.copy(passwordError = "Password is required")
++            _uiState.value = state.copy(passwordError = LoginFieldError.PASSWORD_REQUIRED)
+             return
+         }
+ 
+@@ -138,7 +138,7 @@
+ 
+             val serverUrl = ServerUrlInput.normalize(state.serverUrl)
+             if (serverUrl == null) {
+-                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL", errorType = null)
++                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL", errorType = AuthResult.ErrorType.INVALID_URL)
+                 return@launch
+             }
+ 
+--- before/app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt
++++ after/app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt
+@@ -1,6 +1,4 @@
+ package io.woowtech.odoo.ui.login
+-
+-import io.woowtech.odoo.brand.AppBrand
+ 
+ import androidx.compose.animation.AnimatedContent
+ import androidx.compose.animation.slideInHorizontally
+@@ -215,9 +213,7 @@
+                     )
+                 ) {
+                     Text(
+-                        text = if (AppBrand.current.isApporo &&
+-                            uiState.errorType == io.woowtech.odoo.domain.model.AuthResult.ErrorType.SESSION_EXPIRED
+-                        ) stringResource(R.string.error_session) else error,
++                        text = uiState.errorType?.messageResource()?.let { stringResource(it) } ?: error,
+                         color = MaterialTheme.colorScheme.onErrorContainer,
+                         style = MaterialTheme.typography.bodyMedium,
+                         textAlign = TextAlign.Center,
+@@ -237,8 +233,8 @@
+ private fun ServerInfoForm(
+     serverUrl: String,
+     database: String,
+-    serverUrlError: String?,
+-    databaseError: String?,
++    serverUrlError: LoginFieldError?,
++    databaseError: LoginFieldError?,
+     onServerUrlChange: (String) -> Unit,
+     onDatabaseChange: (String) -> Unit,
+     onNextClick: () -> Unit
+@@ -259,7 +255,7 @@
+             placeholder = stringResource(R.string.server_url_hint),
+             prefix = stringResource(R.string.https_prefix),
+             isError = serverUrlError != null,
+-            errorMessage = serverUrlError,
++            errorMessage = serverUrlError?.let { stringResource(it.messageResource()) },
+             keyboardOptions = KeyboardOptions(
+                 keyboardType = KeyboardType.Uri,
+                 imeAction = ImeAction.Next
+@@ -278,7 +274,7 @@
+             label = stringResource(R.string.database_name),
+             placeholder = stringResource(R.string.database_name_hint),
+             isError = databaseError != null,
+-            errorMessage = databaseError,
++            errorMessage = databaseError?.let { stringResource(it.messageResource()) },
+             keyboardOptions = KeyboardOptions(
+                 imeAction = ImeAction.Done
+             ),
+@@ -317,8 +313,8 @@
+     username: String,
+     password: String,
+     rememberMe: Boolean,
+-    usernameError: String?,
+-    passwordError: String?,
++    usernameError: LoginFieldError?,
++    passwordError: LoginFieldError?,
+     isLoading: Boolean,
+     onUsernameChange: (String) -> Unit,
+     onPasswordChange: (String) -> Unit,
+@@ -341,7 +337,7 @@
+             label = stringResource(R.string.username),
+             placeholder = stringResource(R.string.username_hint),
+             isError = usernameError != null,
+-            errorMessage = usernameError,
++            errorMessage = usernameError?.let { stringResource(it.messageResource()) },
+             enabled = !isLoading,
+             keyboardOptions = KeyboardOptions(
+                 keyboardType = KeyboardType.Email,
+@@ -361,7 +357,7 @@
+             label = stringResource(R.string.password),
+             placeholder = stringResource(R.string.password_hint),
+             isError = passwordError != null,
+-            errorMessage = passwordError,
++            errorMessage = passwordError?.let { stringResource(it.messageResource()) },
+             enabled = !isLoading,
+             visualTransformation = if (passwordVisible) {
+                 VisualTransformation.None
+--- before/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt
++++ after/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt
+@@ -131,7 +131,7 @@
+         fun `Given previous serverUrlError when updateServerUrl then error is cleared`() = runTest {
+             // Trigger a server URL error first
+             viewModel.goToNextStep() // blank URL => error
+-            assertEquals("Server URL is required", viewModel.uiState.value.serverUrlError)
++            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, viewModel.uiState.value.serverUrlError)
+ 
+             // Now type a URL — error should clear
+             viewModel.updateServerUrl("odoo.example.com")
+@@ -153,7 +153,7 @@
+ 
+             val state = viewModel.uiState.value
+             assertEquals(LoginStep.SERVER_INFO, state.step)
+-            assertEquals("Server URL is required", state.serverUrlError)
++            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, state.serverUrlError)
+         }
+ 
+         @Test
+@@ -163,7 +163,7 @@
+ 
+             val state = viewModel.uiState.value
+             assertEquals(LoginStep.SERVER_INFO, state.step)
+-            assertEquals("Database name is required", state.databaseError)
++            assertEquals(LoginFieldError.DATABASE_REQUIRED, state.databaseError)
+         }
+ 
+         @Test
+@@ -174,7 +174,7 @@
+ 
+             val state = viewModel.uiState.value
+             assertEquals(LoginStep.SERVER_INFO, state.step)
+-            assertEquals("HTTPS is required for security", state.serverUrlError)
++            assertEquals(LoginFieldError.HTTPS_REQUIRED, state.serverUrlError)
+         }
+ 
+         @Test
+@@ -202,7 +202,7 @@
+             viewModel.goToNextStep()
+ 
+             val state = viewModel.uiState.value
+-            assertEquals("Server URL is required", state.serverUrlError)
++            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, state.serverUrlError)
+             // Database error is not set because validation short-circuits
+             assertNull(state.databaseError)
+         }
+@@ -244,7 +244,7 @@
+ 
+             viewModel.login {}
+ 
+-            assertEquals("Username is required", viewModel.uiState.value.usernameError)
++            assertEquals(LoginFieldError.USERNAME_REQUIRED, viewModel.uiState.value.usernameError)
+             coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
+         }
+ 
+@@ -257,7 +257,7 @@
+ 
+             viewModel.login {}
+ 
+-            assertEquals("Password is required", viewModel.uiState.value.passwordError)
++            assertEquals(LoginFieldError.PASSWORD_REQUIRED, viewModel.uiState.value.passwordError)
+             coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
+         }
+     }
+@@ -575,7 +575,7 @@
+             viewModel.goToNextStep()
+ 
+             assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
+-            assertEquals("HTTPS is required for security", viewModel.uiState.value.serverUrlError)
++            assertEquals(LoginFieldError.HTTPS_REQUIRED, viewModel.uiState.value.serverUrlError)
+         }
+ 
+         @Test
+@@ -585,7 +585,7 @@
+             viewModel.goToNextStep()
+ 
+             assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
+-            assertEquals("Invalid server URL", viewModel.uiState.value.serverUrlError)
++            assertEquals(LoginFieldError.INVALID_URL, viewModel.uiState.value.serverUrlError)
+         }
+     }
+ 
+@@ -606,4 +606,45 @@
+         assertNull(viewModel.uiState.value.errorType)
+     }
+ 
++    @Test
++    fun `Given blank fields when corrected then typed errors clear without authenticating`() = runTest {
++        viewModel.goToNextStep()
++        assertEquals(LoginFieldError.SERVER_URL_REQUIRED, viewModel.uiState.value.serverUrlError)
++        viewModel.updateServerUrl("  https://https://fixture.invalid  ")
++        assertNull(viewModel.uiState.value.serverUrlError)
++        viewModel.goToNextStep()
++        assertEquals(LoginFieldError.DATABASE_REQUIRED, viewModel.uiState.value.databaseError)
++        viewModel.updateDatabase(" db ")
++        assertNull(viewModel.uiState.value.databaseError)
++        viewModel.goToNextStep()
++        assertEquals(LoginStep.CREDENTIALS, viewModel.uiState.value.step)
++        assertEquals("fixture.invalid", viewModel.uiState.value.serverUrl)
++        assertEquals("db", viewModel.uiState.value.database)
++        viewModel.login {}
++        assertEquals(LoginFieldError.USERNAME_REQUIRED, viewModel.uiState.value.usernameError)
++        viewModel.updateUsername(" user ")
++        assertNull(viewModel.uiState.value.usernameError)
++        viewModel.login {}
++        assertEquals(LoginFieldError.PASSWORD_REQUIRED, viewModel.uiState.value.passwordError)
++        viewModel.updatePassword(" secret ")
++        assertNull(viewModel.uiState.value.passwordError)
++        assertEquals(" secret ", viewModel.uiState.value.password)
++        coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
++    }
++
++    @Test
++    fun `Given URL changed to invalid before login when submitted then typed banner blocks repository`() = runTest {
++        viewModel.updateServerUrl("fixture.invalid")
++        viewModel.updateDatabase("db")
++        viewModel.goToNextStep()
++        viewModel.updateUsername("user")
++        viewModel.updatePassword("secret")
++        viewModel.updateServerUrl("bad host")
++        viewModel.login {}
++        testScheduler.advanceUntilIdle()
++        assertEquals(AuthResult.ErrorType.INVALID_URL, viewModel.uiState.value.errorType)
++        assertFalse(viewModel.uiState.value.isLoading)
++        coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
++    }
++
+ }
+--- before/scripts/tests/test_brand_contracts.py
++++ after/scripts/tests/test_brand_contracts.py
+@@ -226,7 +226,9 @@
+                                'push_registration_checking', 'push_registration_acknowledged',
+                                'push_registration_not_configured', 'push_registration_contract_rejected',
+                                'push_registration_retry', 'push_registration_sign_in',
+-                               'push_registration_unregistered', 'push_registration_disclaimer'}
++                               'push_registration_unregistered', 'push_registration_disclaimer',
++                               'login_server_url_required', 'login_database_required',
++                               'login_username_required', 'login_password_required'}
+                     self.assertEqual(set(old) | allowed, set(new))
+                     self.assertTrue(allowed.isdisjoint(old))
+                     def semantic(node):
+--- before/app/src/main/res/values/strings.xml
++++ after/app/src/main/res/values/strings.xml
+@@ -208,4 +208,10 @@
+     <string name="push_registration_sign_in">Sign in again to verify push registration</string>
+     <string name="push_registration_unregistered">Push registration removed</string>
+     <string name="push_registration_disclaimer">Registration acknowledgement is not a delivery guarantee. Notification permission and server delivery services are separate.</string>
++
++    <!-- Login form validation -->
++    <string name="login_server_url_required">Server URL is required</string>
++    <string name="login_database_required">Database name is required</string>
++    <string name="login_username_required">Username is required</string>
++    <string name="login_password_required">Password is required</string>
+ </resources>
+--- before/app/src/main/res/values-zh-rTW/strings.xml
++++ after/app/src/main/res/values-zh-rTW/strings.xml
+@@ -204,4 +204,10 @@
+     <string name="push_registration_sign_in">請重新登入以驗證推播註冊</string>
+     <string name="push_registration_unregistered">已解除推播註冊</string>
+     <string name="push_registration_disclaimer">註冊確認不保證通知送達；通知權限與伺服器傳送服務仍須另外確認。</string>
++
++    <!-- Login form validation -->
++    <string name="login_server_url_required">請輸入伺服器網址</string>
++    <string name="login_database_required">請輸入資料庫名稱</string>
++    <string name="login_username_required">請輸入使用者名稱</string>
++    <string name="login_password_required">請輸入密碼</string>
+ </resources>
+--- before/app/src/main/res/values-zh-rCN/strings.xml
++++ after/app/src/main/res/values-zh-rCN/strings.xml
+@@ -209,4 +209,10 @@
+     <string name="push_registration_sign_in">请重新登录以验证推送注册</string>
+     <string name="push_registration_unregistered">已解除推送注册</string>
+     <string name="push_registration_disclaimer">注册确认不保证通知送达；通知权限与服务器发送服务仍须另外确认。</string>
++
++    <!-- Login form validation -->
++    <string name="login_server_url_required">请输入服务器网址</string>
++    <string name="login_database_required">请输入数据库名称</string>
++    <string name="login_username_required">请输入用户名</string>
++    <string name="login_password_required">请输入密码</string>
+ </resources>
+--- /dev/null
++++ after/app/src/main/java/io/woowtech/odoo/ui/login/LoginErrorResources.kt
+@@ -0,0 +1,34 @@
++package io.woowtech.odoo.ui.login
++
++import androidx.annotation.StringRes
++import io.woowtech.odoo.R
++import io.woowtech.odoo.domain.model.AuthResult
++
++/** Store validation meaning, not localized text, so a locale change can re-render errors. */
++enum class LoginFieldError {
++    SERVER_URL_REQUIRED, DATABASE_REQUIRED, USERNAME_REQUIRED, PASSWORD_REQUIRED,
++    HTTPS_REQUIRED, INVALID_URL
++}
++
++@StringRes
++internal fun LoginFieldError.messageResource(): Int = when (this) {
++    LoginFieldError.SERVER_URL_REQUIRED -> R.string.login_server_url_required
++    LoginFieldError.DATABASE_REQUIRED -> R.string.login_database_required
++    LoginFieldError.USERNAME_REQUIRED -> R.string.login_username_required
++    LoginFieldError.PASSWORD_REQUIRED -> R.string.login_password_required
++    LoginFieldError.HTTPS_REQUIRED -> R.string.error_https
++    LoginFieldError.INVALID_URL -> R.string.error_invalid_url
++}
++
++/** UNKNOWN retains the existing server-message fallback rather than inventing a new contract. */
++@StringRes
++internal fun AuthResult.ErrorType.messageResource(): Int? = when (this) {
++    AuthResult.ErrorType.NETWORK_ERROR -> R.string.error_network
++    AuthResult.ErrorType.INVALID_URL -> R.string.error_invalid_url
++    AuthResult.ErrorType.DATABASE_NOT_FOUND -> R.string.error_database
++    AuthResult.ErrorType.INVALID_CREDENTIALS -> R.string.error_auth
++    AuthResult.ErrorType.SESSION_EXPIRED -> R.string.error_session
++    AuthResult.ErrorType.HTTPS_REQUIRED -> R.string.error_https
++    AuthResult.ErrorType.SERVER_ERROR -> R.string.error_server
++    AuthResult.ErrorType.UNKNOWN -> null
++}
+--- /dev/null
++++ after/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginErrorResourcesTest.kt
+@@ -0,0 +1,42 @@
++package io.woowtech.odoo.ui.login
++
++import io.woowtech.odoo.R
++import io.woowtech.odoo.domain.model.AuthResult
++import org.junit.jupiter.api.Assertions.assertEquals
++import org.junit.jupiter.api.Assertions.assertNull
++import org.junit.jupiter.api.Test
++
++class LoginErrorResourcesTest {
++    @Test
++    fun `Given every field validation error when rendered then uses its localized resource`() {
++        val expected = mapOf(
++            LoginFieldError.SERVER_URL_REQUIRED to R.string.login_server_url_required,
++            LoginFieldError.DATABASE_REQUIRED to R.string.login_database_required,
++            LoginFieldError.USERNAME_REQUIRED to R.string.login_username_required,
++            LoginFieldError.PASSWORD_REQUIRED to R.string.login_password_required,
++            LoginFieldError.HTTPS_REQUIRED to R.string.error_https,
++            LoginFieldError.INVALID_URL to R.string.error_invalid_url
++        )
++        assertEquals(expected, LoginFieldError.entries.associateWith { it.messageResource() })
++    }
++
++    @Test
++    fun `Given known auth errors when rendered then both brands use localized resources`() {
++        val expected = mapOf(
++            AuthResult.ErrorType.NETWORK_ERROR to R.string.error_network,
++            AuthResult.ErrorType.INVALID_URL to R.string.error_invalid_url,
++            AuthResult.ErrorType.DATABASE_NOT_FOUND to R.string.error_database,
++            AuthResult.ErrorType.INVALID_CREDENTIALS to R.string.error_auth,
++            AuthResult.ErrorType.SESSION_EXPIRED to R.string.error_session,
++            AuthResult.ErrorType.HTTPS_REQUIRED to R.string.error_https,
++            AuthResult.ErrorType.SERVER_ERROR to R.string.error_server,
++            AuthResult.ErrorType.UNKNOWN to null
++        )
++        assertEquals(expected, AuthResult.ErrorType.entries.associateWith { it.messageResource() })
++    }
++
++    @Test
++    fun `Given unknown auth error when rendered then resource is absent to preserve original message`() {
++        assertNull(AuthResult.ErrorType.UNKNOWN.messageResource())
++    }
++}

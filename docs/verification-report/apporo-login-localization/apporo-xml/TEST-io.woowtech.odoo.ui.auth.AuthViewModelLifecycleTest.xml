@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:27" hostname="ElmodeMacBook-Air.local" time="0.059">
+  <properties/>
+  <testcase name="Given app lock enabled and auth success when onAppBackgrounded then requiresAuth guard fires()" classname="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" time="0.051"/>
+  <testcase name="Given setAuthenticated true then false when isAuthenticated emits both()" classname="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" time="0.002"/>
+  <testcase name="Given authenticated state when onAppBackgrounded called multiple times then remains false()" classname="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" time="0.002"/>
+  <testcase name="Given process death when ViewModel created then isAuthenticated starts false()" classname="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" time="0.001"/>
+  <testcase name="Given requiresAuth false when onAppBackgrounded then isAuthenticated stays unchanged()" classname="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" time="0.001"/>
+  <testcase name="Given app lock disabled when onAppBackgrounded then isAuthenticated stays true()" classname="io.woowtech.odoo.ui.auth.AuthViewModelLifecycleTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

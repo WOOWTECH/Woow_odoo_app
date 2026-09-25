@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.AccountRepositoryTest$Logout" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:45" hostname="ElmodeMacBook-Air.local" time="0.018">
+  <properties/>
+  <testcase name="Given account ID but account not in database when logout then does nothing after ID lookup()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$Logout" time="0.003"/>
+  <testcase name="Given no active account and no ID when logout then does nothing()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$Logout" time="0.004"/>
+  <testcase name="Given no account ID when logout then uses active account()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$Logout" time="0.005"/>
+  <testcase name="Given specific account ID when logout then clears cookies password and deletes account()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$Logout" time="0.004"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

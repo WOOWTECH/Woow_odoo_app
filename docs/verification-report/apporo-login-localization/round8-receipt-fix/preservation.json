@@ -1,0 +1,12 @@
+{
+  "historicalPythonFilesUnchanged": 16,
+  "changedCopiedFiles": [
+    "ui_driver.py",
+    "test_system_ui_wait.py",
+    "test_input_budget.py"
+  ],
+  "newHarness": "run_offline_tests.py",
+  "stagedFiles": [],
+  "runtimePerformed": false,
+  "productEdited": false
+}

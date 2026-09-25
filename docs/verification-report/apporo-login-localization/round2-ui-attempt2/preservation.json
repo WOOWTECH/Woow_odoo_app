@@ -1,0 +1,51 @@
+{
+  "bootSeconds": 55.991816333,
+  "totalSeconds": 59.812,
+  "failure": "RuntimeError(\"ADB command failed: ('root',)\")",
+  "rootResult": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "adb: unable to connect for root: closed",
+    "seconds": 0.154,
+    "timeout": false
+  },
+  "oldGuestPullCalls": 0,
+  "hostXmlVerified": {
+    "path": "/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/kernel-diagnostic-01/previous-failed-dump.xml",
+    "sha256": "fb3dcd944ce260f387119cbc096b7ad13e1de8c0a7179b78c3799616a3136a1d",
+    "source": "verified prior host recovery; no repeated guest pull"
+  },
+  "diskMinGiB": {
+    "internal": 4.314594268798828,
+    "external": 7.085178375244141
+  },
+  "diskSamples": 29,
+  "diskMaxGapSeconds": 2.150096167000001,
+  "uiCheckpointsExecuted": 0,
+  "uiCheckpointsPlanned": 21,
+  "inputChecksExecuted": 0,
+  "inputChecksPlanned": 18,
+  "newDumpCommands": 0,
+  "appLaunched": false,
+  "imeChanged": false,
+  "installedArtifactVerifiedThisAttempt": false,
+  "sourceFilesUnchanged": 185,
+  "trackedDiffIdentical": true,
+  "avdConfigUnchanged": true,
+  "priorEvidenceHashCounts": {
+    "localization": 54,
+    "localization-followup": 3,
+    "kernel-diagnostic-01": 9,
+    "round2-ui": 7
+  },
+  "noStagedFiles": true,
+  "portsClosed": {
+    "5038": true,
+    "5580": true,
+    "5581": true
+  },
+  "ownedPIDsGone": {
+    "4038": true,
+    "4018": true
+  }
+}

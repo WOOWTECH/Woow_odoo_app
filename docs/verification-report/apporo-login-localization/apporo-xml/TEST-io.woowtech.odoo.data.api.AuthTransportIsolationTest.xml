@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.api.AuthTransportIsolationTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:24" hostname="ElmodeMacBook-Air.local" time="0.059">
+  <properties/>
+  <testcase name="Given WOOW UI URL with trailing whitespace then normalize and login successfully through mock API()" classname="io.woowtech.odoo.data.api.AuthTransportIsolationTest" time="0.048"/>
+  <testcase name="Given Apporo UI URL with trailing whitespace then normalize and login successfully through mock API()" classname="io.woowtech.odoo.data.api.AuthTransportIsolationTest" time="0.006"/>
+  <testcase name="Given unexpected isolated auth request then inherited fixture blocks before DNS and connect()" classname="io.woowtech.odoo.data.api.AuthTransportIsolationTest" time="0.002"/>
+  <testcase name="Given unexpected shared auth request in either brand then block before DNS and connect()" classname="io.woowtech.odoo.data.api.AuthTransportIsolationTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

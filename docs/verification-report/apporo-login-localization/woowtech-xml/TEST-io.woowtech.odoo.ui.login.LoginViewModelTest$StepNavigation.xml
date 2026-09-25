@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:02" hostname="ElmodeMacBook-Air.local" time="0.001">
+  <properties/>
+  <testcase name="Given server URL but blank database when goToNextStep then shows databaseError()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" time="0.0"/>
+  <testcase name="Given valid https URL and database when goToNextStep then advances to CREDENTIALS()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" time="0.0"/>
+  <testcase name="Given blank server URL when goToNextStep then shows serverUrlError()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" time="0.0"/>
+  <testcase name="Given bare domain with no scheme when goToNextStep then advances to CREDENTIALS()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" time="0.0"/>
+  <testcase name="Given validation errors exist and both fields blank when goToNextStep then only first error shown()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" time="0.0"/>
+  <testcase name="Given http URL when goToNextStep then rejects with HTTPS required error()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$StepNavigation" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

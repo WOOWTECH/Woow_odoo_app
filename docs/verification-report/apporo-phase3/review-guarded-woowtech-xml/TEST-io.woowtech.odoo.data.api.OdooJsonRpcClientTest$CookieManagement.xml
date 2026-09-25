@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.api.OdooJsonRpcClientTest$CookieManagement" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:44" hostname="ElmodeMacBook-Air.local" time="0.003">
+  <properties/>
+  <testcase name="Given cookies stored when clearCookies then getSessionCookies returns empty()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest$CookieManagement" time="0.001"/>
+  <testcase name="Given no cookies stored when getSessionCookies then returns empty list()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest$CookieManagement" time="0.001"/>
+  <testcase name="Given no cookies stored when getSessionId then returns null()" classname="io.woowtech.odoo.data.api.OdooJsonRpcClientTest$CookieManagement" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

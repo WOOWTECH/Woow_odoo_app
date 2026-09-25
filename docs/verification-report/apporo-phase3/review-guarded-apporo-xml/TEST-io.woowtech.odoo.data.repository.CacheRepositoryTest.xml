@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.CacheRepositoryTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:58" hostname="ElmodeMacBook-Air.local" time="0.804">
+  <properties/>
+  <testcase name="Given empty cache when calculateCacheSize then returns 0()" classname="io.woowtech.odoo.data.repository.CacheRepositoryTest" time="0.79"/>
+  <testcase name="Given cache with known files when calculateCacheSize then returns correct total()" classname="io.woowtech.odoo.data.repository.CacheRepositoryTest" time="0.005"/>
+  <testcase name="Given cache dir with files when clearAppCache then dir emptied()" classname="io.woowtech.odoo.data.repository.CacheRepositoryTest" time="0.009"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

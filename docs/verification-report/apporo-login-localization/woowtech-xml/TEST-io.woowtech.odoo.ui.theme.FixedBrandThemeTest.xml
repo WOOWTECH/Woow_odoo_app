@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.theme.FixedBrandThemeTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:18" hostname="ElmodeMacBook-Air.local" time="0.173">
+  <properties/>
+  <testcase name="Given default theme when inside WoowFixedBrandTheme then primary is still brand blue" classname="io.woowtech.odoo.ui.theme.FixedBrandThemeTest" time="0.076"/>
+  <testcase name="Given user picked a non-brand colour when inside WoowFixedBrandTheme then primary stays brand blue" classname="io.woowtech.odoo.ui.theme.FixedBrandThemeTest" time="0.032"/>
+  <testcase name="Given dark mode and saved user color when fixed theme then brand container and foreground are paired" classname="io.woowtech.odoo.ui.theme.FixedBrandThemeTest" time="0.029"/>
+  <testcase name="Given light mode and saved user color when fixed theme then brand container and foreground are paired" classname="io.woowtech.odoo.ui.theme.FixedBrandThemeTest" time="0.036"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

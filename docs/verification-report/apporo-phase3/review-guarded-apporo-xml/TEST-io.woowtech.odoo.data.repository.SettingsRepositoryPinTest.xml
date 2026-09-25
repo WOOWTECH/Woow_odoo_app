@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:59" hostname="ElmodeMacBook-Air.local" time="4.128">
+  <properties/>
+  <testcase name="Given valid PIN when setPin then stores PBKDF2 hash with salt separator()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.826"/>
+  <testcase name="Given PBKDF2 hash stored when verifyPin wrong then returns false()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.874"/>
+  <testcase name="Given 5 failed attempts then lockout is 30 seconds()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.008"/>
+  <testcase name="Given no PIN set when verifyPin then returns false()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.005"/>
+  <testcase name="Given 100 failed attempts then lockout caps at 1 hour()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.001"/>
+  <testcase name="Given PBKDF2 hash stored when verifyPin correct then returns true()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.646"/>
+  <testcase name="Given PIN not exactly 6 digits when setPin then returns false()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.008"/>
+  <testcase name="Given 20 failed attempts then lockout is 1 hour()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.002"/>
+  <testcase name="verifyPin off-loads PBKDF2 to Dispatchers Default()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.666"/>
+  <testcase name="Given legacy SHA-256 hash when verifyPin wrong then no migration()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.01"/>
+  <testcase name="Given 10 failed attempts then lockout is 5 minutes()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.003"/>
+  <testcase name="Given legacy SHA-256 hash when verifyPin correct then migrates to PBKDF2()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.301"/>
+  <testcase name="Given exactly 6 digits when setPin then returns true()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.323"/>
+  <testcase name="Given 15 failed attempts then lockout is 30 minutes()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.001"/>
+  <testcase name="Given same PIN hashed twice then produces different hashes (random salt)()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryPinTest" time="0.447"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

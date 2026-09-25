@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.SettingsRepositoryAppLockTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:32" hostname="ElmodeMacBook-Air.local" time="0.056">
+  <properties/>
+  <testcase name="Given a PIN is set when updateAppLock(true) then enabled and persisted()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryAppLockTest" time="0.006"/>
+  <testcase name="Given App Lock on when updateAppLock(false) then always applied()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryAppLockTest" time="0.004"/>
+  <testcase name="The invariant holds after removePin — never App Lock on without a PIN()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryAppLockTest" time="0.005"/>
+  <testcase name="Given no PIN when updateAppLock(true) then refused and state unchanged()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryAppLockTest" time="0.012"/>
+  <testcase name="Given App Lock on with a PIN when removePin then App Lock co-disabled in one atomic write()" classname="io.woowtech.odoo.data.repository.SettingsRepositoryAppLockTest" time="0.016"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

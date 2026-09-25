@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.RememberMePersistenceTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:32" hostname="ElmodeMacBook-Air.local" time="0.01">
+  <properties/>
+  <testcase name="Given a persisted password when isLoggedIn then it reports logged in purely from storage()" classname="io.woowtech.odoo.data.repository.RememberMePersistenceTest" time="0.003"/>
+  <testcase name="Given successful login when authenticate then password is persisted unconditionally()" classname="io.woowtech.odoo.data.repository.RememberMePersistenceTest" time="0.004"/>
+  <testcase name="Given authenticate signature when inspected then it carries no user persistence intent()" classname="io.woowtech.odoo.data.repository.RememberMePersistenceTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

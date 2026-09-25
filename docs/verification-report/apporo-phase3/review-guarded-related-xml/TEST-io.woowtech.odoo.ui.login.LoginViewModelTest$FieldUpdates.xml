@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:47:04" hostname="ElmodeMacBook-Air.local" time="0.016">
+  <properties/>
+  <testcase name="Given rememberMe toggled when updateRememberMe false then state reflects false()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" time="0.003"/>
+  <testcase name="Given username entered when updateUsername then state reflects new username and clears errors()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" time="0.003"/>
+  <testcase name="Given database entered when updateDatabase then state reflects new database and clears errors()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" time="0.003"/>
+  <testcase name="Given previous serverUrlError when updateServerUrl then error is cleared()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" time="0.001"/>
+  <testcase name="Given password entered when updatePassword then state reflects new password and clears errors()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" time="0.002"/>
+  <testcase name="Given server URL entered when updateServerUrl then state reflects new URL and clears errors()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest$FieldUpdates" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

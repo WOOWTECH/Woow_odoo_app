@@ -1,0 +1,390 @@
+--- /dev/null
++++ docs/verification-report/apporo-login-localization/round7-connectivity-budget/connectivity.py
+@@ -0,0 +1,64 @@
++"""One full connectivity observation; no retry, fallback or partial-output success."""
++import re
++import time
++
++CONNECTIVITY_MAXIMUM = 20
++# Full API36 dumps already saved in round4/round5 have these ordered sections
++# and this terminal trailer. Unknown/truncated formats fail closed, not guessed.
++SECTIONS = (
++    'NetworkProviders for:',
++    'Current network preferences:',
++    'Current Networks:',
++    'Status for known UIDs:',
++    'Network Requests:',
++    'Network Offers:',
++    'mLegacyTypeTracker:',
++    'Permission Monitor:',
++    'Legacy network activity:',
++)
++TRAILER = re.compile(
++    r'Multicast routing supported: (?:true|false)\n'
++    r'Background firewall chain enabled: (?:true|false)\n'
++    r'IngressToVpnAddressFiltering: (?:true|false)\Z'
++)
++
++
++def require_complete_no_default_network(result):
++    if (result.get('exit') != 0 or result.get('timeout') is not False
++            or result.get('truncated') or result.get('error') or result.get('stderr')):
++        raise RuntimeError('Connectivity observation incomplete or failed')
++    output = result.get('stdout')
++    if not isinstance(output, str):
++        raise ValueError('Missing connectivity output')
++    output = output.strip()
++    if (not output.startswith(SECTIONS[0]+'\n') or not TRAILER.search(output)
++            or re.search(r'truncat|\btimed?\s*out\b|permission denial|exception|\ufffd|\x00', output, re.I)):
++        raise ValueError('Unknown, diagnostic or truncated connectivity dump')
++    lines = [line.rstrip() for line in output.splitlines()]
++    positions = []
++    for section in SECTIONS:
++        if lines.count(section) != 1:
++            raise ValueError('Missing or ambiguous connectivity section')
++        positions.append(lines.index(section))
++    if positions != sorted(positions):
++        raise ValueError('Unexpected connectivity section order')
++    states = [line for line in lines if 'active default network' in line.lower()]
++    if states != ['Active default network: none']:
++        raise ValueError('Connectivity has no unique trusted no-default-network state')
++    if not positions[0] < lines.index(states[0]) < positions[1]:
++        raise ValueError('Unexpected connectivity state location')
++
++
++def verify_no_default_network(probe, clock=None):
++    clock = time.monotonic if clock is None else clock
++    deadline = probe.work_deadline
++    remaining = deadline - clock()
++    if remaining <= 0:
++        raise TimeoutError('Connectivity observation deadline exhausted; not started')
++    # Probe.run also clamps against its current boot/UI deadline and checks stop.
++    result = probe.shell('dumpsys', 'connectivity', required=False,
++                         maximum=min(CONNECTIVITY_MAXIMUM, remaining))
++    if clock() >= deadline:
++        raise TimeoutError('Connectivity observation completed after phase deadline')
++    require_complete_no_default_network(result)
++    return result
+--- docs/verification-report/apporo-login-localization/round6-system-ui-wait/launcher.py
++++ docs/verification-report/apporo-login-localization/round7-connectivity-budget/launcher.py
+@@ -12,9 +12,10 @@
+ import subprocess
+ import threading
+ import time
++from connectivity import verify_no_default_network
+ 
+ ROOT = Path(__file__).resolve().parents[4]
+-EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round6-system-ui-wait')
++EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round7-connectivity-budget')
+ GUARD_PATH = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/release-preparation/build-lane-20260925/guard.py')
+ _spec = importlib.util.spec_from_file_location('release_resource_guard', GUARD_PATH)
+ resource_guard = importlib.util.module_from_spec(_spec)
+@@ -270,7 +271,7 @@
+             self.receipt['phoneReady'] = disable_data_when_phone_ready(self.adb, self.work_deadline)
+             self.save()
+             self.shell('settings','put','global','http_proxy',':0')
+-            assert 'Active default network: none' in self.shell('dumpsys','connectivity')['stdout']
++            verify_no_default_network(self)
+             from root_transition import ensure_root
+             self.receipt['rootTransition']=ensure_root(self.adb,self.work_deadline)
+             self.save()
+@@ -284,7 +285,7 @@
+                     elif result.get('exit')!=0:raise RuntimeError('Firewall query failed')
+                     self.shell(*rule)
+             self.receipt['uids']=uids
+-            assert 'Active default network: none' in self.shell('dumpsys','connectivity')['stdout']
++            verify_no_default_network(self)
+             self.receipt['guestGuardsVerified']=True
+             self.receipt['status']='boot-ready-for-ui'
+             if ui_action is not None:
+--- /dev/null
++++ docs/verification-report/apporo-login-localization/round7-connectivity-budget/test_connectivity.py
+@@ -0,0 +1,247 @@
++"""Offline fake-clock coverage; subprocess, sockets and signals are never real."""
++import inspect
++import json
++from pathlib import Path
++import subprocess
++import tempfile
++import unittest
++from unittest.mock import Mock, patch
++
++import connectivity
++import installed_artifacts
++import launcher
++import ui_driver
++
++HISTORY = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android')
++
++
++def saved_connectivity(round_name):
++    return next(json.loads(line) for line in (HISTORY/round_name/'commands.jsonl').read_text().splitlines()
++                if json.loads(line).get('command', [])[-2:] == ['dumpsys', 'connectivity'])
++
++
++class ConnectivityTests(unittest.TestCase):
++    def setUp(self):
++        self.full = saved_connectivity('round5-installed-pull')['stdout']
++        self.clock = [100.0]
++        self.p = launcher.Probe()
++        self.p.work_deadline = 360
++        self.p.total_deadline = 400
++        self.p.record = Mock()
++        self.calls = []
++        for target in ('launcher.subprocess.Popen', 'launcher.os.kill', 'launcher.os.killpg', 'launcher.socket.socket'):
++            guard = patch(target, side_effect=AssertionError('No real runtime operation'))
++            guard.start(); self.addCleanup(guard.stop)
++        guard = patch.object(launcher, 'port_open', return_value=True)
++        guard.start(); self.addCleanup(guard.stop)
++        guard = patch.object(launcher.time, 'monotonic', side_effect=lambda:self.clock[0])
++        guard.start(); self.addCleanup(guard.stop)
++
++    def observe(self, duration=6, output=None, exit_code=0, deadline=None):
++        if deadline is not None:self.p.work_deadline = deadline
++        output = self.full if output is None else output
++        def command(args, **kwargs):
++            self.calls.append((args, kwargs))
++            budget = kwargs['timeout']
++            self.clock[0] += min(duration, budget)
++            if duration > budget:
++                raise subprocess.TimeoutExpired(args, budget, output=output.encode())
++            return subprocess.CompletedProcess(args, exit_code, output, '')
++        with patch.object(launcher.subprocess, 'run', side_effect=command):
++            return connectivity.verify_no_default_network(self.p, clock=lambda:self.clock[0])
++
++    def test_full_dump_above_four_under_twenty_succeeds_once(self):
++        result = self.observe(duration=12)
++        self.assertEqual(result['seconds'], 12)
++        self.assertEqual(len(self.calls), 1)
++        self.assertEqual(self.calls[0][0], self.p.adb_command+['shell', 'dumpsys', 'connectivity'])
++        self.assertEqual(self.calls[0][1]['timeout'], 20)
++        self.assertEqual((self.p.work_deadline, self.p.total_deadline), (360, 400))
++
++    def test_timeout_with_none_even_full_output_is_rejected_without_retry(self):
++        with self.assertRaises(RuntimeError):self.observe(duration=21)
++        self.assertEqual(len(self.calls), 1)
++        receipt = self.p.record.call_args.args[0]
++        self.assertTrue(receipt['timeout']); self.assertIsNone(receipt['exit'])
++        self.assertIn('Active default network: none', receipt['stdout'])
++
++    def test_round6_command58_partial_timeout_receipt_is_never_pass(self):
++        receipt = saved_connectivity('round6-system-ui-wait')
++        self.assertEqual(receipt['seconds'], 4.01)
++        self.assertTrue(receipt['timeout']); self.assertIsNone(receipt['exit'])
++        with self.assertRaises(RuntimeError):connectivity.require_complete_no_default_network(receipt)
++        # Even a falsely labelled exit0 cannot turn this truncated body into PASS.
++        with self.assertRaises(ValueError):
++            connectivity.require_complete_no_default_network(dict(receipt, exit=0, timeout=False, stderr=''))
++
++    def test_nonzero_with_none_rejected(self):
++        with self.assertRaises(RuntimeError):self.observe(exit_code=1)
++        self.assertEqual(len(self.calls), 1)
++
++    def test_partial_and_truncated_output_rejected_even_exit_zero(self):
++        for output in ('Active default network: none', self.full[:-1],
++                       self.full[:self.full.index('Network Offers:')],
++                       self.full.replace('Network Offers:', '[output truncated]'),
++                       self.full.replace('Permission Monitor:', '')):
++            with self.subTest(output_length=len(output)), self.assertRaises(ValueError):
++                self.observe(duration=1, output=output)
++        self.assertEqual(len(self.calls), 5)
++
++    def test_unknown_non_none_substring_and_ambiguous_state_rejected(self):
++        for state in ('', 'Active default network: unknown', 'Active default network: 100',
++                      'Active default network: none (stale)', ' Active default network: none',
++                      'Active default network: none\nActive default network: none',
++                      'Active default network: none\nActive default network: 100',
++                      'Active default network: none\nActive Default Network: unknown'):
++            with self.subTest(state=state), self.assertRaises(ValueError):
++                self.observe(duration=1, output=self.full.replace('Active default network: none', state))
++        self.assertEqual(len(self.calls), 8)
++
++    def test_missing_timeout_truncation_stderr_and_diagnostic_markers_fail_closed(self):
++        base = dict(exit=0, timeout=False, stdout=self.full, stderr='')
++        for changes in ({'timeout':None}, {'timeout':True}, {'truncated':True}, {'stderr':'warning'},
++                        {'stdout':self.full+'\n*** SERVICE DUMP TIMEOUT ***'},
++                        {'stdout':self.full.replace('Network Offers:', 'Network Offers:\nDUMP TIMEOUT')},
++                        {'stdout':None}):
++            with self.subTest(changes=list(changes)), self.assertRaises((RuntimeError, ValueError)):
++                connectivity.require_complete_no_default_network(dict(base, **changes))
++
++    def test_short_remaining_budget_clamped_success_no_deadline_extension(self):
++        self.observe(duration=4.5, deadline=106)
++        self.assertEqual(self.calls[0][1]['timeout'], 6)
++        self.assertEqual(self.p.work_deadline, 106); self.assertEqual(self.p.total_deadline, 400)
++
++    def test_short_remaining_budget_timeout_stops_at_deadline(self):
++        with self.assertRaises(TimeoutError):self.observe(duration=9, deadline=103)
++        self.assertEqual(len(self.calls), 1); self.assertEqual(self.calls[0][1]['timeout'], 3)
++        self.assertEqual(self.clock[0], 103)
++
++    def test_exhausted_remaining_budget_does_not_start(self):
++        for deadline in (99, 100):
++            with self.subTest(deadline=deadline), self.assertRaises(TimeoutError):self.observe(deadline=deadline)
++        self.assertEqual(self.calls, [])
++
++    def test_result_at_phase_deadline_rejected_even_exit_zero(self):
++        with self.assertRaises(TimeoutError):self.observe(duration=2, deadline=102)
++        self.assertEqual(len(self.calls), 1)
++
++    def test_monitor_stop_prevents_query(self):
++        self.p.stop.set()
++        with self.assertRaises(RuntimeError):self.observe()
++        self.assertEqual(self.calls, [])
++
++    def test_other_commands_still_have_four_second_default(self):
++        def command(args, **kwargs):
++            self.assertEqual(kwargs['timeout'], 4)
++            return subprocess.CompletedProcess(args, 0, '1', '')
++        with patch.object(launcher.subprocess, 'run', side_effect=command) as run:
++            self.p.shell('getprop', 'sys.boot_completed')
++        run.assert_called_once()
++        self.assertEqual(inspect.signature(launcher.Probe.run).parameters['maximum'].default, 4)
++        self.assertEqual(inspect.signature(launcher.Probe.adb).parameters['maximum'].default, 4)
++
++    def test_cleanup_keeps_forty_second_reserve_and_finishes_receipt(self):
++        with self.assertRaises(RuntimeError):self.observe(duration=21)
++        with tempfile.TemporaryDirectory() as directory, patch.object(launcher, 'EVIDENCE', Path(directory)), patch.object(launcher, 'port_open', return_value=False):
++            self.p.cleanup()
++            self.assertEqual(self.p.total_deadline, self.clock[0]+40)
++            self.assertTrue(self.p.receipt['cleanupResolved'])
++            self.assertTrue((Path(directory)/'receipt.json').is_file())
++            self.assertEqual(self.p.work_deadline, 360)
++
++    def test_cleanup_does_not_extend_existing_total_deadline(self):
++        self.p.total_deadline = 112
++        with tempfile.TemporaryDirectory() as directory, patch.object(launcher, 'EVIDENCE', Path(directory)), patch.object(launcher, 'port_open', return_value=False):
++            self.p.cleanup()
++        self.assertEqual(self.p.total_deadline, 112)
++
++    def test_unrelated_tooling_and_timeouts_are_byte_identical_to_round6(self):
++        here = Path(__file__).parent
++        before = here.with_name('round6-system-ui-wait')
++        for name in ('installed_artifacts.py', 'root_transition.py', 'phone_ready.py', 'readiness.py', 'system_ui_wait.py'):
++            with self.subTest(name=name):self.assertEqual((here/name).read_bytes(), (before/name).read_bytes())
++        original = '    def cleanup(self):'+(before/'launcher.py').read_text().split('    def cleanup(self):')[1].split('    def execute(')[0]
++        self.assertEqual(inspect.getsource(launcher.Probe.cleanup).rstrip(), original.rstrip())
++
++
++class ConnectivityIntegrationTests(unittest.TestCase):
++    def execute(self, fail_gate=None):
++        full = saved_connectivity('round5-installed-pull')['stdout']
++        started = launcher.time.monotonic()
++        clock = [started]
++        sample = dict(device=123, free={'/':4*launcher.GIB, '/Volumes/WOOW-BUILD':4*launcher.GIB})
++        with tempfile.TemporaryDirectory() as directory, \
++                patch.object(launcher, 'EVIDENCE', Path(directory)), \
++                patch.object(launcher.time, 'monotonic', side_effect=lambda:clock[0]), \
++                patch.object(launcher, 'port_open', return_value=False), \
++                patch.object(launcher.threading, 'Thread'), \
++                patch.object(launcher.resource_guard, 'preflight', return_value=sample), \
++                patch.object(launcher.resource_guard, 'bounded_sample', return_value=sample), \
++                patch.object(launcher.subprocess, 'Popen') as popen, \
++                patch.object(launcher.subprocess, 'run', side_effect=AssertionError('unmocked subprocess')), \
++                patch.object(launcher.os, 'killpg') as killpg, patch.object(launcher.os, 'kill') as kill, \
++                patch.object(installed_artifacts, 'verify_artifacts', return_value={}) as artifacts, \
++                patch.object(ui_driver, 'UI') as ui:
++            p = launcher.Probe()
++            p.run = Mock(return_value=dict(exit=0, stdout=''))
++            p.listener_pid = Mock(return_value=1234)
++            child = popen.return_value; child.pid = 12345; child.poll.return_value = None
++            child.wait.side_effect = lambda **kwargs:setattr(child.poll, 'return_value', 0)
++            connectivity_calls = []
++            def adb(*args, **kwargs):
++                out = ''
++                if args == ('get-state',):out = 'device'
++                elif args == ('emu', 'avd', 'name'):out = 'Apporo_Odoo_UI_API36\nOK'
++                elif args == ('devices',):out = 'List of devices attached\nemulator-5580\tdevice'
++                elif args[:2] == ('shell', 'getprop'):out = '1'
++                elif args == ('shell', 'service', 'check', 'phone'):out = 'Service phone: found'
++                elif args == ('shell', 'id', '-u'):out = '0'
++                elif args[:5] == ('shell', 'cmd', 'package', 'list', 'packages'):out = 'package:'+args[-1]+' uid:10213'
++                elif args == ('shell', 'dumpsys', 'connectivity'):
++                    connectivity_calls.append((p.work_deadline, kwargs))
++                    self.assertEqual(kwargs['maximum'], 20)
++                    self.assertFalse(kwargs['required'])
++                    clock[0] += 6
++                    if len(connectivity_calls) == fail_gate:
++                        return dict(exit=None, timeout=True, stdout=full, stderr='command timeout')
++                    out = full
++                elif args == ('shell', 'dumpsys', 'package', ui_driver.PACKAGE):out = 'versionCode=1 versionName=1.0-debug'
++                elif args == ('shell', 'dumpsys', 'package', ui_driver.HELPER):out = 'versionCode=2004001 versionName=2.4.0'
++                elif args == ('shell', 'settings', 'get', 'secure', 'default_input_method'):
++                    out = ui_driver.IME if p.previous_ime else 'original.IME'
++                elif args == ('shell', 'ime', 'list', '-a', '-s'):out = ui_driver.IME
++                return dict(exit=0, timeout=False, stdout=out, stderr='')
++            p.adb = Mock(side_effect=adb)
++            with patch.object(p, 'cleanup', wraps=p.cleanup) as cleanup:
++                result = p.execute(ui_driver.exercise)
++                cleanup.assert_called_once()
++            self.assertTrue(result['cleanupResolved'])
++            self.assertLessEqual(p.total_deadline, clock[0]+40)
++            killpg.assert_called_once(); kill.assert_not_called()
++            self.assertEqual(result['bootWorkLimitSeconds'], 260)
++            self.assertEqual(result['maxBootThenUiSeconds'], 1020)
++            self.assertEqual(result['bootCleanupReserveSeconds'], 40)
++            if fail_gate:
++                self.assertEqual(len(connectivity_calls), fail_gate)
++                self.assertEqual(result['status'], 'failed-or-blocked')
++                ui.assert_not_called()
++                self.assertIsNone(p.previous_ime)
++                self.assertFalse(any(c.args[:2] == ('shell', 'ime') for c in p.adb.call_args_list))
++            else:
++                self.assertEqual(result['status'], 'offline-ui-complete')
++                self.assertEqual(len(connectivity_calls), 3)
++                self.assertEqual([x[0] for x in connectivity_calls], [started+260, started+260, started+732])
++                self.assertEqual(result['uiWorkLimitSeconds'], 720)
++                self.assertEqual(result['uiCleanupReserveSeconds'], 40)
++                ui.return_value.run.assert_called_once()
++                artifacts.assert_called_once_with(p)
++
++    def test_all_three_connectivity_gates_share_single_full_query_helper(self):
++        self.execute()
++
++    def test_failure_at_each_gate_runs_cleanup_and_never_retries_or_launches_ui(self):
++        for gate in (1, 2, 3):
++            with self.subTest(gate=gate):self.execute(fail_gate=gate)
++
++
++if __name__ == '__main__':unittest.main()
+--- docs/verification-report/apporo-login-localization/round6-system-ui-wait/test_launcher.py
++++ docs/verification-report/apporo-login-localization/round7-connectivity-budget/test_launcher.py
+@@ -88,11 +88,17 @@
+                 elif args==('devices',):out='List of devices attached\nemulator-5580\tdevice'
+                 elif args[:3]==('shell','getprop','sys.boot_completed'):out='1'
+                 elif args[:3]==('shell','getprop','ro.kernel.qemu'):out='1'
+-                elif args[:3]==('shell','dumpsys','connectivity'):out='Active default network: none'
++                elif args[:3]==('shell','dumpsys','connectivity'):
++                    out=('NetworkProviders for:\nActive default network: none\n'
++                         'Current network preferences:\nCurrent Networks:\nStatus for known UIDs:\n'
++                         'Network Requests:\nNetwork Offers:\nmLegacyTypeTracker:\n'
++                         'Permission Monitor:\nLegacy network activity:\n'
++                         'Multicast routing supported: true\nBackground firewall chain enabled: true\n'
++                         'IngressToVpnAddressFiltering: true')
+                 elif args==('shell','id','-u'):out='0'
+                 elif args==('shell','service','check','phone'):out='Service phone: found'
+                 elif args[:5]==('shell','cmd','package','list','packages'):out='package:'+args[-1]+' uid:10213'
+-                return {'exit':0,'stdout':out}
++                return {'exit':0,'stdout':out,'timeout':False}
+             p.adb=Mock(side_effect=adb);p.cleanup=Mock();ui=Mock()
+             result=p.execute(ui)
+             if p.kernel is not None:p.kernel.close()
+--- docs/verification-report/apporo-login-localization/round6-system-ui-wait/ui_driver.py
++++ docs/verification-report/apporo-login-localization/round7-connectivity-budget/ui_driver.py
+@@ -9,6 +9,7 @@
+ import launcher
+ from readiness import bounds,field,text_node,form_ready,safe_missing_credentials,await_ready
+ from system_ui_wait import modal_present,wait_center
++from connectivity import verify_no_default_network
+ 
+ PACKAGE='com.apporo.odoo.debug'
+ HELPER='com.github.uiautomator'
+@@ -200,7 +201,7 @@
+     probe.receipt['installedHelperVersion']='2.4.0/2004001'
+     probe.receipt['installedArtifactSHA256']=verified
+     probe.receipt['installedVersion']='1.0-debug/1'
+-    assert 'Active default network: none' in probe.shell('dumpsys','connectivity')['stdout']
++    verify_no_default_network(probe)
+     previous=probe.shell('settings','get','secure','default_input_method')['stdout']
+     assert previous not in ('','null',IME)
+     probe.previous_ime=previous;probe.receipt['previousIME']=previous

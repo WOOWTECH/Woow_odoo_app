@@ -1,0 +1,2773 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 0c98345..c01eb77 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -1,61 +1,60 @@
+-name: Build APK
++name: Brand build and unit contracts (no publishing)
+ 
+ on:
+-  push:
+-    branches: [ main ]
+   pull_request:
+     branches: [ main ]
+   workflow_dispatch:
+ 
+ permissions:
+-  contents: write
++  contents: read
+ 
+ jobs:
+   build:
+     runs-on: ubuntu-latest
+-
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - brand: woowtech
++            variant: woowtechDebug
++            task: WoowtechDebug
++          - brand: apporo
++            variant: apporoDebug
++            task: ApporoDebug
+     steps:
+-    - name: Checkout code
+-      uses: actions/checkout@v4
+-
+-    - name: Set up JDK 17
+-      uses: actions/setup-java@v4
+-      with:
+-        java-version: '17'
+-        distribution: 'temurin'
+-
+-    - name: Grant execute permission for gradlew
+-      run: chmod +x gradlew
+-
+-    - name: Setup Gradle
+-      uses: gradle/actions/setup-gradle@v4
+-
+-    - name: Build Debug APK
+-      run: ./gradlew assembleDebug --stacktrace
+-      env:
+-        GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=512m"
+-
+-    - name: List APK directory
+-      run: |
+-        echo "Listing APK output directory:"
+-        ls -la app/build/outputs/apk/debug/ || echo "Directory not found"
+-        echo "Finding all APK files:"
+-        find app/build -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
+-
+-    - name: Upload APK Artifact
+-      uses: actions/upload-artifact@v4
+-      with:
+-        name: woowtech-odoo-debug
+-        path: app/build/outputs/apk/debug/*.apk
+-        retention-days: 90
+-        if-no-files-found: error
+-
+-    - name: Create Release
+-      uses: softprops/action-gh-release@v1
+-      with:
+-        tag_name: v1.0.0-build${{ github.run_number }}
+-        name: WoowTech Odoo v1.0.0 (Build ${{ github.run_number }})
+-        files: app/build/outputs/apk/debug/*.apk
+-        fail_on_unmatched_files: true
+-      env:
+-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
++      - uses: actions/checkout@v4
++        with:
++          # Offline contracts compare protected sources against baseline 73ad528.
++          fetch-depth: 0
++      - uses: actions/setup-java@v4
++        with:
++          java-version: '17'
++          distribution: temurin
++      - uses: gradle/actions/setup-gradle@v4
++      - name: Offline brand contracts
++        run: python3 -B -m unittest discover -s scripts/tests -p 'test_brand*.py' -v
++      - name: Inject approved Apporo client configuration (missing means BLOCKED)
++        if: matrix.brand == 'apporo'
++        env:
++          CLIENT_CONFIG: ${{ secrets.APPORO_DEBUG_GOOGLE_SERVICES_JSON }}
++        run: |
++          python3 - <<'PY'
++          import os
++          from pathlib import Path
++          value = os.environ.get("CLIENT_CONFIG", "")
++          if not value:
++              raise SystemExit("BLOCKED: approved Apporo Firebase client configuration is required")
++          path = Path("app/src/apporoDebug/google-services.json")
++          path.parent.mkdir(parents=True, exist_ok=True)
++          path.write_text(value)
++          PY
++      - name: Build and unit tests for the selected flavor
++        run: ./gradlew :app:assemble${{ matrix.task }} :app:test${{ matrix.task }}UnitTest --stacktrace
++      - uses: actions/upload-artifact@v4
++        with:
++          name: ${{ matrix.variant }}-candidate-unverified-on-device
++          path: |
++            app/build/outputs/apk/${{ matrix.brand }}/debug/*.apk
++            app/build/test-results/test${{ matrix.task }}UnitTest/*.xml
++          if-no-files-found: error
++          retention-days: 14
+diff --git a/.gitignore b/.gitignore
+index 21385c0..d5d4bd8 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -105,3 +105,7 @@ __pycache__/
+ 
+ # BMAD personal (user-scoped) config — never shared
+ _bmad/config.user.yaml
++
++# Separate Apporo upload signing and variant client injection
++apporo-keystore.properties
++app/src/*/google-services.json
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 6a28587..707dbfd 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -1,5 +1,32 @@
+ # AI Instructions — Woow Odoo Android App
+ 
++## 2026-09-25 階段 3 review 修正（待獨立驗收）
++
++- 兩P1窄修：明確Apporo isolated manual/switch入口；shared WebView reauth成功發布有效SID。selection內ensureActive＋短local NonCancellable/rollback，push/network等待仍可取消。
++- 核准sandbox封閉JVM：兩flavor各502總數、499 PASS/0 FAIL/3既有Keystore SKIP；37 offline只是source契約。使用synthetic Firebase與既有agent預載，未assemble/install，不可拿此生成資源安裝。
++- 初次完整suite的舊API測試曾對真demo host嘗試authenticate並回可解析錯誤；原XML/log只讀保留。不宣稱無遠端影響。已撤回raw尾空白拒絕，兩品牌UI trim mock成功；測試均mock/owned loopback/NO_PROXY＋sandbox。
++- 本輪結果、事件、命令、XML與剩餘review/實機門檻見 `docs/verification-report/apporo-phase3/validation.md`。以下前輪禁止Gradle/未編譯敘述僅為歷史；本輪獲明確授權的compile/JVM已執行，沒有授權live或發布。
++
++
++## 2026-09-25 階段 3 推播候選（尚未編譯／獨立 review）
++
++- Apporo 專用 account-ID/session transport：每個寫入前 capability、固定 brand、register echo/version；heal 最多一次且換 SID 重做 cap。WOOW 保留原 host/session 與 switch unregister。
++- Apporo manual auth 只採當次 isolated response 的有效 SID；缺 SID 零帳號／credential／active／jar 寫入。有 SID 但 push 缺 cap 不改登入成功。push heal 不發布 UI jar；manual active/cookie commit 使用同一 selection-attempt fence。
++- Settings 顯示目前 account-ID 的記憶體診斷（三語），ACK 不保證送達。captured unregister 仍可 best-effort 清理；移除帳號後不能重新認證或借別人 SID。
++- 本輪只准 stdlib 離線檢查；新增 JVM 未跑，兩 flavor build/unit 由父代理序列驗證。37 offline 的兩個 stage2 freeze 測試已按核准的精確 5 個 session/push seams、10 個新增 strings keys 更新，其他安全檔／legacy string 語意保留。歷史 438 PASS/3 SKIP 不是本輪結果。
++- live 拒絕閘門仍保留；不代表部署、送達、合併或發布就緒。詳見 `docs/plans/2026-09-25-apporo-push-client.md`、`docs/verification-report/apporo-phase3/validation.md`。
++
++## 2026-09-24 階段 2 品牌候選補充（未完整驗證）
++
++- 新工作分支由 `73ad528` 起；flavors 為 `woowtech` / `apporo`，namespace 仍為 `io.woowtech.odoo`。下方歷史的單一 variant/CI 敘述不適用本候選。
++- WOOW 1.4.2/23 不變；Apporo 1.0/1、`com.apporo.odoo` / `.debug`；scheme `apporoodoo` / `apporoodoo-dev`。名稱三語均 `Apporo platform`。
++- 真正任務改為 `assembleWoowtechDebug` / `testWoowtechDebugUnitTest` 與 `assembleApporoDebug` / `testApporoDebugUnitTest`；正式任務同理替換 Debug→Release。本輪由**主代理因磁碟僅約 5.4GiB 暫緩 Gradle 重型建置**（不是擁有者明文禁止所有 build），仍不得執行 Gradle；裝置/網路操作另屬禁止範圍。完整 gate 仍 BLOCKED，不代表免驗。
++- Firebase plugin 無條件接線；每 variant `app/src/<variant>/google-services.json`。只有 WOOW 可保留既有 `app/google-services.json`。Apporo 無配置不能出包；正式缺 `APPORO_RELEASE_*` 簽章亦拒絕。client 檔不得印 API key。
++- Apporo signing 只讀 `apporo-keystore.properties` 或同名 Gradle/env properties，禁止 WOOW key 路徑。真 key 尚未建立；正式 signer 指紋仍待另批驗證。
++- 離線腳本需 Python 3（stdlib），`python3 -B -m unittest discover -s scripts/tests -p 'test_brand*.py' -v`；CI 僅兩 flavor debug build/unit/internal artifact，不自動 publish。
++- live scripts 必須顯式 `APP_VARIANT`，package 與 Firebase project 不得跨品牌覆寫；device/Odoo 寫入各須授權旗標。Apporo live tests 仍拒絕：階段 3 品牌推播契約尚未實作。Activity 類別保持 WOOW namespace。
++- 詳見 `docs/plans/2026-09-24-apporo-Implementation_Plan.md` / `2026-09-24-apporo-Test_Plan.md`。只交未 staged 候選 diff，不 commit 產品碼、不宣稱可發布。
++
+ ## Project Overview
+ 
+ Android companion app for Odoo ERP. Wraps Odoo web UI in a WebView with native authentication, FCM push notifications, multi-account support, biometric/PIN lock, brand theming, and multilingual support (EN, zh-TW, zh-CN).
+diff --git a/_bmad-output/project-context.md b/_bmad-output/project-context.md
+index bbfd3c2..0906685 100644
+--- a/_bmad-output/project-context.md
++++ b/_bmad-output/project-context.md
+@@ -16,6 +16,26 @@ _Critical rules and patterns for implementing code in this repo. Focused on unob
+ 
+ ---
+ 
++
++## 2026-09-25 階段 3 推播候選（尚未編譯／獨立 review）
++
++- Apporo 專用 account-ID/session transport：每個寫入前 capability、固定 brand、register echo/version；heal 最多一次且換 SID 重做 cap。WOOW 保留原 host/session 與 switch unregister。
++- Apporo manual auth 只採當次 isolated response 的有效 SID；缺 SID 零帳號／credential／active／jar 寫入。有 SID 但 push 缺 cap 不改登入成功。push heal 不發布 UI jar；manual active/cookie commit 使用同一 selection-attempt fence。
++- Settings 顯示目前 account-ID 的記憶體診斷（三語），ACK 不保證送達。captured unregister 仍可 best-effort 清理；移除帳號後不能重新認證或借別人 SID。
++- 本輪只准 stdlib 離線檢查；新增 JVM 未跑，兩 flavor build/unit 由父代理序列驗證。37 offline 的兩個 stage2 freeze 測試已按核准的精確 5 個 session/push seams、10 個新增 strings keys 更新，其他安全檔／legacy string 語意保留。歷史 438 PASS/3 SKIP 不是本輪結果。
++- live 拒絕閘門仍保留；不代表部署、送達、合併或發布就緒。詳見 `docs/plans/2026-09-25-apporo-push-client.md`、`docs/verification-report/apporo-phase3/validation.md`。
++
++## 2026-09-24 階段 2 品牌候選補充（未完整驗證）
++
++- 新工作分支由 `73ad528` 起；flavors 為 `woowtech` / `apporo`，namespace 仍為 `io.woowtech.odoo`。下方歷史的單一 variant/CI 敘述不適用本候選。
++- WOOW 1.4.2/23 不變；Apporo 1.0/1、`com.apporo.odoo` / `.debug`；scheme `apporoodoo` / `apporoodoo-dev`。名稱三語均 `Apporo platform`。
++- 真正任務改為 `assembleWoowtechDebug` / `testWoowtechDebugUnitTest` 與 `assembleApporoDebug` / `testApporoDebugUnitTest`；正式任務同理替換 Debug→Release。本輪由**主代理因磁碟僅約 5.4GiB 暫緩 Gradle 重型建置**（不是擁有者明文禁止所有 build），仍不得執行 Gradle；裝置/網路操作另屬禁止範圍。完整 gate 仍 BLOCKED，不代表免驗。
++- Firebase plugin 無條件接線；每 variant `app/src/<variant>/google-services.json`。只有 WOOW 可保留既有 `app/google-services.json`。Apporo 無配置不能出包；正式缺 `APPORO_RELEASE_*` 簽章亦拒絕。client 檔不得印 API key。
++- Apporo signing 只讀 `apporo-keystore.properties` 或同名 Gradle/env properties，禁止 WOOW key 路徑。真 key 尚未建立；正式 signer 指紋仍待另批驗證。
++- 離線腳本需 Python 3（stdlib），`python3 -B -m unittest discover -s scripts/tests -p 'test_brand*.py' -v`；CI 僅兩 flavor debug build/unit/internal artifact，不自動 publish。
++- live scripts 必須顯式 `APP_VARIANT`，package 與 Firebase project 不得跨品牌覆寫；device/Odoo 寫入各須授權旗標。Apporo live tests 仍拒絕：階段 3 品牌推播契約尚未實作。Activity 類別保持 WOOW namespace。
++- 詳見 `docs/plans/2026-09-24-apporo-Implementation_Plan.md` / `2026-09-24-apporo-Test_Plan.md`。只交未 staged 候選 diff，不 commit 產品碼、不宣稱可發布。
++
+ ## 0. Rule Precedence
+ 
+ 1. **`CLAUDE.md` entries marked `CRITICAL RULE`** — process law, override any generic Kotlin/Android style advice. Summarized in §7.
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 7f70e50..119f83d 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -1,4 +1,5 @@
+ import java.util.Properties
++import com.google.gms.googleservices.GoogleServicesTask
+ 
+ plugins {
+     alias(libs.plugins.android.application)
+@@ -8,10 +9,8 @@ plugins {
+     alias(libs.plugins.ksp)
+ }
+ 
+-// Apply google-services plugin only when google-services.json exists
+-if (file("google-services.json").exists()) {
+-    apply(plugin = libs.plugins.google.services.get().pluginId)
+-}
++// Always wire Firebase tasks: a missing client configuration must not produce a push-less APK.
++apply(plugin = libs.plugins.google.services.get().pluginId)
+ 
+ // EP-02A: reproducible dependency resolution evidence.
+ // Locks the release/debug runtime+compile classpaths so an artifact can be
+@@ -20,29 +19,22 @@ dependencyLocking {
+     lockAllConfigurations()
+ }
+ 
+-// Release signing. Credentials are read from, in order of precedence:
+-//   1. keystore.properties at the repo root (gitignored)
+-//   2. Gradle properties WOOW_RELEASE_* (e.g. in the user-level gradle.properties)
+-//   3. Environment variables of the same names (for CI)
+-// When no credentials are present the release signing config is simply not
+-// created and `bundleRelease` produces an unsigned artifact, exactly as before.
+-val keystorePropsFile = rootProject.file("keystore.properties")
+-val keystoreProps = Properties().apply {
+-    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
++// Brand-specific signing inputs; never share a fallback key. No secret values are logged.
++fun signingProperties(brand: String): Properties = Properties().apply {
++    val source = rootProject.file(if (brand == "woowtech") "keystore.properties" else "apporo-keystore.properties")
++    if (source.exists()) source.inputStream().use { load(it) }
+ }
+-
+-fun signingValue(name: String): String? =
+-    keystoreProps.getProperty(name)
+-        ?: providers.gradleProperty(name).orNull
+-        ?: System.getenv(name)
+-
+-val releaseStoreFile = signingValue("WOOW_RELEASE_STORE_FILE")
+-val releaseStorePassword = signingValue("WOOW_RELEASE_STORE_PASSWORD")
+-val releaseKeyAlias = signingValue("WOOW_RELEASE_KEY_ALIAS")
+-val releaseKeyPassword = signingValue("WOOW_RELEASE_KEY_PASSWORD")
+-val hasReleaseSigning = listOf(
+-    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
+-).all { !it.isNullOrBlank() } && file(releaseStoreFile!!).exists()
++val woowSigning = signingProperties("woowtech")
++val apporoSigning = signingProperties("apporo")
++fun signingValue(brand: String, suffix: String): String? {
++    val name = "${if (brand == "apporo") "APPORO" else "WOOW"}_RELEASE_$suffix"
++    return (if (brand == "apporo") apporoSigning else woowSigning).getProperty(name)
++        ?: providers.gradleProperty(name).orNull ?: System.getenv(name)
++}
++fun hasSigning(brand: String): Boolean =
++    listOf("STORE_FILE", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD").all {
++        !signingValue(brand, it).isNullOrBlank()
++    } && file(signingValue(brand, "STORE_FILE")!!).exists()
+ 
+ android {
+     namespace = "io.woowtech.odoo"
+@@ -62,19 +54,40 @@ android {
+     }
+ 
+     signingConfigs {
+-        if (hasReleaseSigning) {
+-            create("release") {
+-                storeFile = file(releaseStoreFile!!)
+-                storePassword = releaseStorePassword
+-                keyAlias = releaseKeyAlias
+-                keyPassword = releaseKeyPassword
++        for (brand in listOf("woowtech", "apporo")) {
++            if (hasSigning(brand)) {
++                create("${brand}Release") {
++                    storeFile = file(signingValue(brand, "STORE_FILE")!!)
++                    storePassword = signingValue(brand, "STORE_PASSWORD")
++                    keyAlias = signingValue(brand, "KEY_ALIAS")
++                    keyPassword = signingValue(brand, "KEY_PASSWORD")
++                }
+             }
+         }
+     }
+ 
++    flavorDimensions += "brand"
++    productFlavors {
++        create("woowtech") {
++            dimension = "brand"
++            applicationId = "io.woowtech.odoo"
++            buildConfigField("String", "APP_BRAND", "\"woowtech\"")
++            manifestPlaceholders["brandScheme"] = "woowodoo"
++            signingConfig = signingConfigs.findByName("woowtechRelease")
++        }
++        create("apporo") {
++            dimension = "brand"
++            applicationId = "com.apporo.odoo"
++            versionName = "1.0"
++            versionCode = 1
++            buildConfigField("String", "APP_BRAND", "\"apporo\"")
++            manifestPlaceholders["brandScheme"] = "apporoodoo"
++            signingConfig = signingConfigs.findByName("apporoRelease")
++        }
++    }
++
+     buildTypes {
+         release {
+-            signingConfig = signingConfigs.findByName("release")
+             isMinifyEnabled = true
+             isShrinkResources = true
+             proguardFiles(
+@@ -118,6 +131,49 @@ android {
+     }
+ }
+ 
++// Explicit per-variant files prevent the Google plugin's normal root-file fallback for Apporo.
++androidComponents {
++    onVariants(selector().all()) { variant ->
++        val brand = variant.productFlavors.single { it.first == "brand" }.second
++        val release = variant.buildType == "release"
++        if (brand == "apporo" && !release) {
++            variant.manifestPlaceholders.put("brandScheme", "apporoodoo-dev")
++        }
++        val capitalized = variant.name.replaceFirstChar { it.uppercase() }
++        val variantConfig = file("src/${variant.name}/google-services.json")
++        val firebaseConfig = if (brand == "woowtech" && !variantConfig.exists()) {
++            file("google-services.json") // Existing WOOW client only; never copied or changed.
++        } else variantConfig
++        val validateBrand = tasks.register<Exec>("validate${capitalized}BrandConfig") {
++            group = "verification"
++            // python3 stdlib only; no network, no key material, no config values printed.
++            commandLine("python3", rootProject.file("scripts/validate_brand_config.py"),
++                "--brand", brand, "--build-type", variant.buildType!!,
++                "--config", firebaseConfig)
++            doFirst {
++                if (brand == "apporo" && release) {
++                    check(hasSigning("apporo")) { "Apporo release requires its own APPORO_RELEASE_* signing inputs" }
++                    val apporoStore = file(signingValue("apporo", "STORE_FILE")!!).canonicalFile
++                    val woowStore = signingValue("woowtech", "STORE_FILE")?.let { file(it).canonicalFile }
++                    check(apporoStore != woowStore &&
++                        apporoStore != file("${System.getProperty("user.home")}/keystores/woow-odoo-release.jks").canonicalFile) {
++                        "Apporo release must not use the WOOW keystore"
++                    }
++                }
++            }
++        }
++        tasks.withType<GoogleServicesTask>().configureEach {
++            if (name == "process${capitalized}GoogleServices") {
++                googleServicesJsonFiles.set(listOf(firebaseConfig))
++                dependsOn(validateBrand)
++            }
++        }
++        tasks.matching { it.name == "pre${capitalized}Build" }.configureEach {
++            dependsOn(validateBrand)
++        }
++    }
++}
++
+ tasks.withType<Test> {
+     useJUnitPlatform()
+ }
+diff --git a/app/gradle.lockfile b/app/gradle.lockfile
+index 24d12e1..0c0211b 100644
+--- a/app/gradle.lockfile
++++ b/app/gradle.lockfile
+@@ -1,167 +1,167 @@
+ # This is a Gradle generated file for dependency locking.
+ # Manual edits can break the build and are not advised.
+ # This file is expected to be part of source control.
+-androidx.activity:activity-compose:1.8.2=releaseRuntimeClasspath
+-androidx.activity:activity-ktx:1.8.2=releaseRuntimeClasspath
+-androidx.activity:activity:1.8.2=releaseRuntimeClasspath
+-androidx.annotation:annotation-experimental:1.4.0=releaseRuntimeClasspath
+-androidx.annotation:annotation-jvm:1.9.1=releaseRuntimeClasspath
+-androidx.annotation:annotation:1.9.1=releaseRuntimeClasspath
+-androidx.appcompat:appcompat-resources:1.6.1=releaseRuntimeClasspath
+-androidx.appcompat:appcompat:1.6.1=releaseRuntimeClasspath
+-androidx.arch.core:core-common:2.2.0=releaseRuntimeClasspath
+-androidx.arch.core:core-runtime:2.2.0=releaseRuntimeClasspath
+-androidx.autofill:autofill:1.0.0=releaseRuntimeClasspath
+-androidx.biometric:biometric:1.2.0-alpha05=releaseRuntimeClasspath
+-androidx.collection:collection-jvm:1.5.0=releaseRuntimeClasspath
+-androidx.collection:collection-ktx:1.5.0=releaseRuntimeClasspath
+-androidx.collection:collection:1.5.0=releaseRuntimeClasspath
+-androidx.compose.animation:animation-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.animation:animation-core-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.animation:animation-core:1.6.1=releaseRuntimeClasspath
+-androidx.compose.animation:animation:1.6.1=releaseRuntimeClasspath
+-androidx.compose.foundation:foundation-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.foundation:foundation-layout-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.foundation:foundation-layout:1.6.1=releaseRuntimeClasspath
+-androidx.compose.foundation:foundation:1.6.1=releaseRuntimeClasspath
+-androidx.compose.material3:material3-android:1.2.0=releaseRuntimeClasspath
+-androidx.compose.material3:material3:1.2.0=releaseRuntimeClasspath
+-androidx.compose.material:material-icons-core-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.material:material-icons-core:1.6.1=releaseRuntimeClasspath
+-androidx.compose.material:material-icons-extended-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.material:material-icons-extended:1.6.1=releaseRuntimeClasspath
+-androidx.compose.material:material-ripple-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.material:material-ripple:1.6.1=releaseRuntimeClasspath
+-androidx.compose.runtime:runtime-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.runtime:runtime-saveable-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.runtime:runtime-saveable:1.6.1=releaseRuntimeClasspath
+-androidx.compose.runtime:runtime:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-geometry-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-geometry:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-graphics-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-graphics:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-text-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-text:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-tooling-preview-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-tooling-preview:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-unit-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-unit:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-util-android:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui-util:1.6.1=releaseRuntimeClasspath
+-androidx.compose.ui:ui:1.6.1=releaseRuntimeClasspath
+-androidx.compose:compose-bom:2024.02.00=releaseRuntimeClasspath
+-androidx.concurrent:concurrent-futures:1.1.0=releaseRuntimeClasspath
+-androidx.core:core-ktx:1.12.0=releaseRuntimeClasspath
+-androidx.core:core:1.12.0=releaseRuntimeClasspath
+-androidx.cursoradapter:cursoradapter:1.0.0=releaseRuntimeClasspath
+-androidx.customview:customview-poolingcontainer:1.0.0=releaseRuntimeClasspath
+-androidx.customview:customview:1.0.0=releaseRuntimeClasspath
+-androidx.datastore:datastore-core:1.0.0=releaseRuntimeClasspath
+-androidx.datastore:datastore-preferences-core:1.0.0=releaseRuntimeClasspath
+-androidx.datastore:datastore-preferences:1.0.0=releaseRuntimeClasspath
+-androidx.datastore:datastore:1.0.0=releaseRuntimeClasspath
+-androidx.documentfile:documentfile:1.0.0=releaseRuntimeClasspath
+-androidx.drawerlayout:drawerlayout:1.0.0=releaseRuntimeClasspath
+-androidx.emoji2:emoji2-views-helper:1.3.0=releaseRuntimeClasspath
+-androidx.emoji2:emoji2:1.3.0=releaseRuntimeClasspath
+-androidx.exifinterface:exifinterface:1.3.6=releaseRuntimeClasspath
+-androidx.fragment:fragment:1.5.1=releaseRuntimeClasspath
+-androidx.hilt:hilt-navigation-compose:1.2.0=releaseRuntimeClasspath
+-androidx.hilt:hilt-navigation:1.2.0=releaseRuntimeClasspath
+-androidx.interpolator:interpolator:1.0.0=releaseRuntimeClasspath
+-androidx.legacy:legacy-support-core-utils:1.0.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-common-java8:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-common:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-livedata-core-ktx:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-livedata-core:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-livedata:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-process:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-runtime-compose:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-runtime-ktx:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-runtime:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0=releaseRuntimeClasspath
+-androidx.lifecycle:lifecycle-viewmodel:2.7.0=releaseRuntimeClasspath
+-androidx.loader:loader:1.0.0=releaseRuntimeClasspath
+-androidx.localbroadcastmanager:localbroadcastmanager:1.0.0=releaseRuntimeClasspath
+-androidx.navigation:navigation-common-ktx:2.7.7=releaseRuntimeClasspath
+-androidx.navigation:navigation-common:2.7.7=releaseRuntimeClasspath
+-androidx.navigation:navigation-compose:2.7.7=releaseRuntimeClasspath
+-androidx.navigation:navigation-runtime-ktx:2.7.7=releaseRuntimeClasspath
+-androidx.navigation:navigation-runtime:2.7.7=releaseRuntimeClasspath
+-androidx.print:print:1.0.0=releaseRuntimeClasspath
+-androidx.profileinstaller:profileinstaller:1.3.1=releaseRuntimeClasspath
+-androidx.resourceinspection:resourceinspection-annotation:1.0.1=releaseRuntimeClasspath
+-androidx.room:room-common:2.6.1=releaseRuntimeClasspath
+-androidx.room:room-ktx:2.6.1=releaseRuntimeClasspath
+-androidx.room:room-runtime:2.6.1=releaseRuntimeClasspath
+-androidx.savedstate:savedstate-ktx:1.2.1=releaseRuntimeClasspath
+-androidx.savedstate:savedstate:1.2.1=releaseRuntimeClasspath
+-androidx.sqlite:sqlite-framework:2.4.0=releaseRuntimeClasspath
+-androidx.sqlite:sqlite:2.4.0=releaseRuntimeClasspath
+-androidx.startup:startup-runtime:1.1.1=releaseRuntimeClasspath
+-androidx.tracing:tracing:1.0.0=releaseRuntimeClasspath
+-androidx.vectordrawable:vectordrawable-animated:1.1.0=releaseRuntimeClasspath
+-androidx.vectordrawable:vectordrawable:1.1.0=releaseRuntimeClasspath
+-androidx.versionedparcelable:versionedparcelable:1.1.1=releaseRuntimeClasspath
+-androidx.viewpager:viewpager:1.0.0=releaseRuntimeClasspath
+-com.google.accompanist:accompanist-drawablepainter:0.32.0=releaseRuntimeClasspath
+-com.google.android.datatransport:transport-api:3.1.0=releaseRuntimeClasspath
+-com.google.android.datatransport:transport-backend-cct:3.1.9=releaseRuntimeClasspath
+-com.google.android.datatransport:transport-runtime:3.1.9=releaseRuntimeClasspath
+-com.google.android.gms:play-services-base:18.0.1=releaseRuntimeClasspath
+-com.google.android.gms:play-services-basement:18.3.0=releaseRuntimeClasspath
+-com.google.android.gms:play-services-cloud-messaging:17.2.0=releaseRuntimeClasspath
+-com.google.android.gms:play-services-stats:17.0.2=releaseRuntimeClasspath
+-com.google.android.gms:play-services-tasks:18.1.0=releaseRuntimeClasspath
+-com.google.code.findbugs:jsr305:3.0.2=releaseRuntimeClasspath
+-com.google.code.gson:gson:2.10.1=releaseRuntimeClasspath
+-com.google.crypto.tink:tink-android:1.19.0=releaseRuntimeClasspath
+-com.google.dagger:dagger-lint-aar:2.57=releaseRuntimeClasspath
+-com.google.dagger:dagger:2.57=releaseRuntimeClasspath
+-com.google.dagger:hilt-android:2.57=releaseRuntimeClasspath
+-com.google.dagger:hilt-core:2.57=releaseRuntimeClasspath
+-com.google.errorprone:error_prone_annotations:2.26.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-annotations:16.2.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-bom:33.7.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-common-ktx:21.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-common:21.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-components:18.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-datatransport:18.2.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-encoders-json:18.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-encoders-proto:16.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-encoders:17.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-iid-interop:17.1.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-installations-interop:17.1.1=releaseRuntimeClasspath
+-com.google.firebase:firebase-installations:18.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-measurement-connector:19.0.0=releaseRuntimeClasspath
+-com.google.firebase:firebase-messaging:24.1.0=releaseRuntimeClasspath
+-com.google.guava:listenablefuture:1.0=releaseRuntimeClasspath
+-com.jakewharton.timber:timber:5.0.1=releaseRuntimeClasspath
+-com.squareup.okhttp3:logging-interceptor:4.12.0=releaseRuntimeClasspath
+-com.squareup.okhttp3:okhttp:4.12.0=releaseRuntimeClasspath
+-com.squareup.okio:okio-jvm:3.6.0=releaseRuntimeClasspath
+-com.squareup.okio:okio:3.6.0=releaseRuntimeClasspath
+-com.squareup.retrofit2:converter-gson:2.9.0=releaseRuntimeClasspath
+-com.squareup.retrofit2:retrofit:2.9.0=releaseRuntimeClasspath
+-dev.spght:encryptedprefs-core:1.1.1=releaseRuntimeClasspath
+-io.coil-kt:coil-base:2.5.0=releaseRuntimeClasspath
+-io.coil-kt:coil-compose-base:2.5.0=releaseRuntimeClasspath
+-io.coil-kt:coil-compose:2.5.0=releaseRuntimeClasspath
+-io.coil-kt:coil:2.5.0=releaseRuntimeClasspath
+-jakarta.inject:jakarta.inject-api:2.0.1=releaseRuntimeClasspath
+-javax.inject:javax.inject:1=releaseRuntimeClasspath
+-org.jetbrains.kotlin:kotlin-stdlib-common:2.2.0=releaseRuntimeClasspath
+-org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10=releaseRuntimeClasspath
+-org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10=releaseRuntimeClasspath
+-org.jetbrains.kotlin:kotlin-stdlib:2.2.0=releaseRuntimeClasspath
+-org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0=releaseRuntimeClasspath
+-org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.8.0=releaseRuntimeClasspath
+-org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0=releaseRuntimeClasspath
+-org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0=releaseRuntimeClasspath
+-org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0=releaseRuntimeClasspath
+-org.jetbrains:annotations:23.0.0=releaseRuntimeClasspath
+-org.jspecify:jspecify:1.0.0=releaseRuntimeClasspath
++androidx.activity:activity-compose:1.8.2=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.activity:activity-ktx:1.8.2=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.activity:activity:1.8.2=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.annotation:annotation-experimental:1.4.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.annotation:annotation-jvm:1.9.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.annotation:annotation:1.9.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.appcompat:appcompat-resources:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.appcompat:appcompat:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.arch.core:core-common:2.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.arch.core:core-runtime:2.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.autofill:autofill:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.biometric:biometric:1.2.0-alpha05=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.collection:collection-jvm:1.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.collection:collection-ktx:1.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.collection:collection:1.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.animation:animation-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.animation:animation-core-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.animation:animation-core:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.animation:animation:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.foundation:foundation-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.foundation:foundation-layout-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.foundation:foundation-layout:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.foundation:foundation:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material3:material3-android:1.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material3:material3:1.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material:material-icons-core-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material:material-icons-core:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material:material-icons-extended-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material:material-icons-extended:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material:material-ripple-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.material:material-ripple:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.runtime:runtime-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.runtime:runtime-saveable-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.runtime:runtime-saveable:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.runtime:runtime:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-geometry-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-geometry:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-graphics-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-graphics:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-text-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-text:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-tooling-preview-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-tooling-preview:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-unit-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-unit:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-util-android:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui-util:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose.ui:ui:1.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.compose:compose-bom:2024.02.00=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.concurrent:concurrent-futures:1.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.core:core-ktx:1.12.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.core:core:1.12.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.cursoradapter:cursoradapter:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.customview:customview-poolingcontainer:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.customview:customview:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.datastore:datastore-core:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.datastore:datastore-preferences-core:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.datastore:datastore-preferences:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.datastore:datastore:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.documentfile:documentfile:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.drawerlayout:drawerlayout:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.emoji2:emoji2-views-helper:1.3.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.emoji2:emoji2:1.3.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.exifinterface:exifinterface:1.3.6=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.fragment:fragment:1.5.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.hilt:hilt-navigation-compose:1.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.hilt:hilt-navigation:1.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.interpolator:interpolator:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.legacy:legacy-support-core-utils:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-common-java8:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-common:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-livedata-core-ktx:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-livedata-core:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-livedata:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-process:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-runtime-compose:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-runtime-ktx:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-runtime:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-viewmodel-savedstate:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.lifecycle:lifecycle-viewmodel:2.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.loader:loader:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.localbroadcastmanager:localbroadcastmanager:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.navigation:navigation-common-ktx:2.7.7=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.navigation:navigation-common:2.7.7=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.navigation:navigation-compose:2.7.7=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.navigation:navigation-runtime-ktx:2.7.7=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.navigation:navigation-runtime:2.7.7=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.print:print:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.profileinstaller:profileinstaller:1.3.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.resourceinspection:resourceinspection-annotation:1.0.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.room:room-common:2.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.room:room-ktx:2.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.room:room-runtime:2.6.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.savedstate:savedstate-ktx:1.2.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.savedstate:savedstate:1.2.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.sqlite:sqlite-framework:2.4.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.sqlite:sqlite:2.4.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.startup:startup-runtime:1.1.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.tracing:tracing:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.vectordrawable:vectordrawable-animated:1.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.vectordrawable:vectordrawable:1.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.versionedparcelable:versionedparcelable:1.1.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++androidx.viewpager:viewpager:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.accompanist:accompanist-drawablepainter:0.32.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.datatransport:transport-api:3.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.datatransport:transport-backend-cct:3.1.9=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.datatransport:transport-runtime:3.1.9=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.gms:play-services-base:18.0.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.gms:play-services-basement:18.3.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.gms:play-services-cloud-messaging:17.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.gms:play-services-stats:17.0.2=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.android.gms:play-services-tasks:18.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.code.findbugs:jsr305:3.0.2=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.code.gson:gson:2.10.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.crypto.tink:tink-android:1.19.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.dagger:dagger-lint-aar:2.57=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.dagger:dagger:2.57=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.dagger:hilt-android:2.57=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.dagger:hilt-core:2.57=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.errorprone:error_prone_annotations:2.26.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-annotations:16.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-bom:33.7.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-common-ktx:21.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-common:21.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-components:18.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-datatransport:18.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-encoders-json:18.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-encoders-proto:16.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-encoders:17.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-iid-interop:17.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-installations-interop:17.1.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-installations:18.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-measurement-connector:19.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.firebase:firebase-messaging:24.1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.google.guava:listenablefuture:1.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.jakewharton.timber:timber:5.0.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.squareup.okhttp3:logging-interceptor:4.12.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.squareup.okhttp3:okhttp:4.12.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.squareup.okio:okio-jvm:3.6.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.squareup.okio:okio:3.6.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.squareup.retrofit2:converter-gson:2.9.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++com.squareup.retrofit2:retrofit:2.9.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++dev.spght:encryptedprefs-core:1.1.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++io.coil-kt:coil-base:2.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++io.coil-kt:coil-compose-base:2.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++io.coil-kt:coil-compose:2.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++io.coil-kt:coil:2.5.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++jakarta.inject:jakarta.inject-api:2.0.1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++javax.inject:javax.inject:1=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlin:kotlin-stdlib-common:2.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlin:kotlin-stdlib:2.2.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.8.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jetbrains:annotations:23.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
++org.jspecify:jspecify:1.0.0=apporoReleaseRuntimeClasspath,woowtechReleaseRuntimeClasspath
+ empty=
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index a12ef4e..9d0a76b 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -52,7 +52,7 @@
+                 <action android:name="android.intent.action.VIEW" />
+                 <category android:name="android.intent.category.DEFAULT" />
+                 <category android:name="android.intent.category.BROWSABLE" />
+-                <data android:scheme="woowodoo" android:host="open" />
++                <data android:scheme="${brandScheme}" android:host="open" />
+             </intent-filter>
+         </activity>
+ 
+diff --git a/app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt b/app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt
+index 4c7de0c..8f62e1b 100644
+--- a/app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt
++++ b/app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt
+@@ -9,12 +9,14 @@ import kotlinx.coroutines.withContext
+ import okhttp3.Cookie
+ import okhttp3.CookieJar
+ import okhttp3.HttpUrl
++import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+ import okhttp3.MediaType.Companion.toMediaType
+ import okhttp3.OkHttpClient
+ import okhttp3.Request
+ import okhttp3.RequestBody.Companion.toRequestBody
+ import okhttp3.logging.HttpLoggingInterceptor
+ import io.woowtech.odoo.BuildConfig
++import io.woowtech.odoo.brand.AppBrand
+ import java.io.IOException
+ import java.net.SocketTimeoutException
+ import java.net.UnknownHostException
+@@ -23,7 +25,19 @@ import javax.inject.Inject
+ import javax.inject.Singleton
+ 
+ @Singleton
+-class OdooJsonRpcClient @Inject constructor() {
++class OdooJsonRpcClient internal constructor(
++    apporoAuthClient: OkHttpClient,
++    private val brand: AppBrand,
++    sharedAuthClient: OkHttpClient? = null,
++) {
++    @Inject
++    constructor() : this(OkHttpClient.Builder()
++        .connectTimeout(30, TimeUnit.SECONDS)
++        .readTimeout(30, TimeUnit.SECONDS)
++        .writeTimeout(30, TimeUnit.SECONDS).build(), AppBrand.current)
++
++    private val isolatedAuthClient = apporoAuthClient.newBuilder()
++        .cookieJar(CookieJar.NO_COOKIES).followRedirects(false).followSslRedirects(false).build()
+ 
+     private val gson = Gson()
+     private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<Cookie>>()
+@@ -41,7 +55,7 @@ class OdooJsonRpcClient @Inject constructor() {
+         }
+     }
+ 
+-    private val client: OkHttpClient = OkHttpClient.Builder()
++    private val client: OkHttpClient = (sharedAuthClient?.newBuilder() ?: OkHttpClient.Builder())
+         .cookieJar(cookieJar)
+         .connectTimeout(30, TimeUnit.SECONDS)
+         .readTimeout(30, TimeUnit.SECONDS)
+@@ -73,6 +87,12 @@ class OdooJsonRpcClient @Inject constructor() {
+         username: String,
+         password: String
+     ): AuthResult = withContext(Dispatchers.IO) {
++        if (brand.isApporo) {
++            val result = authenticateApporo(serverUrl, database, username, password)
++            // Shared WebView reauth retains its publish-on-success contract.
++            if (result is AuthResult.Success) publishApporoSession(serverUrl, result.sessionId)
++            return@withContext result
++        }
+         try {
+             if (!serverUrl.startsWith("https://")) {
+                 return@withContext AuthResult.Error(
+@@ -144,6 +164,61 @@ class OdooJsonRpcClient @Inject constructor() {
+         }
+     }
+ 
++    /** Apporo login reads only THIS response's SID; a concurrent host login cannot supply it. */
++    internal suspend fun authenticateApporoIsolated(
++        serverUrl: String, database: String, username: String, password: String,
++    ): AuthResult = withContext(Dispatchers.IO) {
++        check(brand.isApporo)
++        authenticateApporo(serverUrl, database, username, password)
++    }
++
++    private fun authenticateApporo(serverUrl: String, database: String, username: String, password: String): AuthResult {
++        return try {
++            val url = serverUrl.toHttpUrlOrNull()
++            if (url == null && serverUrl.startsWith("https://")) {
++                return AuthResult.Error("Invalid server URL", AuthResult.ErrorType.INVALID_URL)
++            }
++            if (url == null || !url.isHttps || url.username.isNotEmpty() || url.password.isNotEmpty() ||
++                url.query != null || url.fragment != null
++            ) return AuthResult.Error("HTTPS origin required", AuthResult.ErrorType.HTTPS_REQUIRED)
++            val request = Request.Builder().url(url.newBuilder().addPathSegments("web/session/authenticate").build())
++                .post(gson.toJson(JsonRpcRequest(method = "call", params = mapOf(
++                    "db" to database, "login" to username, "password" to password,
++                ), id = 1)).toRequestBody("application/json".toMediaType())).build()
++            isolatedAuthClient.newCall(request).execute().use { response ->
++                if (!response.isSuccessful) return AuthResult.Error("Sign-in request failed", AuthResult.ErrorType.SERVER_ERROR)
++                val envelope = gson.fromJson(response.body?.string(), JsonObject::class.java)
++                val error = envelope?.getAsJsonObject("error")
++                if (error != null) {
++                    val denied = error.getAsJsonObject("data")?.get("name")?.asString == "odoo.exceptions.AccessDenied"
++                    return AuthResult.Error("Sign-in request rejected", if (denied) AuthResult.ErrorType.INVALID_CREDENTIALS else AuthResult.ErrorType.SERVER_ERROR)
++                }
++                val result = envelope?.getAsJsonObject("result")
++                val uid = runCatching { result?.get("uid")?.asInt }.getOrNull()
++                if (uid == null || uid <= 0) return AuthResult.Error("Invalid credentials", AuthResult.ErrorType.INVALID_CREDENTIALS)
++                val sid = Cookie.parseAll(request.url, response.headers)
++                    .firstOrNull { it.name == "session_id" && it.matches(request.url) && it.expiresAt > System.currentTimeMillis() }
++                    ?.value.orEmpty()
++                if (sid.isBlank() || sid.any { it <= ' ' || it == ';' || it >= '\u007f' }) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
++                AuthResult.Success(uid, sid, username, result?.get("name")?.asString ?: username)
++            }
++        } catch (_: IOException) {
++            AuthResult.Error("Sign-in network error", AuthResult.ErrorType.NETWORK_ERROR)
++        } catch (_: Exception) {
++            AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)
++        }
++    }
++
++    /** Shared reauth or the manual selection commit may publish; isolated auth/push heal never do. */
++    internal fun publishApporoSession(serverUrl: String, sessionId: String) {
++        check(brand.isApporo)
++        val url = serverUrl.toHttpUrlOrNull() ?: return
++        require(sessionId.isNotBlank()) { "A proven session is required" }
++        val cookie = Cookie.Builder().name("session_id").value(sessionId)
++            .hostOnlyDomain(url.host).path("/").secure().httpOnly().build()
++        cookieStore[url.host] = mutableListOf(cookie)
++    }
++
+     private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {
+         val jsonBody = gson.toJson(body)
+         val request = Request.Builder()
+diff --git a/app/src/main/java/io/woowtech/odoo/data/local/EncryptedPrefs.kt b/app/src/main/java/io/woowtech/odoo/data/local/EncryptedPrefs.kt
+index 3417937..b357c0c 100644
+--- a/app/src/main/java/io/woowtech/odoo/data/local/EncryptedPrefs.kt
++++ b/app/src/main/java/io/woowtech/odoo/data/local/EncryptedPrefs.kt
+@@ -1,5 +1,6 @@
+ package io.woowtech.odoo.data.local
+ 
++import io.woowtech.odoo.brand.AppBrand
+ import android.content.Context
+ import android.content.SharedPreferences
+ import dev.spght.encryptedprefs.EncryptedSharedPreferences
+@@ -74,7 +75,7 @@ class EncryptedPrefs @Inject constructor(
+ 
+     fun getAppSettings(): AppSettings {
+         return AppSettings(
+-            themeColor = prefs.getString(KEY_THEME_COLOR, "#6183FC") ?: "#6183FC",
++            themeColor = prefs.getString(KEY_THEME_COLOR, AppBrand.current.primaryHex) ?: AppBrand.current.primaryHex,
+             themeMode = ThemeMode.entries.find {
+                 it.code == prefs.getString(KEY_THEME_MODE, "system")
+             } ?: ThemeMode.SYSTEM,
+diff --git a/app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt b/app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt
+index e7ba83a..9cc88b7 100644
+--- a/app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt
++++ b/app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt
+@@ -1,5 +1,12 @@
+ package io.woowtech.odoo.data.repository
+ 
++import io.woowtech.odoo.brand.AppBrand
++import kotlinx.coroutines.NonCancellable
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
+ import io.woowtech.odoo.data.api.OdooJsonRpcClient
+ import io.woowtech.odoo.data.local.AccountDao
+ import io.woowtech.odoo.data.local.EncryptedPrefs
+@@ -11,11 +18,21 @@ import javax.inject.Inject
+ import javax.inject.Singleton
+ 
+ @Singleton
+-class AccountRepository @Inject constructor(
++class AccountRepository(
+     private val accountDao: AccountDao,
+     private val encryptedPrefs: EncryptedPrefs,
+-    private val odooClient: OdooJsonRpcClient
++    private val odooClient: OdooJsonRpcClient,
++    private val brand: AppBrand,
+ ) {
++    @Inject
++    constructor(accountDao: AccountDao, encryptedPrefs: EncryptedPrefs, odooClient: OdooJsonRpcClient) :
++        this(accountDao, encryptedPrefs, odooClient, AppBrand.current)
++
++    // Apporo-only: an old response cannot commit over a newer explicit login/switch intent.
++    private val selectionMutex = Mutex()
++    private var selectionAttempt = 0L
++    private suspend fun beginSelection(): Long = selectionMutex.withLock { ++selectionAttempt }
++
+     val allAccounts: Flow<List<OdooAccount>> = accountDao.getAllAccounts()
+     val activeAccount: Flow<OdooAccount?> = accountDao.getActiveAccount()
+ 
+@@ -44,6 +61,7 @@ class AccountRepository @Inject constructor(
+         username: String,
+         password: String
+     ): AuthResult {
++        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password)
+         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
+ 
+         val result = odooClient.authenticate(fullUrl, database, username, password)
+@@ -72,6 +90,7 @@ class AccountRepository @Inject constructor(
+ 
+             // Save password securely
+             encryptedPrefs.savePassword(account.id, password)
++            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
+ 
+             // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
+             // token is upserted for EACH logged-in account (not only this one). This starts push
+@@ -96,6 +115,7 @@ class AccountRepository @Inject constructor(
+     }
+ 
+     suspend fun switchAccount(accountId: String): Boolean {
++        if (brand.isApporo) return switchApporoAccount(accountId)
+         val account = accountDao.getAccountById(accountId) ?: return false
+         val password = encryptedPrefs.getPassword(accountId) ?: return false
+ 
+@@ -153,6 +173,7 @@ class AccountRepository @Inject constructor(
+             accountDao.deactivateAllAccounts()
+             accountDao.activateAccount(accountId)
+             accountDao.updateLastLogin(accountId)
++            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
+             // Same reason as authenticate(): the FCM token may have been
+             // saved before this account became active. Replay it.
+             registerSavedFcmToken(accountId)
+@@ -237,6 +258,7 @@ class AccountRepository @Inject constructor(
+ 
+         // Delete account from database
+         accountDao.deleteAccountById(id)
++        fcmTokenRepository?.forgetAccount(id)
+ 
+         // Multi-account fallback: if other accounts remain and we logged out the ACTIVE one (or none
+         // is active), promote the most-recently-used remaining account so the app stays authenticated
+@@ -288,6 +310,102 @@ class AccountRepository @Inject constructor(
+         }
+         encryptedPrefs.removePassword(accountId)
+         accountDao.deleteAccountById(accountId)
++        fcmTokenRepository?.forgetAccount(accountId)
++    }
++
++    // Apporo selection/session commit boundary. WOOW paths above retain legacy semantics.
++    private fun validApporoSession(sessionId: String): Boolean =
++        sessionId.isNotBlank() && sessionId.none { it <= ' ' || it == ';' || it >= '\u007f' }
++
++    private suspend fun authenticateApporo(
++        serverUrl: String, database: String, username: String, password: String,
++    ): AuthResult {
++        val attempt = beginSelection()
++        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
++        val result = odooClient.authenticateApporoIsolated(fullUrl, database, username, password)
++        if (result !is AuthResult.Success) return result
++        if (!validApporoSession(result.sessionId)) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
++        val committed = selectionMutex.withLock {
++            if (attempt != selectionAttempt) return@withLock false
++            val existing = accountDao.findAccount(fullUrl, database, username)
++            val account = existing?.copy(displayName = result.displayName, userId = result.userId,
++                lastLogin = System.currentTimeMillis(), isActive = true)
++                ?: OdooAccount(serverUrl = fullUrl, database = database, username = username,
++                    displayName = result.displayName, userId = result.userId, isActive = true)
++            commitApporoSelection(account, existing, password, result.sessionId) {
++                accountDao.insertAccount(account)
++            }
++            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
++            true
++        }
++        if (!committed) return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
++        fcmTokenRepository?.reconcileOnAccountAvailable()
++            ?.onFailure { Timber.w("Push reconcile after Apporo login failed; see account registration status") }
++        return result
++    }
++
++    private suspend fun switchApporoAccount(accountId: String): Boolean {
++        val attempt = beginSelection()
++        val account = accountDao.getAccountById(accountId) ?: return false
++        val password = encryptedPrefs.getPassword(accountId) ?: return false
++        val previous = accountDao.getActiveAccountOnce()?.id
++        // Preserve previous-account unregister BEFORE authentication, including same-host switches.
++        if (previous != null && previous != accountId) {
++            fcmTokenRepository?.unregisterToken(previous)
++                ?.onFailure { Timber.w("Push cleanup before Apporo switch failed") }
++        }
++        val result = odooClient.authenticateApporoIsolated(account.fullServerUrl, account.database, account.username, password)
++        if (result !is AuthResult.Success || !validApporoSession(result.sessionId) || result.userId != account.userId) return false
++        val committed = selectionMutex.withLock {
++            val current = accountDao.getAccountById(accountId)
++            if (attempt != selectionAttempt || current == null || current.serverUrl != account.serverUrl ||
++                current.database != account.database || current.username != account.username ||
++                current.userId != account.userId || encryptedPrefs.getPassword(accountId) != password
++            ) return@withLock false
++            commitApporoSelection(current, current, null, result.sessionId) {
++                accountDao.activateAccount(accountId)
++                accountDao.updateLastLogin(accountId)
++            }
++            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
++            true
++        }
++        if (committed) registerSavedFcmToken(accountId)
++        return committed
++    }
++
++    /** Only local writes are cancellation-protected. Push locks/network remain cancellable outside. */
++    private suspend fun commitApporoSelection(
++        target: OdooAccount,
++        original: OdooAccount?,
++        password: String?,
++        sessionId: String,
++        writeAccount: suspend () -> Unit,
++    ) {
++        val previous = accountDao.getActiveAccountOnce()
++        val previousPassword = encryptedPrefs.getPassword(target.id)
++        currentCoroutineContext().ensureActive()
++        withContext(NonCancellable) {
++            try {
++                accountDao.deactivateAllAccounts()
++                writeAccount()
++                if (password != null) encryptedPrefs.savePassword(target.id, password)
++                // Last local operation: publication validates before its single in-memory assignment.
++                odooClient.publishApporoSession(target.fullServerUrl, sessionId)
++            } catch (failure: Exception) {
++                // No cookie has been published on a failed local commit. Restore rows/credentials
++                // before releasing the selection fence, including a newly inserted login account.
++                if (original == null) accountDao.deleteAccountById(target.id)
++                else accountDao.insertAccount(original)
++                accountDao.deactivateAllAccounts()
++                if (previous != null) accountDao.activateAccount(previous.id)
++                if (password != null) {
++                    if (previousPassword == null) encryptedPrefs.removePassword(target.id)
++                    else encryptedPrefs.savePassword(target.id, previousPassword)
++                }
++                throw failure
++            }
++        }
++        currentCoroutineContext().ensureActive()
+     }
+ 
+     fun getSessionId(serverUrl: String): String? {
+diff --git a/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepository.kt b/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepository.kt
+index 2639438..880ebc4 100644
+--- a/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepository.kt
++++ b/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepository.kt
+@@ -7,6 +7,15 @@ package io.woowtech.odoo.data.repository
+  */
+ interface FcmTokenRepository {
+ 
++    /** In-memory observations keyed by account UUID, never by the currently selected server. */
++    val registrationStatuses: kotlinx.coroutines.flow.StateFlow<Map<String, PushRegistrationStatus>>
++
++    /** Clear only the newly authenticated account's push session/circuit. */
++    suspend fun onManualLogin(accountId: String, sessionId: String? = null)
++
++    /** Drop local diagnostic/session state after local removal, even if cleanup failed. */
++    suspend fun forgetAccount(accountId: String)
++
+     /**
+      * Registers the FCM token with all active Odoo server accounts.
+      * Called when Firebase issues a new token via onNewToken.
+diff --git a/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepositoryImpl.kt b/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepositoryImpl.kt
+index 76c0a5e..bc6d3ed 100644
+--- a/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepositoryImpl.kt
++++ b/app/src/main/java/io/woowtech/odoo/data/repository/FcmTokenRepositoryImpl.kt
+@@ -1,6 +1,10 @@
+ package io.woowtech.odoo.data.repository
+ 
+ import android.os.Build
++import io.woowtech.odoo.brand.AppBrand
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.flow.update
+ import com.google.gson.Gson
+ import com.google.gson.JsonObject
+ import io.woowtech.odoo.data.api.SessionReauthInterceptor
+@@ -53,6 +57,8 @@ class FcmTokenRepositoryImpl(
+     private val encryptedPrefs: EncryptedPrefs,
+     private val accountDao: AccountDao,
+     private val httpClient: OkHttpClient,
++    private val brand: AppBrand,
++    private val apporoTransport: ApporoPushTransport? = null,
+ ) : FcmTokenRepository {
+ 
+     /**
+@@ -67,13 +73,55 @@ class FcmTokenRepositoryImpl(
+         accountDao: AccountDao,
+         sessionCookieProvider: SessionCookieProvider,
+         sessionReauthInterceptor: SessionReauthInterceptor,
++        apporoTransport: ApporoPushTransport,
+     ) : this(
+         encryptedPrefs = encryptedPrefs,
+         accountDao = accountDao,
+         httpClient = buildFcmHttpClient(sessionCookieProvider, sessionReauthInterceptor),
++        brand = AppBrand.current,
++        apporoTransport = apporoTransport,
+     )
+ 
+     private val gson = Gson()
++    private val _registrationStatuses = MutableStateFlow<Map<String, PushRegistrationStatus>>(emptyMap())
++    override val registrationStatuses = _registrationStatuses.asStateFlow()
++
++    private fun status(accountId: String, status: PushRegistrationStatus) {
++        _registrationStatuses.update { it + (accountId to status) }
++    }
++
++    override suspend fun onManualLogin(accountId: String, sessionId: String?) {
++        registrationMutex.withLock {
++            _registrationStatuses.update { it - accountId }
++            if (brand.isApporo) {
++                try {
++                    apporoTransport?.onManualLogin(accountId, sessionId)
++                    if (sessionId.isNullOrBlank()) status(accountId, PushRegistrationStatus.SIGN_IN_REQUIRED)
++                } catch (error: PushContractException) {
++                    status(accountId, error.status)
++                }
++            }
++        }
++    }
++
++    override suspend fun forgetAccount(accountId: String) {
++        registrationMutex.withLock {
++            if (brand.isApporo) apporoTransport?.forgetAccount(accountId)
++            _registrationStatuses.update { it - accountId }
++        }
++    }
++
++    private fun failureStatus(error: Throwable): PushRegistrationStatus =
++        (error as? PushContractException)?.status ?: PushRegistrationStatus.RETRY_NEEDED
++
++    /** All write paths, including old-token rotation, pass through this boundary. */
++    private suspend fun writeToOdoo(account: OdooAccount, path: String, params: Map<String, String>): String {
++        if (!brand.isApporo) return postToOdoo(account.fullServerUrl, path, params, account)
++        val body = checkNotNull(apporoTransport) { "Apporo transport required" }.write(account, path, params)
++        if (path == REGISTER_PATH) ApporoPushContract.requireRegistration(body)
++        else ApporoPushContract.requireUnregistration(body)
++        return body
++    }
+ 
+     /**
+      * Serializes register / unregister calls so that concurrent callers
+@@ -108,14 +156,15 @@ class FcmTokenRepositoryImpl(
+                 if (oldToken != null && oldToken != token) {
+                     accounts.forEach { account ->
+                         runCatching {
+-                            postToOdoo(
+-                                serverUrl = account.fullServerUrl,
++                            writeToOdoo(
+                                 path = UNREGISTER_PATH,
+                                 params = mapOf(PARAM_FCM_TOKEN to oldToken),
+                                 account = account,
+                             )
+                         }.onFailure { error ->
+-                            Timber.w(error, "Failed to unregister rotated token for account %s", account.id)
++                            if (error is CancellationException) throw error
++                            status(account.id, failureStatus(error))
++                            Timber.w("Failed to unregister rotated token for account %s", account.id)
+                         }
+                     }
+                 }
+@@ -222,8 +271,8 @@ class FcmTokenRepositoryImpl(
+             val account = accountDao.getAccountById(accountId)
+                 ?: error("Account not found: $accountId")
+ 
+-            val responseBody = postToOdoo(
+-                serverUrl = account.fullServerUrl,
++            status(accountId, PushRegistrationStatus.REGISTERING)
++            val responseBody = writeToOdoo(
+                 path = REGISTER_PATH,
+                 params = mapOf(
+                     PARAM_FCM_TOKEN to token,
+@@ -243,12 +292,15 @@ class FcmTokenRepositoryImpl(
+                 accountDao.updateTenantId(id = accountId, tenantId = tenantId)
+                 Timber.d("Persisted tenant id for account %s", accountId)
+             }
++            status(accountId, PushRegistrationStatus.ACKNOWLEDGED)
+             Result.success(Unit)
+         } catch (cancellation: CancellationException) {
+             // Never swallow cancellation — let it propagate so the coroutine cancels cleanly.
++            status(accountId, PushRegistrationStatus.RETRY_NEEDED)
+             throw cancellation
+         } catch (error: Throwable) {
+             // The caller classifies (reachable vs hard) and logs at the appropriate level.
++            status(accountId, failureStatus(error))
+             Result.failure(error)
+         }
+ 
+@@ -270,15 +322,17 @@ class FcmTokenRepositoryImpl(
+                     val token = encryptedPrefs.getFcmToken()
+                         ?: error("No FCM token stored — nothing to unregister for account $accountId")
+ 
+-                    postToOdoo(
+-                        serverUrl = account.fullServerUrl,
++                    writeToOdoo(
+                         path = UNREGISTER_PATH,
+                         params = mapOf(PARAM_FCM_TOKEN to token),
+                         account = account,
+                     )
++                    status(accountId, PushRegistrationStatus.UNREGISTERED)
+                     Timber.d("FCM token unregistered for account %s", accountId)
+                 }.onFailure { error ->
+-                    Timber.w(error, "FCM token unregister failed for account %s — proceeding with logout", accountId)
++                    if (error is CancellationException) throw error
++                    status(accountId, failureStatus(error))
++                    Timber.w("FCM token unregister failed for account %s — proceeding with logout", accountId)
+                 }
+             }
+         }
+@@ -356,7 +410,7 @@ class FcmTokenRepositoryImpl(
+             val json = gson.fromJson(responseBody, JsonObject::class.java)
+             val error = json.get("error")
+             if (error != null && !error.isJsonNull) {
+-                throw IOException("Odoo error at $url: $error")
++                throw IOException("Odoo push request rejected")
+             }
+         }.onFailure { parseError ->
+             if (parseError is IOException) throw parseError
+diff --git a/app/src/main/java/io/woowtech/odoo/di/AppModule.kt b/app/src/main/java/io/woowtech/odoo/di/AppModule.kt
+index c8f9afb..4310ca3 100644
+--- a/app/src/main/java/io/woowtech/odoo/di/AppModule.kt
++++ b/app/src/main/java/io/woowtech/odoo/di/AppModule.kt
+@@ -150,6 +150,7 @@ object AppModule {
+     @Provides
+     @Singleton
+     fun provideFcmTokenRepository(
++        apporoPushTransport: io.woowtech.odoo.data.repository.ApporoPushTransport,
+         encryptedPrefs: EncryptedPrefs,
+         accountDao: AccountDao,
+         sessionCookieProvider: SessionCookieProvider,
+@@ -160,6 +161,7 @@ object AppModule {
+             accountDao = accountDao,
+             sessionCookieProvider = sessionCookieProvider,
+             sessionReauthInterceptor = sessionReauthInterceptor,
++            apporoTransport = apporoPushTransport,
+         )
+     }
+ }
+diff --git a/app/src/main/java/io/woowtech/odoo/domain/model/AppSettings.kt b/app/src/main/java/io/woowtech/odoo/domain/model/AppSettings.kt
+index 1a3347d..2cc12f9 100644
+--- a/app/src/main/java/io/woowtech/odoo/domain/model/AppSettings.kt
++++ b/app/src/main/java/io/woowtech/odoo/domain/model/AppSettings.kt
+@@ -1,7 +1,9 @@
+ package io.woowtech.odoo.domain.model
+ 
++import io.woowtech.odoo.brand.AppBrand
++
+ data class AppSettings(
+-    val themeColor: String = "#6183FC",
++    val themeColor: String = AppBrand.current.primaryHex,
+     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+     val reduceMotion: Boolean = false,
+     val appLockEnabled: Boolean = false,
+diff --git a/app/src/main/java/io/woowtech/odoo/ui/config/SettingsScreen.kt b/app/src/main/java/io/woowtech/odoo/ui/config/SettingsScreen.kt
+index db4f13f..ec4a0ed 100644
+--- a/app/src/main/java/io/woowtech/odoo/ui/config/SettingsScreen.kt
++++ b/app/src/main/java/io/woowtech/odoo/ui/config/SettingsScreen.kt
+@@ -1,5 +1,7 @@
+ package io.woowtech.odoo.ui.config
+ 
++import io.woowtech.odoo.brand.AppBrand
++import io.woowtech.odoo.data.repository.PushRegistrationStatus
+ import android.app.Activity
+ import android.app.LocaleManager
+ import android.content.Context
+@@ -96,6 +98,7 @@ fun SettingsScreen(
+     onBackClick: () -> Unit
+ ) {
+     val settings by viewModel.settings.collectAsStateWithLifecycle()
++    val pushStatus by viewModel.pushRegistrationStatus.collectAsStateWithLifecycle()
+     val context = LocalContext.current
+     val snackbarHostState = remember { SnackbarHostState() }
+     val scope = rememberCoroutineScope()
+@@ -164,6 +167,15 @@ fun SettingsScreen(
+                 .verticalScroll(rememberScrollState())
+                 .padding(16.dp)
+         ) {
++            SettingsSection(title = stringResource(R.string.push_registration_title)) {
++                Text(stringResource(pushRegistrationStatusResource(pushStatus)))
++                Text(
++                    stringResource(R.string.push_registration_disclaimer),
++                    style = MaterialTheme.typography.bodySmall,
++                )
++            }
++            Spacer(modifier = Modifier.height(16.dp))
++
+             // Appearance Section
+             SettingsSection(title = stringResource(R.string.appearance)) {
+                 SettingsItem(
+@@ -322,7 +334,7 @@ fun SettingsScreen(
+                     icon = Icons.AutoMirrored.Filled.HelpCenter,
+                     title = stringResource(R.string.support_title),
+                     subtitle = stringResource(R.string.support_subtitle),
+-                    onClick = { openUrl(context, context.getString(R.string.url_support)) }
++                    onClick = { openUrl(context, context.getString(AppBrand.current.supportUrlResource)) }
+                 )
+ 
+                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+@@ -331,7 +343,7 @@ fun SettingsScreen(
+                     icon = Icons.Default.PrivacyTip,
+                     title = stringResource(R.string.privacy_policy_title),
+                     subtitle = stringResource(R.string.privacy_policy_subtitle),
+-                    onClick = { openUrl(context, context.getString(R.string.url_privacy_policy)) }
++                    onClick = { openUrl(context, context.getString(AppBrand.current.privacyUrlResource)) }
+                 )
+ 
+                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+@@ -340,7 +352,7 @@ fun SettingsScreen(
+                     icon = Icons.Default.PersonRemove,
+                     title = stringResource(R.string.delete_account_title),
+                     subtitle = stringResource(R.string.delete_account_subtitle),
+-                    onClick = { openUrl(context, context.getString(R.string.url_account_deletion)) }
++                    onClick = { openUrl(context, context.getString(AppBrand.current.deletionUrlResource)) }
+                 )
+             }
+ 
+@@ -351,8 +363,8 @@ fun SettingsScreen(
+                 SettingsItem(
+                     icon = Icons.Default.Public,
+                     title = stringResource(R.string.visit_website),
+-                    subtitle = "aiot.woowtech.io",
+-                    onClick = { openUrl(context, "https://aiot.woowtech.io") }
++                    subtitle = AppBrand.current.websiteLabel,
++                    onClick = { openUrl(context, AppBrand.current.website) }
+                 )
+ 
+                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+@@ -360,10 +372,10 @@ fun SettingsScreen(
+                 SettingsItem(
+                     icon = Icons.Default.Email,
+                     title = stringResource(R.string.contact_us),
+-                    subtitle = "woowtech@designsmart.com.tw",
++                    subtitle = AppBrand.current.supportEmail,
+                     onClick = {
+                         val intent = Intent(Intent.ACTION_SENDTO).apply {
+-                            data = Uri.parse("mailto:woowtech@designsmart.com.tw")
++                            data = Uri.parse("mailto:${AppBrand.current.supportEmail}")
+                         }
+                         context.startActivity(intent)
+                     }
+@@ -582,7 +594,7 @@ private fun ColorPickerDialog(
+ ) {
+     // Brand colors (from brand guide)
+     val brandColors = listOf(
+-        "#6183FC", // Primary Blue
++        AppBrand.current.primaryHex, // Build-selected brand default
+         "#FFFFFF", // White
+         "#EFF1F5", // Light Gray
+         "#646262", // Gray
+@@ -883,3 +895,14 @@ private fun openUrl(context: Context, url: String) {
+     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+     context.startActivity(intent)
+ }
++
++internal fun pushRegistrationStatusResource(status: PushRegistrationStatus): Int = when (status) {
++    PushRegistrationStatus.NOT_CHECKED -> R.string.push_registration_not_checked
++    PushRegistrationStatus.REGISTERING -> R.string.push_registration_checking
++    PushRegistrationStatus.ACKNOWLEDGED -> R.string.push_registration_acknowledged
++    PushRegistrationStatus.NOT_CONFIGURED -> R.string.push_registration_not_configured
++    PushRegistrationStatus.CONTRACT_REJECTED -> R.string.push_registration_contract_rejected
++    PushRegistrationStatus.RETRY_NEEDED -> R.string.push_registration_retry
++    PushRegistrationStatus.SIGN_IN_REQUIRED -> R.string.push_registration_sign_in
++    PushRegistrationStatus.UNREGISTERED -> R.string.push_registration_unregistered
++}
+diff --git a/app/src/main/java/io/woowtech/odoo/ui/config/SettingsViewModel.kt b/app/src/main/java/io/woowtech/odoo/ui/config/SettingsViewModel.kt
+index 576ab59..d1b21ed 100644
+--- a/app/src/main/java/io/woowtech/odoo/ui/config/SettingsViewModel.kt
++++ b/app/src/main/java/io/woowtech/odoo/ui/config/SettingsViewModel.kt
+@@ -3,7 +3,13 @@ package io.woowtech.odoo.ui.config
+ import androidx.lifecycle.ViewModel
+ import androidx.lifecycle.viewModelScope
+ import dagger.hilt.android.lifecycle.HiltViewModel
++import io.woowtech.odoo.data.repository.AccountRepository
++import io.woowtech.odoo.data.repository.FcmTokenRepository
++import io.woowtech.odoo.data.repository.PushRegistrationStatus
+ import io.woowtech.odoo.data.repository.CacheRepository
++import kotlinx.coroutines.flow.SharingStarted
++import kotlinx.coroutines.flow.combine
++import kotlinx.coroutines.flow.stateIn
+ import io.woowtech.odoo.data.repository.SettingsRepository
+ import io.woowtech.odoo.domain.model.AppLanguage
+ import io.woowtech.odoo.domain.model.AppSettings
+@@ -17,11 +23,19 @@ import javax.inject.Inject
+ @HiltViewModel
+ class SettingsViewModel @Inject constructor(
+     private val settingsRepository: SettingsRepository,
+-    private val cacheRepository: CacheRepository
++    private val cacheRepository: CacheRepository,
++    accountRepository: AccountRepository,
++    fcmTokenRepository: FcmTokenRepository,
+ ) : ViewModel() {
+ 
+     val settings: StateFlow<AppSettings> = settingsRepository.settings
+ 
++    val pushRegistrationStatus: StateFlow<PushRegistrationStatus> = combine(
++        accountRepository.activeAccount, fcmTokenRepository.registrationStatuses,
++    ) { account, statuses ->
++        account?.let { statuses[it.id] } ?: PushRegistrationStatus.NOT_CHECKED
++    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PushRegistrationStatus.NOT_CHECKED)
++
+     private val _cacheSizeText = MutableStateFlow("")
+     val cacheSizeText: StateFlow<String> = _cacheSizeText.asStateFlow()
+ 
+diff --git a/app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt b/app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt
+index 30f61b4..1abb87f 100644
+--- a/app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt
++++ b/app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt
+@@ -124,10 +124,10 @@ fun LoginScreen(
+ 
+             Spacer(modifier = Modifier.height(24.dp))
+ 
+-            // 品牌圓標。白底，所以用與 iOS 同一張純圓標（無白色襯底）。
++            // Flavor overlay selects the brand mark at every density.
+             Image(
+                 painter = painterResource(id = R.drawable.woow_logo),
+-                contentDescription = null,
++                contentDescription = stringResource(R.string.content_description_logo),
+                 modifier = Modifier.size(80.dp)
+             )
+ 
+@@ -213,7 +213,7 @@ fun LoginScreen(
+                     )
+                 ) {
+                     Text(
+-                        text = error,
++                        text = uiState.errorType?.messageResource()?.let { stringResource(it) } ?: error,
+                         color = MaterialTheme.colorScheme.onErrorContainer,
+                         style = MaterialTheme.typography.bodyMedium,
+                         textAlign = TextAlign.Center,
+@@ -233,8 +233,8 @@ fun LoginScreen(
+ private fun ServerInfoForm(
+     serverUrl: String,
+     database: String,
+-    serverUrlError: String?,
+-    databaseError: String?,
++    serverUrlError: LoginFieldError?,
++    databaseError: LoginFieldError?,
+     onServerUrlChange: (String) -> Unit,
+     onDatabaseChange: (String) -> Unit,
+     onNextClick: () -> Unit
+@@ -255,7 +255,7 @@ private fun ServerInfoForm(
+             placeholder = stringResource(R.string.server_url_hint),
+             prefix = stringResource(R.string.https_prefix),
+             isError = serverUrlError != null,
+-            errorMessage = serverUrlError,
++            errorMessage = serverUrlError?.let { stringResource(it.messageResource()) },
+             keyboardOptions = KeyboardOptions(
+                 keyboardType = KeyboardType.Uri,
+                 imeAction = ImeAction.Next
+@@ -274,7 +274,7 @@ private fun ServerInfoForm(
+             label = stringResource(R.string.database_name),
+             placeholder = stringResource(R.string.database_name_hint),
+             isError = databaseError != null,
+-            errorMessage = databaseError,
++            errorMessage = databaseError?.let { stringResource(it.messageResource()) },
+             keyboardOptions = KeyboardOptions(
+                 imeAction = ImeAction.Done
+             ),
+@@ -313,8 +313,8 @@ private fun CredentialsForm(
+     username: String,
+     password: String,
+     rememberMe: Boolean,
+-    usernameError: String?,
+-    passwordError: String?,
++    usernameError: LoginFieldError?,
++    passwordError: LoginFieldError?,
+     isLoading: Boolean,
+     onUsernameChange: (String) -> Unit,
+     onPasswordChange: (String) -> Unit,
+@@ -337,7 +337,7 @@ private fun CredentialsForm(
+             label = stringResource(R.string.username),
+             placeholder = stringResource(R.string.username_hint),
+             isError = usernameError != null,
+-            errorMessage = usernameError,
++            errorMessage = usernameError?.let { stringResource(it.messageResource()) },
+             enabled = !isLoading,
+             keyboardOptions = KeyboardOptions(
+                 keyboardType = KeyboardType.Email,
+@@ -357,7 +357,7 @@ private fun CredentialsForm(
+             label = stringResource(R.string.password),
+             placeholder = stringResource(R.string.password_hint),
+             isError = passwordError != null,
+-            errorMessage = passwordError,
++            errorMessage = passwordError?.let { stringResource(it.messageResource()) },
+             enabled = !isLoading,
+             visualTransformation = if (passwordVisible) {
+                 VisualTransformation.None
+diff --git a/app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt b/app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt
+index be1c26f..b16b893 100644
+--- a/app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt
++++ b/app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt
+@@ -20,10 +20,11 @@ data class LoginUiState(
+     val rememberMe: Boolean = true,
+     val isLoading: Boolean = false,
+     val error: String? = null,
+-    val serverUrlError: String? = null,
+-    val databaseError: String? = null,
+-    val usernameError: String? = null,
+-    val passwordError: String? = null
++    val errorType: AuthResult.ErrorType? = null,
++    val serverUrlError: LoginFieldError? = null,
++    val databaseError: LoginFieldError? = null,
++    val usernameError: LoginFieldError? = null,
++    val passwordError: LoginFieldError? = null
+ )
+ 
+ enum class LoginStep {
+@@ -43,7 +44,7 @@ class LoginViewModel @Inject constructor(
+         _uiState.value = _uiState.value.copy(
+             serverUrl = url,
+             serverUrlError = null,
+-            error = null
++            error = null, errorType = null
+         )
+     }
+ 
+@@ -51,7 +52,7 @@ class LoginViewModel @Inject constructor(
+         _uiState.value = _uiState.value.copy(
+             database = database,
+             databaseError = null,
+-            error = null
++            error = null, errorType = null
+         )
+     }
+ 
+@@ -59,7 +60,7 @@ class LoginViewModel @Inject constructor(
+         _uiState.value = _uiState.value.copy(
+             username = username,
+             usernameError = null,
+-            error = null
++            error = null, errorType = null
+         )
+     }
+ 
+@@ -67,7 +68,7 @@ class LoginViewModel @Inject constructor(
+         _uiState.value = _uiState.value.copy(
+             password = password,
+             passwordError = null,
+-            error = null
++            error = null, errorType = null
+         )
+     }
+ 
+@@ -80,25 +81,25 @@ class LoginViewModel @Inject constructor(
+ 
+         // Validate server URL
+         if (state.serverUrl.isBlank()) {
+-            _uiState.value = state.copy(serverUrlError = "Server URL is required")
++            _uiState.value = state.copy(serverUrlError = LoginFieldError.SERVER_URL_REQUIRED)
+             return
+         }
+ 
+         // Validate database
+         if (state.database.isBlank()) {
+-            _uiState.value = state.copy(databaseError = "Database name is required")
++            _uiState.value = state.copy(databaseError = LoginFieldError.DATABASE_REQUIRED)
+             return
+         }
+ 
+         // Check URL format (must not start with http://)
+         if (ServerUrlInput.isInsecure(state.serverUrl)) {
+-            _uiState.value = state.copy(serverUrlError = "HTTPS is required for security")
++            _uiState.value = state.copy(serverUrlError = LoginFieldError.HTTPS_REQUIRED)
+             return
+         }
+ 
+         val normalized = ServerUrlInput.normalize(state.serverUrl)
+         if (normalized == null) {
+-            _uiState.value = state.copy(serverUrlError = "Invalid server URL")
++            _uiState.value = state.copy(serverUrlError = LoginFieldError.INVALID_URL)
+             return
+         }
+ 
+@@ -106,14 +107,14 @@ class LoginViewModel @Inject constructor(
+             step = LoginStep.CREDENTIALS,
+             serverUrl = ServerUrlInput.displayValue(normalized),
+             database = state.database.trim(),
+-            error = null
++            error = null, errorType = null
+         )
+     }
+ 
+     fun goBack() {
+         _uiState.value = _uiState.value.copy(
+             step = LoginStep.SERVER_INFO,
+-            error = null,
++            error = null, errorType = null,
+             passwordError = null,
+             usernameError = null
+         )
+@@ -124,20 +125,20 @@ class LoginViewModel @Inject constructor(
+ 
+         // Validate credentials
+         if (state.username.isBlank()) {
+-            _uiState.value = state.copy(usernameError = "Username is required")
++            _uiState.value = state.copy(usernameError = LoginFieldError.USERNAME_REQUIRED)
+             return
+         }
+         if (state.password.isBlank()) {
+-            _uiState.value = state.copy(passwordError = "Password is required")
++            _uiState.value = state.copy(passwordError = LoginFieldError.PASSWORD_REQUIRED)
+             return
+         }
+ 
+         viewModelScope.launch {
+-            _uiState.value = state.copy(isLoading = true, error = null)
++            _uiState.value = state.copy(isLoading = true, error = null, errorType = null)
+ 
+             val serverUrl = ServerUrlInput.normalize(state.serverUrl)
+             if (serverUrl == null) {
+-                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL")
++                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL", errorType = AuthResult.ErrorType.INVALID_URL)
+                 return@launch
+             }
+ 
+@@ -167,7 +168,8 @@ class LoginViewModel @Inject constructor(
+                     }
+                     _uiState.value = state.copy(
+                         isLoading = false,
+-                        error = errorMessage
++                        error = errorMessage,
++                        errorType = result.type
+                     )
+                 }
+             }
+@@ -175,6 +177,6 @@ class LoginViewModel @Inject constructor(
+     }
+ 
+     fun clearError() {
+-        _uiState.value = _uiState.value.copy(error = null)
++        _uiState.value = _uiState.value.copy(error = null, errorType = null)
+     }
+ }
+diff --git a/app/src/main/java/io/woowtech/odoo/ui/theme/Color.kt b/app/src/main/java/io/woowtech/odoo/ui/theme/Color.kt
+index a615551..04bd579 100644
+--- a/app/src/main/java/io/woowtech/odoo/ui/theme/Color.kt
++++ b/app/src/main/java/io/woowtech/odoo/ui/theme/Color.kt
+@@ -1,10 +1,11 @@
+ package io.woowtech.odoo.ui.theme
+ 
++import io.woowtech.odoo.brand.AppBrand
+ import androidx.compose.ui.graphics.Color
+ 
+ // ─── Brand Colors (from woowtech_claude_brand_prompt_library.pdf) ───
+ 
+-val BrandPrimaryBlue = Color(0xFF6183FC)
++val BrandPrimaryBlue = Color(AppBrand.current.primaryArgb)
+ val BrandWhite = Color(0xFFFFFFFF)
+ val BrandLightGray = Color(0xFFEFF1F5)
+ val BrandGray = Color(0xFF646262)
+@@ -26,8 +27,8 @@ val AccentLavender = Color(0xFFC09FE0)
+ // ─── Legacy aliases (keep for existing code references) ───
+ 
+ val WoowTechBlue = BrandPrimaryBlue
+-val WoowTechBlueDark = Color(0xFF4A6AE0)
+-val WoowTechBlueLight = Color(0xFF8BA3FF)
++val WoowTechBlueDark = Color(AppBrand.current.darkPrimary)
++val WoowTechBlueLight = Color(AppBrand.current.lightPrimary)
+ 
+ // ─── Surface colors ───
+ 
+@@ -61,10 +62,10 @@ val OnBackgroundDark = Color(0xFFE6E1E5)
+ 
+ // ─── Container colors ───
+ 
+-val PrimaryContainerLight = Color(0xFFDBE1FF)
+-val PrimaryContainerDark = Color(0xFF3A4B8C)
+-val OnPrimaryContainerLight = Color(0xFF001A41)
+-val OnPrimaryContainerDark = Color(0xFFDBE1FF)
++val PrimaryContainerLight = Color(AppBrand.current.lightContainer)
++val PrimaryContainerDark = Color(AppBrand.current.darkContainer)
++val OnPrimaryContainerLight = Color(AppBrand.current.onLightContainer)
++val OnPrimaryContainerDark = Color(AppBrand.current.onDarkContainer)
+ 
+ // ─── Outline colors ───
+ 
+@@ -78,7 +79,7 @@ val OutlineVariantDark = Color(0xFF49454F)
+ val PinDotEmptyLight = Color(0xFFB0B0B0)
+ val PinDotEmptyDark = Color(0xFF6B6B6B)
+ val PinDotFilledLight = BrandPrimaryBlue
+-val PinDotFilledDark = Color(0xFF8BA3FF)
++val PinDotFilledDark = Color(AppBrand.current.lightPrimary)
+ 
+ // ─── Number pad colors ───
+ 
+diff --git a/app/src/main/java/io/woowtech/odoo/ui/theme/Theme.kt b/app/src/main/java/io/woowtech/odoo/ui/theme/Theme.kt
+index 42814f9..3efc069 100644
+--- a/app/src/main/java/io/woowtech/odoo/ui/theme/Theme.kt
++++ b/app/src/main/java/io/woowtech/odoo/ui/theme/Theme.kt
+@@ -1,5 +1,6 @@
+ package io.woowtech.odoo.ui.theme
+ 
++import io.woowtech.odoo.brand.AppBrand
+ import android.app.Activity
+ import androidx.compose.foundation.isSystemInDarkTheme
+ import androidx.compose.material3.MaterialTheme
+@@ -50,7 +51,7 @@ private fun createLightColorScheme(primaryColor: Color) = lightColorScheme(
+     onPrimary = OnPrimaryLight,
+     primaryContainer = PrimaryContainerLight,
+     onPrimaryContainer = OnPrimaryContainerLight,
+-    secondary = AccentSkyBlue,                       // Accent 5%
++    secondary = Color(AppBrand.current.secondary),                       // Accent 5%
+     onSecondary = OnPrimaryLight,
+     tertiary = AccentCoral,                          // Accent 5%
+     onTertiary = OnPrimaryLight,
+@@ -71,7 +72,7 @@ private fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
+     onPrimary = OnPrimaryDark,
+     primaryContainer = PrimaryContainerDark,
+     onPrimaryContainer = OnPrimaryContainerDark,
+-    secondary = AccentSkyBlue,
++    secondary = Color(AppBrand.current.secondary),
+     onSecondary = OnPrimaryDark,
+     tertiary = AccentCoral,
+     onTertiary = OnPrimaryDark,
+@@ -131,7 +132,7 @@ fun WoowTechOdooTheme(
+  * - 登入前沒有帳號脈絡，「要套誰的主題色」沒有答案 —— 沿用上一個帳號的顏色，
+  *   等於把別人的品牌色漏到一個還不屬於他的畫面上。
+  * - 主題色的用途是讓客戶把 App **裡面**（他自己的 Odoo）品牌化；登入畫面是本
+- *   產品自己的門面，必須維持品牌藍。
++ *   產品自己的門面，必須維持所選 flavor 的品牌色。
+  *
+  * 用法：包住整個畫面的最外層 composable。包起來之後，畫面內所有
+  * `MaterialTheme.colorScheme.primary` / `primaryContainer` 都會自動取得固定色，
+@@ -146,6 +147,12 @@ fun WoowFixedBrandTheme(content: @Composable () -> Unit) {
+     MaterialTheme(
+         colorScheme = base.copy(
+             primary = WoowTechBlue,
++            onPrimary = Color.White,
++            onPrimaryContainer = if (base.background.luminance() > 0.5f) {
++                OnPrimaryContainerLight
++            } else {
++                OnPrimaryContainerDark
++            },
+             primaryContainer = if (base.background.luminance() > 0.5f) {
+                 PrimaryContainerLight
+             } else {
+diff --git a/app/src/main/res/values-zh-rCN/strings.xml b/app/src/main/res/values-zh-rCN/strings.xml
+index a1f6494..0e1e3f5 100644
+--- a/app/src/main/res/values-zh-rCN/strings.xml
++++ b/app/src/main/res/values-zh-rCN/strings.xml
+@@ -197,4 +197,22 @@
+     <string name="settings_location_section">隐私</string>
+     <string name="settings_location_title">打卡时使用定位</string>
+     <string name="settings_location_description">为您的 Odoo 打卡记录附上当前位置。我们不会在后台追踪您。</string>
++
++    <!-- Local account-keyed observation, not end-to-end delivery health. -->
++    <string name="push_registration_title">推送注册 · 当前账号</string>
++    <string name="push_registration_not_checked">本次打开尚未检查</string>
++    <string name="push_registration_checking">正在检查推送注册…</string>
++    <string name="push_registration_acknowledged">服务器已确认注册</string>
++    <string name="push_registration_not_configured">服务器尚未配置 Apporo 推送，或无法验证其能力</string>
++    <string name="push_registration_contract_rejected">无法验证服务器推送契约</string>
++    <string name="push_registration_retry">推送请求失败，等待下次重试</string>
++    <string name="push_registration_sign_in">请重新登录以验证推送注册</string>
++    <string name="push_registration_unregistered">已解除推送注册</string>
++    <string name="push_registration_disclaimer">注册确认不保证通知送达；通知权限与服务器发送服务仍须另外确认。</string>
++
++    <!-- Login form validation -->
++    <string name="login_server_url_required">请输入服务器网址</string>
++    <string name="login_database_required">请输入数据库名称</string>
++    <string name="login_username_required">请输入用户名</string>
++    <string name="login_password_required">请输入密码</string>
+ </resources>
+diff --git a/app/src/main/res/values-zh-rTW/strings.xml b/app/src/main/res/values-zh-rTW/strings.xml
+index c9a7932..e663080 100644
+--- a/app/src/main/res/values-zh-rTW/strings.xml
++++ b/app/src/main/res/values-zh-rTW/strings.xml
+@@ -192,4 +192,22 @@
+     <string name="settings_location_section">隱私</string>
+     <string name="settings_location_title">打卡時使用定位</string>
+     <string name="settings_location_description">為您的 Odoo 打卡記錄附上目前位置。我們不會在背景追蹤您。</string>
++
++    <!-- Local account-keyed observation, not end-to-end delivery health. -->
++    <string name="push_registration_title">推播註冊 · 目前帳號</string>
++    <string name="push_registration_not_checked">本次開啟尚未檢查</string>
++    <string name="push_registration_checking">正在檢查推播註冊…</string>
++    <string name="push_registration_acknowledged">伺服器已確認註冊</string>
++    <string name="push_registration_not_configured">伺服器尚未設定 Apporo 推播，或無法驗證其能力</string>
++    <string name="push_registration_contract_rejected">無法驗證伺服器推播契約</string>
++    <string name="push_registration_retry">推播請求失敗，等待下次重試</string>
++    <string name="push_registration_sign_in">請重新登入以驗證推播註冊</string>
++    <string name="push_registration_unregistered">已解除推播註冊</string>
++    <string name="push_registration_disclaimer">註冊確認不保證通知送達；通知權限與伺服器傳送服務仍須另外確認。</string>
++
++    <!-- Login form validation -->
++    <string name="login_server_url_required">請輸入伺服器網址</string>
++    <string name="login_database_required">請輸入資料庫名稱</string>
++    <string name="login_username_required">請輸入使用者名稱</string>
++    <string name="login_password_required">請輸入密碼</string>
+ </resources>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 9887237..b806277 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -196,4 +196,22 @@
+     <string name="settings_location_section">Privacy</string>
+     <string name="settings_location_title">Use location for clock-in</string>
+     <string name="settings_location_description">Tags your Odoo clock-in record with your current location. Your phone never tracks you in the background.</string>
++
++    <!-- Local account-keyed observation, not end-to-end delivery health. -->
++    <string name="push_registration_title">Push registration · current account</string>
++    <string name="push_registration_not_checked">Not checked in this app session</string>
++    <string name="push_registration_checking">Checking push registration…</string>
++    <string name="push_registration_acknowledged">Server acknowledged registration</string>
++    <string name="push_registration_not_configured">Server has not configured Apporo push or its capability could not be verified</string>
++    <string name="push_registration_contract_rejected">Server push contract could not be verified</string>
++    <string name="push_registration_retry">Push request failed; waiting for the next retry</string>
++    <string name="push_registration_sign_in">Sign in again to verify push registration</string>
++    <string name="push_registration_unregistered">Push registration removed</string>
++    <string name="push_registration_disclaimer">Registration acknowledgement is not a delivery guarantee. Notification permission and server delivery services are separate.</string>
++
++    <!-- Login form validation -->
++    <string name="login_server_url_required">Server URL is required</string>
++    <string name="login_database_required">Database name is required</string>
++    <string name="login_username_required">Username is required</string>
++    <string name="login_password_required">Password is required</string>
+ </resources>
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/api/OdooJsonRpcClientTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/api/OdooJsonRpcClientTest.kt
+index d89120a..df6d30b 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/api/OdooJsonRpcClientTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/api/OdooJsonRpcClientTest.kt
+@@ -1,6 +1,9 @@
+ package io.woowtech.odoo.data.api
+ 
+ import io.woowtech.odoo.domain.model.AuthResult
++import io.woowtech.odoo.brand.AppBrand
++import io.woowtech.odoo.testutil.MockOnlyHttpFixture
++import java.net.UnknownHostException
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.ExperimentalCoroutinesApi
+ import kotlinx.coroutines.test.StandardTestDispatcher
+@@ -28,16 +31,25 @@ class OdooJsonRpcClientTest {
+ 
+     private val testDispatcher = StandardTestDispatcher()
+     private lateinit var client: OdooJsonRpcClient
++    private lateinit var transport: MockOnlyHttpFixture
+ 
+     @BeforeEach
+     fun setup() {
+         Dispatchers.setMain(testDispatcher)
+-        client = OdooJsonRpcClient()
++        transport = MockOnlyHttpFixture { request ->
++            if (request.url.host == "unreachable.fixture.test" && request.url.encodedPath == "/web/session/authenticate") {
++                throw UnknownHostException("Mock network failure")
++            }
++            throw AssertionError("Unexpected auth request")
++        }
++        client = OdooJsonRpcClient(transport.client, AppBrand.current, transport.client)
+     }
+ 
+     @AfterEach
+     fun tearDown() {
+         Dispatchers.resetMain()
++        assertEquals(0, transport.dnsCalls.get())
++        assertEquals(0, transport.connectCalls.get())
+     }
+ 
+     // ──────────────────────────────────────────────────────────
+@@ -110,9 +122,9 @@ class OdooJsonRpcClientTest {
+ 
+         @Test
+         fun `Given unreachable server when authenticate then returns NETWORK_ERROR`() = runTest {
+-            // Use a host that cannot resolve
++            // Simulated failure before DNS; the fixture never connects to any host.
+             val result = client.authenticate(
+-                serverUrl = "https://this-server-definitely-does-not-exist-12345.invalid",
++                serverUrl = "https://unreachable.fixture.test",
+                 database = "mydb",
+                 username = "admin",
+                 password = "pass"
+@@ -256,10 +268,10 @@ class OdooJsonRpcClientTest {
+     // Play 審查退件 2026-09-23：主機名稱帶尾端空白時 OkHttp 丟 IllegalArgumentException，
+     // 原本以 "Error: Invalid URL host: ..." 原文顯示給使用者。
+     @Test
+-    fun `Given host with trailing space when authenticate then returns INVALID_URL without raw exception text`() = runTest {
++    fun `Given syntactically invalid host when authenticate then returns INVALID_URL without raw exception text`() = runTest {
+         val result = client.authenticate(
+-            serverUrl = "https://demo222-odoo.woowtech.io ",
+-            database = "demo222",
++            serverUrl = "https://bad host/",
++            database = "fixture-db",
+             username = "u",
+             password = "p"
+         )
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/api/SessionReauthInterceptorTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/api/SessionReauthInterceptorTest.kt
+index 8671f43..4302785 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/api/SessionReauthInterceptorTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/api/SessionReauthInterceptorTest.kt
+@@ -13,6 +13,7 @@ import io.woowtech.odoo.data.repository.ReloginSignal
+ import io.woowtech.odoo.domain.model.AuthResult
+ import io.woowtech.odoo.domain.model.OdooAccount
+ import kotlinx.coroutines.test.runTest
++import io.woowtech.odoo.testutil.onlyLoopback
+ import okhttp3.OkHttpClient
+ import okhttp3.Request
+ import okhttp3.RequestBody.Companion.toRequestBody
+@@ -68,6 +69,7 @@ class SessionReauthInterceptorTest {
+         interceptor = SessionReauthInterceptor(reauthenticator)
+         client = OkHttpClient.Builder()
+             .addInterceptor(interceptor)
++            .onlyLoopback(server)
+             .build()
+     }
+ 
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/AccountRepositoryTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/AccountRepositoryTest.kt
+index 810cadf..767b7bb 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/AccountRepositoryTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/AccountRepositoryTest.kt
+@@ -41,7 +41,7 @@ class AccountRepositoryTest {
+         accountDao = mockk(relaxed = true)
+         encryptedPrefs = mockk(relaxed = true)
+         odooClient = mockk(relaxed = true)
+-        repository = AccountRepository(accountDao, encryptedPrefs, odooClient)
++        repository = AccountRepository(accountDao, encryptedPrefs, odooClient, io.woowtech.odoo.brand.AppBrand.forCode("woowtech"))
+     }
+ 
+     @AfterEach
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenEmptyAccountsTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenEmptyAccountsTest.kt
+index 8c45c1e..44d3647 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenEmptyAccountsTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenEmptyAccountsTest.kt
+@@ -51,8 +51,8 @@ class FcmTokenEmptyAccountsTest {
+         repo = FcmTokenRepositoryImpl(
+             encryptedPrefs = encryptedPrefs,
+             accountDao = accountDao,
+-            sessionCookieProvider = sessionCookieProvider,
+-            sessionReauthInterceptor = sessionReauthInterceptor,
++            httpClient = io.woowtech.odoo.testutil.MockOnlyHttpFixture().client,
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         )
+     }
+ 
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt
+index f937822..102ff18 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/FcmTokenRepositoryTest.kt
+@@ -12,6 +12,7 @@ import io.woowtech.odoo.domain.model.OdooAccount
+ import kotlinx.coroutines.test.runTest
+ import okhttp3.Cookie
+ import okhttp3.MediaType.Companion.toMediaType
++import io.woowtech.odoo.testutil.MockOnlyHttpFixture
+ import okhttp3.OkHttpClient
+ import okhttp3.Protocol
+ import okhttp3.Request
+@@ -51,8 +52,8 @@ class FcmTokenRepositoryTest {
+         repo = FcmTokenRepositoryImpl(
+             encryptedPrefs = encryptedPrefs,
+             accountDao = accountDao,
+-            sessionCookieProvider = sessionCookieProvider,
+-            sessionReauthInterceptor = sessionReauthInterceptor,
++            httpClient = fakeClient { request -> jsonResponse(request, 200) },
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         )
+     }
+ 
+@@ -91,8 +92,7 @@ class FcmTokenRepositoryTest {
+         coEvery { accountDao.getAccountById("a1") } returns accounts[0]
+         coEvery { accountDao.getAccountById("a2") } returns accounts[1]
+ 
+-        // Network calls will fail (no real server) but that's expected — we verify the
+-        // token is saved and the loop iterates over all accounts.
++        // Fixture-only transport: never resolve or contact an external host.
+         repo.registerTokenForAllAccounts("tok_multi")
+ 
+         verify { encryptedPrefs.saveFcmToken("tok_multi") }
+@@ -105,11 +105,11 @@ class FcmTokenRepositoryTest {
+ 
+     /** A repo wired to [client] via the test-only primary constructor (bypasses the real network). */
+     private fun repoWith(client: OkHttpClient): FcmTokenRepositoryImpl =
+-        FcmTokenRepositoryImpl(encryptedPrefs = encryptedPrefs, accountDao = accountDao, httpClient = client)
++        FcmTokenRepositoryImpl(encryptedPrefs = encryptedPrefs, accountDao = accountDao, httpClient = client, brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"))
+ 
+     /** Builds a client whose interceptor delegates each request to [handler] (which may throw). */
+     private fun fakeClient(handler: (Request) -> Response): OkHttpClient =
+-        OkHttpClient.Builder().addInterceptor { chain -> handler(chain.request()) }.build()
++        MockOnlyHttpFixture(handler).client
+ 
+     private fun jsonResponse(request: Request, code: Int, body: String = "{\"result\":{}}"): Response =
+         Response.Builder()
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/LoginRegisterTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/LoginRegisterTest.kt
+index 63c65b0..ff1a652 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/LoginRegisterTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/LoginRegisterTest.kt
+@@ -63,6 +63,7 @@ class LoginRegisterTest {
+             accountDao = accountDao,
+             encryptedPrefs = encryptedPrefs,
+             odooClient = odooClient,
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         ).also {
+             it.fcmTokenRepository = fcmTokenRepository
+         }
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/LogoutUnregisterTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/LogoutUnregisterTest.kt
+index bb525a9..6e470a9 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/LogoutUnregisterTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/LogoutUnregisterTest.kt
+@@ -64,6 +64,7 @@ class LogoutUnregisterTest {
+             accountDao = accountDao,
+             encryptedPrefs = encryptedPrefs,
+             odooClient = odooClient,
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         ).also {
+             it.fcmTokenRepository = fcmTokenRepository
+         }
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/RememberMePersistenceTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/RememberMePersistenceTest.kt
+index 1f4f15e..73b72ee 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/RememberMePersistenceTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/RememberMePersistenceTest.kt
+@@ -76,6 +76,7 @@ class RememberMePersistenceTest {
+             accountDao = accountDao,
+             encryptedPrefs = encryptedPrefs,
+             odooClient = odooClient,
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         )
+     }
+ 
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/RemoveAccountUnregisterTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/RemoveAccountUnregisterTest.kt
+index 851674f..a9150ff 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/RemoveAccountUnregisterTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/RemoveAccountUnregisterTest.kt
+@@ -42,6 +42,7 @@ class RemoveAccountUnregisterTest {
+             accountDao = accountDao,
+             encryptedPrefs = encryptedPrefs,
+             odooClient = odooClient,
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         ).also {
+             it.fcmTokenRepository = fcmTokenRepository
+         }
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/SessionIsolationTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/SessionIsolationTest.kt
+index 3616e20..d91e4f2 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/SessionIsolationTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/SessionIsolationTest.kt
+@@ -55,7 +55,7 @@ class SessionIsolationTest {
+         accountDao = mockk(relaxed = true)
+         encryptedPrefs = mockk(relaxed = true)
+         odooClient = mockk(relaxed = true)
+-        repository = AccountRepository(accountDao, encryptedPrefs, odooClient)
++        repository = AccountRepository(accountDao, encryptedPrefs, odooClient, io.woowtech.odoo.brand.AppBrand.forCode("woowtech"))
+     }
+ 
+     // ──────────────────────────────────────────────────────────
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt b/app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt
+index b5150cf..0203efb 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/data/repository/SwitchAccountUnregisterTest.kt
+@@ -74,6 +74,7 @@ class SwitchAccountUnregisterTest {
+             accountDao = accountDao,
+             encryptedPrefs = encryptedPrefs,
+             odooClient = odooClient,
++            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
+         ).also {
+             it.fcmTokenRepository = fcmTokenRepository
+         }
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/ui/config/CacheClearSemanticsTest.kt b/app/src/test/kotlin/io/woowtech/odoo/ui/config/CacheClearSemanticsTest.kt
+index 096e58c..7241e2c 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/ui/config/CacheClearSemanticsTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/ui/config/CacheClearSemanticsTest.kt
+@@ -1,5 +1,6 @@
+ package io.woowtech.odoo.ui.config
+ 
++import io.mockk.every
+ import io.mockk.coVerify
+ import io.mockk.mockk
+ import io.woowtech.odoo.data.local.EncryptedPrefs
+@@ -69,7 +70,14 @@ class CacheClearSemanticsTest {
+         settingsRepository = mockk(relaxed = true)
+         cacheRepository = mockk(relaxed = true)
+         encryptedPrefs = mockk(relaxed = true)
+-        viewModel = SettingsViewModel(settingsRepository, cacheRepository)
++        viewModel = SettingsViewModel(settingsRepository, cacheRepository,
++            mockk<io.woowtech.odoo.data.repository.AccountRepository>(relaxed = true).also {
++                every { it.activeAccount } returns kotlinx.coroutines.flow.MutableStateFlow(null)
++            },
++            mockk<io.woowtech.odoo.data.repository.FcmTokenRepository>(relaxed = true).also {
++                every { it.registrationStatuses } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
++            },
++        )
+     }
+ 
+     @AfterEach
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/ui/config/CompliancePageLinksTest.kt b/app/src/test/kotlin/io/woowtech/odoo/ui/config/CompliancePageLinksTest.kt
+index 7e94144..9ca627d 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/ui/config/CompliancePageLinksTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/ui/config/CompliancePageLinksTest.kt
+@@ -3,6 +3,8 @@ package io.woowtech.odoo.ui.config
+ import android.app.Application
+ import org.robolectric.RuntimeEnvironment
+ import io.woowtech.odoo.R
++import io.woowtech.odoo.BuildConfig
++import io.woowtech.odoo.brand.AppBrand
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+ import org.junit.Test
+@@ -27,10 +29,22 @@ class CompliancePageLinksTest {
+         RuntimeEnvironment.getApplication().getString(id)
+ 
+     private fun assertLinks(suffix: String) {
+-        assertEquals("https://aiot.woowtech.io/odoo-support$suffix", str(R.string.url_support))
+-        assertEquals("https://aiot.woowtech.io/odoo-privacy$suffix", str(R.string.url_privacy_policy))
++        val origin = if (BuildConfig.APP_BRAND == "apporo") "https://www.apporo.ai" else "https://aiot.woowtech.io"
++        assertEquals(R.string.url_support, AppBrand.current.supportUrlResource)
++        assertEquals(R.string.url_privacy_policy, AppBrand.current.privacyUrlResource)
++        assertEquals(R.string.url_account_deletion, AppBrand.current.deletionUrlResource)
++        if (BuildConfig.APP_BRAND == "apporo") {
++            assertEquals("Apporo platform", str(R.string.app_name))
++            assertEquals("Apporo platform", str(R.string.notification_channel_messages))
++            assertEquals("Apporo platform / APPORO UNION INC.", str(R.string.copyright))
++        } else {
++            assertEquals("woowtech platform", str(R.string.app_name))
++            assertEquals("© 2026 WoowTech", str(R.string.copyright))
++        }
++        assertEquals("$origin/odoo-support$suffix", str(R.string.url_support))
++        assertEquals("$origin/odoo-privacy$suffix", str(R.string.url_privacy_policy))
+         assertEquals(
+-            "https://aiot.woowtech.io/odoo-account-deletion$suffix",
++            "$origin/odoo-account-deletion$suffix",
+             str(R.string.url_account_deletion)
+         )
+         listOf(R.string.url_support, R.string.url_privacy_policy, R.string.url_account_deletion)
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/ui/config/SettingsViewModelTest.kt b/app/src/test/kotlin/io/woowtech/odoo/ui/config/SettingsViewModelTest.kt
+index fec71b0..602e3bc 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/ui/config/SettingsViewModelTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/ui/config/SettingsViewModelTest.kt
+@@ -53,7 +53,14 @@ class SettingsViewModelTest {
+     }
+ 
+     private fun createViewModel(): SettingsViewModel {
+-        return SettingsViewModel(settingsRepository, cacheRepository)
++        return SettingsViewModel(settingsRepository, cacheRepository,
++            mockk<io.woowtech.odoo.data.repository.AccountRepository>(relaxed = true).also {
++                every { it.activeAccount } returns kotlinx.coroutines.flow.MutableStateFlow(null)
++            },
++            mockk<io.woowtech.odoo.data.repository.FcmTokenRepository>(relaxed = true).also {
++                every { it.registrationStatuses } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
++            },
++        )
+     }
+ 
+     // ──────────────────────────────────────────────────────────
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt b/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt
+index e970f87..7292366 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt
+@@ -131,7 +131,7 @@ class LoginViewModelTest {
+         fun `Given previous serverUrlError when updateServerUrl then error is cleared`() = runTest {
+             // Trigger a server URL error first
+             viewModel.goToNextStep() // blank URL => error
+-            assertEquals("Server URL is required", viewModel.uiState.value.serverUrlError)
++            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, viewModel.uiState.value.serverUrlError)
+ 
+             // Now type a URL — error should clear
+             viewModel.updateServerUrl("odoo.example.com")
+@@ -153,7 +153,7 @@ class LoginViewModelTest {
+ 
+             val state = viewModel.uiState.value
+             assertEquals(LoginStep.SERVER_INFO, state.step)
+-            assertEquals("Server URL is required", state.serverUrlError)
++            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, state.serverUrlError)
+         }
+ 
+         @Test
+@@ -163,7 +163,7 @@ class LoginViewModelTest {
+ 
+             val state = viewModel.uiState.value
+             assertEquals(LoginStep.SERVER_INFO, state.step)
+-            assertEquals("Database name is required", state.databaseError)
++            assertEquals(LoginFieldError.DATABASE_REQUIRED, state.databaseError)
+         }
+ 
+         @Test
+@@ -174,7 +174,7 @@ class LoginViewModelTest {
+ 
+             val state = viewModel.uiState.value
+             assertEquals(LoginStep.SERVER_INFO, state.step)
+-            assertEquals("HTTPS is required for security", state.serverUrlError)
++            assertEquals(LoginFieldError.HTTPS_REQUIRED, state.serverUrlError)
+         }
+ 
+         @Test
+@@ -202,7 +202,7 @@ class LoginViewModelTest {
+             viewModel.goToNextStep()
+ 
+             val state = viewModel.uiState.value
+-            assertEquals("Server URL is required", state.serverUrlError)
++            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, state.serverUrlError)
+             // Database error is not set because validation short-circuits
+             assertNull(state.databaseError)
+         }
+@@ -244,7 +244,7 @@ class LoginViewModelTest {
+ 
+             viewModel.login {}
+ 
+-            assertEquals("Username is required", viewModel.uiState.value.usernameError)
++            assertEquals(LoginFieldError.USERNAME_REQUIRED, viewModel.uiState.value.usernameError)
+             coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
+         }
+ 
+@@ -257,7 +257,7 @@ class LoginViewModelTest {
+ 
+             viewModel.login {}
+ 
+-            assertEquals("Password is required", viewModel.uiState.value.passwordError)
++            assertEquals(LoginFieldError.PASSWORD_REQUIRED, viewModel.uiState.value.passwordError)
+             coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
+         }
+     }
+@@ -575,7 +575,7 @@ class LoginViewModelTest {
+             viewModel.goToNextStep()
+ 
+             assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
+-            assertEquals("HTTPS is required for security", viewModel.uiState.value.serverUrlError)
++            assertEquals(LoginFieldError.HTTPS_REQUIRED, viewModel.uiState.value.serverUrlError)
+         }
+ 
+         @Test
+@@ -585,7 +585,66 @@ class LoginViewModelTest {
+             viewModel.goToNextStep()
+ 
+             assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
+-            assertEquals("Invalid server URL", viewModel.uiState.value.serverUrlError)
++            assertEquals(LoginFieldError.INVALID_URL, viewModel.uiState.value.serverUrlError)
+         }
+     }
++
++    @Test
++    fun `Given session establishment failure then retain typed localized session error and never navigate`() = runTest {
++        coEvery { accountRepository.authenticate(any(), any(), any(), any()) } returns
++            AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
++        viewModel.updateServerUrl("https://fixture.test")
++        viewModel.updateDatabase("fixture-db")
++        viewModel.updateUsername("fixture-user")
++        viewModel.updatePassword("fixture-password")
++        var navigated = false
++        viewModel.login { navigated = true }
++        testScheduler.advanceUntilIdle()
++        assertFalse(navigated)
++        assertEquals(AuthResult.ErrorType.SESSION_EXPIRED, viewModel.uiState.value.errorType)
++        viewModel.clearError()
++        assertNull(viewModel.uiState.value.errorType)
++    }
++
++    @Test
++    fun `Given blank fields when corrected then typed errors clear without authenticating`() = runTest {
++        viewModel.goToNextStep()
++        assertEquals(LoginFieldError.SERVER_URL_REQUIRED, viewModel.uiState.value.serverUrlError)
++        viewModel.updateServerUrl("  https://https://fixture.invalid  ")
++        assertNull(viewModel.uiState.value.serverUrlError)
++        viewModel.goToNextStep()
++        assertEquals(LoginFieldError.DATABASE_REQUIRED, viewModel.uiState.value.databaseError)
++        viewModel.updateDatabase(" db ")
++        assertNull(viewModel.uiState.value.databaseError)
++        viewModel.goToNextStep()
++        assertEquals(LoginStep.CREDENTIALS, viewModel.uiState.value.step)
++        assertEquals("fixture.invalid", viewModel.uiState.value.serverUrl)
++        assertEquals("db", viewModel.uiState.value.database)
++        viewModel.login {}
++        assertEquals(LoginFieldError.USERNAME_REQUIRED, viewModel.uiState.value.usernameError)
++        viewModel.updateUsername(" user ")
++        assertNull(viewModel.uiState.value.usernameError)
++        viewModel.login {}
++        assertEquals(LoginFieldError.PASSWORD_REQUIRED, viewModel.uiState.value.passwordError)
++        viewModel.updatePassword(" secret ")
++        assertNull(viewModel.uiState.value.passwordError)
++        assertEquals(" secret ", viewModel.uiState.value.password)
++        coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
++    }
++
++    @Test
++    fun `Given URL changed to invalid before login when submitted then typed banner blocks repository`() = runTest {
++        viewModel.updateServerUrl("fixture.invalid")
++        viewModel.updateDatabase("db")
++        viewModel.goToNextStep()
++        viewModel.updateUsername("user")
++        viewModel.updatePassword("secret")
++        viewModel.updateServerUrl("bad host")
++        viewModel.login {}
++        testScheduler.advanceUntilIdle()
++        assertEquals(AuthResult.ErrorType.INVALID_URL, viewModel.uiState.value.errorType)
++        assertFalse(viewModel.uiState.value.isLoading)
++        coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
++    }
++
+ }
+diff --git a/app/src/test/kotlin/io/woowtech/odoo/ui/theme/FixedBrandThemeTest.kt b/app/src/test/kotlin/io/woowtech/odoo/ui/theme/FixedBrandThemeTest.kt
+index 6eb8f86..36abd14 100644
+--- a/app/src/test/kotlin/io/woowtech/odoo/ui/theme/FixedBrandThemeTest.kt
++++ b/app/src/test/kotlin/io/woowtech/odoo/ui/theme/FixedBrandThemeTest.kt
+@@ -1,6 +1,8 @@
+ package io.woowtech.odoo.ui.theme
+ 
+ import android.app.Application
++import io.woowtech.odoo.BuildConfig
++import io.woowtech.odoo.domain.model.ThemeMode
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.test.junit4.createComposeRule
+@@ -38,13 +40,18 @@ class FixedBrandThemeTest {
+     val composeRule = createComposeRule()
+ 
+     /** 一個明顯不是品牌藍的顏色，用來確認「跟著變」與「不跟著變」的差異。 */
++    private val expectedPrimary = if (BuildConfig.APP_BRAND == "apporo") Color(0xFF8B6B24) else Color(0xFF6183FC)
++    private val originalPrimary = ThemeManager.primaryColor.value
++    private val originalMode = ThemeManager.themeMode.value
++
+     private val userPickedGreen = Color(0xFF00C853)
+ 
+     @After
+     fun restoreThemeManager() {
+         // ThemeManager 是 process 範圍的 singleton，測試改過就要還原，
+         // 否則會污染同一個 JVM 上後續的測試。
+-        ThemeManager.setPrimaryColor(WoowTechBlue)
++        ThemeManager.setPrimaryColor(originalPrimary)
++        ThemeManager.setThemeMode(originalMode)
+     }
+ 
+     @Test
+@@ -75,12 +82,12 @@ class FixedBrandThemeTest {
+         assertEquals(
+             "WoowFixedBrandTheme 內的 primary 必須固定為 WoowTechBlue，" +
+                 "不得跟隨使用者選的主題色",
+-            WoowTechBlue,
++            expectedPrimary,
+             wrapped,
+         )
+         assertNotEquals(
+             "測試設定有誤：使用者選的顏色不該等於品牌藍，否則驗不出差異",
+-            WoowTechBlue,
++            expectedPrimary,
+             userPickedGreen,
+         )
+     }
+@@ -97,6 +104,44 @@ class FixedBrandThemeTest {
+         }
+         composeRule.waitForIdle()
+ 
+-        assertEquals(WoowTechBlue, wrapped)
++        assertEquals(expectedPrimary, wrapped)
++    }
++
++    @Test
++    fun `Given light mode and saved user color when fixed theme then brand container and foreground are paired`() {
++        assertFixedRoles(ThemeMode.LIGHT)
++    }
++
++    @Test
++    fun `Given dark mode and saved user color when fixed theme then brand container and foreground are paired`() {
++        assertFixedRoles(ThemeMode.DARK)
++    }
++
++    private fun assertFixedRoles(mode: ThemeMode) {
++        ThemeManager.setThemeMode(mode)
++        ThemeManager.setPrimaryColor(userPickedGreen)
++        var actual: List<Color>? = null
++        composeRule.setContent {
++            WoowTechOdooTheme {
++                WoowFixedBrandTheme {
++                    val scheme = MaterialTheme.colorScheme
++                    actual = listOf(scheme.primary, scheme.onPrimary, scheme.primaryContainer, scheme.onPrimaryContainer)
++                }
++            }
++        }
++        composeRule.waitForIdle()
++        val apporo = BuildConfig.APP_BRAND == "apporo"
++        val dark = mode == ThemeMode.DARK
++        val container = if (apporo) {
++            if (dark) Color(0xFF4C3B14) else Color(0xFFEEE9DE)
++        } else {
++            if (dark) Color(0xFF3A4B8C) else Color(0xFFDBE1FF)
++        }
++        val foreground = if (apporo) {
++            if (dark) Color(0xFFEEE9DE) else Color(0xFF241C09)
++        } else {
++            if (dark) Color(0xFFDBE1FF) else Color(0xFF001A41)
++        }
++        assertEquals(listOf(expectedPrimary, Color.White, container, foreground), actual)
+     }
+ }
+diff --git a/scripts/e2e-production-test.py b/scripts/e2e-production-test.py
+index 2e1223b..2966468 100644
+--- a/scripts/e2e-production-test.py
++++ b/scripts/e2e-production-test.py
+@@ -38,7 +38,9 @@ import uiautomator2 as u2
+ # Single source of truth — see scripts/test_config.py.
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from test_config import (
++    require_live_test_authorization,
+     APP_ACTIVITY as ACTIVITY,
++    E2E_REPORT_FILE,
+     APP_PACKAGE as PKG,
+     FIREBASE_PROJECT_ID as PROJECT_ID,
+     FIREBASE_SA_FILE as SA_FILE,
+@@ -51,6 +53,9 @@ from test_config import (
+     restore_ime,
+ )
+ 
++require_live_test_authorization()
++
++
+ PASS = 0
+ FAIL = 0
+ RESULTS = []
+@@ -889,7 +894,7 @@ if fcm_token and os.path.exists(SA_FILE):
+     check("E2E-11a", f"3 chatter notifications posted ({posted} found)", posted >= 3)
+ 
+     # Check grouping
+-    group_chatter = notif.count("groupKey=0|io.woowtech.odoo.debug|g:chatter")
++    group_chatter = notif.count(f"groupKey=0|{PKG}|g:chatter")
+     check("E2E-11b", f"Notifications grouped by 'chatter' event type ({group_chatter} in group)", group_chatter >= 3)
+ else:
+     check("E2E-11a", "FCM prerequisites", False)
+@@ -904,7 +909,7 @@ else:
+ section("E2E-12: FCM token registration after fresh install reaches Odoo")
+ try:
+     # Clear app data to simulate fresh install
+-    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
++    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+     time.sleep(2)
+     # CRITICAL: log in after pm clear. The `AccountRepository.authenticate`
+     # → `registerSavedFcmToken` chain is what triggers the server-side
+@@ -955,7 +960,7 @@ try:
+     # gets `Odoo Session Expired` and the server-side record stays
+     # active — which is a TEST artefact, not a code bug. Re-establish
+     # before testing logout.
+-    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
++    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+     time.sleep(2)
+     if not perform_login_for_test():
+         check("E2E-13-precondition", "Pre-test re-login succeeded", False)
+@@ -987,7 +992,7 @@ try:
+         # NOT inside the Settings screen. UI dumped on this device shows:
+         #   '設定' (Settings), '切換帳號' (Switch Account), '登出' (Logout)
+         # all at the drawer level. So: open drawer, tap Logout, confirm.
+-        d.app_start("io.woowtech.odoo.debug", "io.woowtech.odoo.ui.MainActivity")
++        d.app_start(PKG, ACTIVITY)
+         time.sleep(4)
+         # Open menu drawer
+         for desc in ["開啟選單", "开启菜单", "Menu", "menu", "Open menu"]:
+@@ -1066,7 +1071,7 @@ section("E2E-14: Reduce Motion → biometric animations are instant")
+ try:
+     # Test independence: E2E-13 logged out the user. Re-login before E2E-14
+     # so we can navigate from the dashboard's drawer to Settings.
+-    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
++    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
+     time.sleep(2)
+     if not perform_login_for_test():
+         check("E2E-14-precondition", "Pre-test re-login succeeded", False)
+@@ -1274,7 +1279,8 @@ else:
+ print()
+ 
+ # Write results
+-report_path = "/Users/alanlin/Woow_odoo_app/docs/plans/2026-03-23-e2e-test-results.md"
++report_path = E2E_REPORT_FILE
++os.makedirs(os.path.dirname(report_path), exist_ok=True)
+ with open(report_path, "w") as f:
+     f.write(f"# E2E Production Test Results\n\n")
+     f.write(f"> **Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+diff --git a/scripts/e2e-verification-report.py b/scripts/e2e-verification-report.py
+index 6f7ca56..69a6b08 100644
+--- a/scripts/e2e-verification-report.py
++++ b/scripts/e2e-verification-report.py
+@@ -11,7 +11,10 @@ from playwright.sync_api import sync_playwright
+ # Single source of truth for test config — see scripts/test_config.py.
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from test_config import (
++    require_live_test_authorization,
+     APP_PACKAGE as PKG,
++    APP_ACTIVITY as ACTIVITY,
++    APP_VARIANT,
+     ODOO_DB as DB,
+     ODOO_HOST,
+     ODOO_PASS,
+@@ -20,8 +23,12 @@ from test_config import (
+     VERIFICATION_REPORT_DIR,
+ )
+ 
++require_live_test_authorization()
++
++
+ SS = os.path.join(VERIFICATION_REPORT_DIR, "screenshots")
+ REPORT = os.path.join(VERIFICATION_REPORT_DIR, "verification-report.md")
++os.makedirs(SS, exist_ok=True)
+ STEPS = []
+ N = 0
+ 
+@@ -64,7 +71,7 @@ print(f"📱 Device: {dev} (SDK {sdk})")
+ # ══════════════════════════════════════════════════════════
+ 
+ step("Launch app — fresh install")
+-d.app_stop(PKG); time.sleep(1); d.app_start(PKG, "io.woowtech.odoo.ui.MainActivity"); time.sleep(5)
++d.app_stop(PKG); time.sleep(1); d.app_start(PKG, ACTIVITY); time.sleep(5)
+ p = phone_ss("01_login_screen")
+ ok("Login screen with server URL field", True, p)
+ 
+@@ -216,7 +223,7 @@ SA = "/Users/alanlin/Woow_odoo_app/app/firebase-service-account.json"
+ 
+ # Get current token
+ subprocess.run(["adb","logcat","-c"], capture_output=True)
+-d.app_start(PKG, "io.woowtech.odoo.ui.MainActivity"); time.sleep(12)
++d.app_start(PKG, ACTIVITY); time.sleep(12)
+ logcat = subprocess.run(["adb","logcat","-d"], capture_output=True, encoding="utf-8", errors="replace").stdout
+ tok = None
+ for l in logcat.split("\n"):
+diff --git a/scripts/e2e_15_clockin_full.py b/scripts/e2e_15_clockin_full.py
+index 76e19a6..e5bdd72 100644
+--- a/scripts/e2e_15_clockin_full.py
++++ b/scripts/e2e_15_clockin_full.py
+@@ -37,6 +37,7 @@ import websocket
+ # Single source of truth for test config — see scripts/test_config.py.
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from test_config import (
++    require_live_test_authorization,
+     APP_ACTIVITY as ACTIVITY,
+     APP_PACKAGE as PKG,
+     ODOO_DB as DB,
+@@ -45,6 +46,9 @@ from test_config import (
+     ODOO_USER as USER,
+ )
+ 
++require_live_test_authorization()
++
++
+ LOCAL_CDP_PORT = 9222
+ 
+ 
+diff --git a/scripts/e2e_hprime_android.py b/scripts/e2e_hprime_android.py
+index 2b38824..de94192 100644
+--- a/scripts/e2e_hprime_android.py
++++ b/scripts/e2e_hprime_android.py
+@@ -45,6 +45,7 @@ import uiautomator2 as u2
+ # ─── Config (single source of truth from test_config.py) ─────────────────────
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from test_config import (
++    require_live_test_authorization,
+     APP_ACTIVITY as ACTIVITY,
+     APP_PACKAGE as PKG,
+     ODOO_DB,
+@@ -56,6 +57,9 @@ from test_config import (
+     restore_ime,
+ )
+ 
++require_live_test_authorization()
++
++
+ # ─── Identifiers fixed for this Odoo database ────────────────────────────────
+ # admin: uid=2, partner_id=3 ("Mitchell Admin")
+ # demo:  uid=6, partner_id=7 ("Marc Demo")
+@@ -730,7 +734,7 @@ for trigger_id, trigger_desc in TRIGGERS:
+     else:
+         # Capture full dump for diagnosis
+         dump = _dump_notification()
+-        our_records = [l for l in dump.split("\n") if "io.woowtech.odoo.debug" in l]
++        our_records = [l for l in dump.split("\n") if PKG in l]
+         _mark(trigger_id, False,
+               error=f"marker not found in dumpsys after 35s "
+                     f"(our_app_records_in_shade={len(our_records)})")
+@@ -819,7 +823,7 @@ print(f"  NotificationRecord count for our app: {len(our_lines)}")
+ 
+ # Check for groupKey
+ group_key_lines = [l for l in dump.split("\n")
+-                   if "io.woowtech.odoo.debug" in l and "groupKey=" in l]
++                   if PKG in l and "groupKey=" in l]
+ print(f"  Lines with groupKey for our app: {len(group_key_lines)}")
+ for gkl in group_key_lines[:5]:
+     print(f"    {gkl.strip()[:120]}")
+diff --git a/scripts/e2e_hprime_android_chaos.py b/scripts/e2e_hprime_android_chaos.py
+index dca0159..20662d3 100644
+--- a/scripts/e2e_hprime_android_chaos.py
++++ b/scripts/e2e_hprime_android_chaos.py
+@@ -43,6 +43,7 @@ import requests
+ # ─── Config (shared with happy-path harness) ─────────────────────────────────
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from test_config import (
++    require_live_test_authorization,
+     APP_PACKAGE as PKG,
+     ODOO_DB,
+     ODOO_PASS,
+@@ -50,6 +51,9 @@ from test_config import (
+     ODOO_USER,
+ )
+ 
++require_live_test_authorization()
++
++
+ # ─── Fixed IDs ───────────────────────────────────────────────────────────────
+ ADMIN_USER_ID = 2
+ ADMIN_PARTNER_ID = 3
+@@ -223,7 +227,7 @@ def _assert_no_fcm_notification(marker: str, wait_s: int) -> tuple[bool, str]:
+         ws_appeared = _find_notification_record(marker, dump=dump, require_group_key="discuss")
+         our_records = [
+             l for l in dump.split("\n")
+-            if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
++            if PKG in l and "NotificationRecord" in l
+         ]
+         absence_proof = (
+             f"no FCM-path notification (groupKey=mention) after {wait_s}s; "
+@@ -247,7 +251,7 @@ def _assert_no_notification(marker: str, wait_s: int) -> tuple[bool, str]:
+         dump = _dump_notification()
+         our_records = [
+             l for l in dump.split("\n")
+-            if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
++            if PKG in l and "NotificationRecord" in l
+         ]
+         absence_proof = (
+             f"marker absent after {wait_s}s; "
+@@ -575,7 +579,7 @@ try:
+     dump_baseline = _dump_notification()
+     baseline_records = [
+         l for l in dump_baseline.split("\n")
+-        if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
++        if PKG in l and "NotificationRecord" in l
+     ]
+     print(f"  Baseline our-app notification records: {len(baseline_records)}")
+ 
+@@ -692,7 +696,7 @@ try:
+     dump_pre_c2 = _dump_notification()
+     pre_c2_records = [
+         l for l in dump_pre_c2.split("\n")
+-        if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
++        if PKG in l and "NotificationRecord" in l
+     ]
+     print(f"  Pre-C2 our-app notification records: {len(pre_c2_records)}")
+ 
+@@ -753,7 +757,7 @@ try:
+             dump_c2 = _dump_notification()
+             our_recs = [
+                 l for l in dump_c2.split("\n")
+-                if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
++                if PKG in l and "NotificationRecord" in l
+             ]
+             errs.append(
+                 f"NFC-1 violation: notification did NOT arrive within 60s "
+diff --git a/scripts/test_config.py b/scripts/test_config.py
+index fbe650c..fa8da4d 100644
+--- a/scripts/test_config.py
++++ b/scripts/test_config.py
+@@ -52,27 +52,38 @@ ODOO_USER = _get("ODOO_USER", "")
+ ODOO_PASS = _get("ODOO_PASS", "")
+ 
+ # ─── Android app under test ─────────────────────────────────────────────────
+-APP_PACKAGE = _get("APP_PACKAGE", "io.woowtech.odoo.debug")
+-APP_ACTIVITY = _get("APP_ACTIVITY", "io.woowtech.odoo.ui.MainActivity")
+-
+-# ─── Firebase (FCM tests) ───────────────────────────────────────────────────
++from brand_test_target import authorize_live, target_for
++
++APP_VARIANT = _get("APP_VARIANT", "woowtechDebug")
++APP_TARGET = target_for(APP_VARIANT)
++APP_PACKAGE = _get("APP_PACKAGE", APP_TARGET.package)
++if APP_PACKAGE != APP_TARGET.package:
++    raise ValueError("APP_PACKAGE must match APP_VARIANT; cross-brand overrides are forbidden")
++# The Activity class belongs to the unchanged namespace, not the applicationId.
++APP_ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
++APP_TITLES = (APP_TARGET.title,)
++APP_APK_PATH = str(_REPO_ROOT / APP_TARGET.apk_path)
++
++# Only WOOW retains the existing SA path. Apporo must explicitly select its own path.
+ FIREBASE_SA_FILE = _get(
+     "FIREBASE_SA_FILE",
+-    str(_REPO_ROOT / "app" / "firebase-service-account.json"),
++    str(_REPO_ROOT / "app" / "firebase-service-account.json") if APP_TARGET.brand == "woowtech" else "",
+ )
+-FIREBASE_PROJECT_ID = _get("FIREBASE_PROJECT_ID", "woow-odoo-de2cb")
++FIREBASE_PROJECT_ID = _get("FIREBASE_PROJECT_ID", APP_TARGET.firebase_project)
++if FIREBASE_PROJECT_ID != APP_TARGET.firebase_project:
++    raise ValueError("FIREBASE_PROJECT_ID must match APP_VARIANT")
+ 
+-# ─── Verification report output (e2e-verification-report.py) ────────────────
+-VERIFICATION_REPORT_DIR = _get(
+-    "VERIFICATION_REPORT_DIR",
+-    str(_REPO_ROOT / "docs" / "verification-report"),
+-)
++# Separate every artifact directory by variant; never merge cross-brand evidence.
++VERIFICATION_REPORT_DIR = str(Path(_get(
++    "VERIFICATION_REPORT_DIR", str(_REPO_ROOT / "docs" / "verification-report")
++)) / APP_VARIANT)
++VERIFY_REPORT_FILE = str(Path(VERIFICATION_REPORT_DIR) / "device-verification-log.md")
++E2E_REPORT_FILE = str(Path(VERIFICATION_REPORT_DIR) / "e2e-test-results.md")
+ 
+-# ─── verify-on-device.py run log (appended after every run) ─────────────────
+-VERIFY_REPORT_FILE = _get(
+-    "VERIFY_REPORT_FILE",
+-    str(_REPO_ROOT / "docs" / "plans" / "2026-03-22-device-verification-log.md"),
+-)
++
++def require_live_test_authorization():
++    authorize_live(APP_TARGET, ODOO_URL, os.environ)
++    print(f"Explicit live target: {APP_VARIANT} / {APP_PACKAGE}")
+ 
+ 
+ # ─── ADBKeyboard helpers (avoid IME autocorrect mangling URLs/passwords) ────
+@@ -117,8 +128,5 @@ def restore_ime(previous_ime: str | None) -> None:
+ 
+ 
+ if __name__ == "__main__":
+-    # Print resolved config — useful for debugging "which value did it pick up?"
+-    for k in sorted(globals()):
+-        if k.startswith("_") or k.islower():
+-            continue
+-        print(f"{k:25s} = {globals()[k]!r}")
++    # Never dump resolved config: it includes ODOO_PASS and potentially secret paths.
++    print(f"Target: {APP_VARIANT} / {APP_PACKAGE}; credentials are not displayed")
+diff --git a/scripts/verify-on-device.py b/scripts/verify-on-device.py
+index f7276d0..5e6772c 100644
+--- a/scripts/verify-on-device.py
++++ b/scripts/verify-on-device.py
+@@ -21,7 +21,9 @@ import uiautomator2 as u2
+ # Single source of truth for test config — see scripts/test_config.py.
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from test_config import (
++    require_live_test_authorization,
+     APP_ACTIVITY as ACTIVITY,
++    APP_TITLES,
+     APP_PACKAGE as PKG,
+     FIREBASE_PROJECT_ID,
+     FIREBASE_SA_FILE,
+@@ -33,6 +35,9 @@ from test_config import (
+     VERIFY_REPORT_FILE,
+ )
+ 
++require_live_test_authorization()
++
++
+ if not (ODOO_URL and ODOO_DB and ODOO_USER and ODOO_PASS):
+     print("ERROR: Odoo test server not configured. Set ODOO_URL, ODOO_DB, ODOO_USER "
+           "and ODOO_PASS (env vars or the gitignored .env.test) — see scripts/test_config.py.")
+@@ -89,10 +94,6 @@ def skip(vid, msg):
+ 
+ 
+ 
+-# App 顯示名稱依裝置語系而異（AP-15 改名）：預設語系為英文 "woowtech platform"，
+-# 中文語系為「渥屋系統」。任何斷言都必須同時接受兩者，否則換一台語系不同的
+-# 裝置就會誤報失敗。字串來源：app/src/main/res/values*/strings.xml 的 app_name。
+-APP_TITLES = ("woowtech platform", "渥屋系統")
+ 
+ 
+ def app_title_visible(d, timeout=2):
+@@ -568,7 +569,7 @@ check("V14a-C17", "App launches with deep link handler (no crash)", still_ok)
+ # Send deep link intent
+ subprocess.run([
+     "adb", "shell", "am", "start",
+-    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
++    "-n", f"{PKG}/{ACTIVITY}",
+     "--es", "odoo_action_url", "/web#id=42&model=sale.order&view_type=form"
+ ], capture_output=True, text=True, timeout=10)
+ time.sleep(3)
+@@ -716,7 +717,7 @@ time.sleep(3)
+ # But if WebView allowed it, we'd still be in our app showing the external site
+ subprocess.run([
+     "adb", "shell", "am", "start",
+-    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
++    "-n", f"{PKG}/{ACTIVITY}",
+     "--es", "odoo_action_url", "https://evil.com/phish"
+ ], capture_output=True, text=True, timeout=10)
+ time.sleep(3)
+@@ -784,7 +785,7 @@ d.app_stop(PKG)
+ time.sleep(1)
+ subprocess.run([
+     "adb", "shell", "am", "start",
+-    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
++    "-n", f"{PKG}/{ACTIVITY}",
+     "--es", "odoo_action_url", "/web#action=contacts"
+ ], capture_output=True, text=True, timeout=10)
+ time.sleep(6)
+@@ -878,7 +879,7 @@ if os.path.exists(SA_FILE):
+             ).stdout
+ 
+             has_notif = "E2E Test" in notif_dump or (
+-                "io.woowtech.odoo.debug" in notif_dump and "woow_odoo_messages" in notif_dump
++                PKG in notif_dump and "woow_odoo_messages" in notif_dump
+                 and "NotificationRecord" in notif_dump
+             )
+             check("V20c", "Push notification appeared in notification shade", has_notif)
+@@ -1523,6 +1524,7 @@ print()
+ 
+ # Write results to markdown (path from test_config.VERIFY_REPORT_FILE)
+ report_path = VERIFY_REPORT_FILE
++os.makedirs(os.path.dirname(report_path), exist_ok=True)
+ os.makedirs(os.path.dirname(os.path.abspath(report_path)), exist_ok=True)
+ with open(report_path, "a") as f:
+     f.write(f"\n\n## uiautomator2 Verification Run — {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")

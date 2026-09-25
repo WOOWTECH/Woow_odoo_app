@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.ApporoPushTransportTest" tests="31" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:45" hostname="ElmodeMacBook-Air.local" time="0.317">
+  <properties/>
+  <testcase name="Given remove push capability rejected then local removal still succeeds without remote write()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.018"/>
+  <testcase name="Given identity port changes during cap then register and cleanup both stop()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.006"/>
+  <testcase name="Given write expires when healed then new session must pass cap before write retry()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.009"/>
+  <testcase name="Given non HTTPS stored origin then no credentials or push leave client()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.003"/>
+  <testcase name="Given two successful accounts when A session heals then B keeps its own SID()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.016"/>
+  <testcase name="Given new session lacks cap after write expiry then do not retry write()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.009"/>
+  <testcase name="Given login succeeds with push unconfigured then login remains successful and status explains failure()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.011"/>
+  <testcase name="Given server redirects authentication then do not follow or leak credentials()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.005"/>
+  <testcase name="Given missing capability route when register then no write()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.007"/>
+  <testcase name="Given legacy WOOW when register and unregister then omit brand and capability even with v2 ACK()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.006"/>
+  <testcase name="Given zero accounts when token arrives then replay after account available()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.021"/>
+  <testcase name="Given temporary authentication errors then retry until circuit threshold without invalid-credential signal()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.032"/>
+  <testcase name="Given Apporo when register and unregister then every write has fresh cap and fixed brand()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.011"/>
+  <testcase name="Given cleanup account identity changes during capability then do not unregister replacement()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.006"/>
+  <testcase name="Given same host and database but different port and base path then sessions stay account bound()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.009"/>
+  <testcase name="Given explicit captured cleanup when removed during cap then unregister still runs()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.007"/>
+  <testcase name="Given real manual auth lacks SID then preserve existing B cookie with zero local mutations()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.008"/>
+  <testcase name="Given second expiry after healing then stop without third auth or write()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.007"/>
+  <testcase name="Given removed account cleanup SID expires then never reauthenticate or borrow another account()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.006"/>
+  <testcase name="Given logout transport unavailable then local logout still completes()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.007"/>
+  <testcase name="Given account removed during cap then registration write is stopped()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.005"/>
+  <testcase name="Given wrong brand ACK then fail without fallback or tenant persistence()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.007"/>
+  <testcase name="Given successful login then logout awaits branded cleanup before deleting local account()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.01"/>
+  <testcase name="Given token rotation then old unregister and new register each require cap()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.011"/>
+  <testcase name="Given real manual auth valid SID but unsupported capability then one auth and login remains successful()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.01"/>
+  <testcase name="Given two same-origin accounts with different DB when fanout then cookies caps and statuses stay isolated()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.011"/>
+  <testcase name="Given cap session expired envelope when healed then recheck precedes first write()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.015"/>
+  <testcase name="Given logout cleanup failed when local account forgotten then stale ACK cannot survive()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.006"/>
+  <testcase name="Given invalid credentials circuits when manual login A succeeds then only A resets()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.014"/>
+  <testcase name="Given repeated launch reconcile then cap is not cached()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.008"/>
+  <testcase name="Given unsupported cap for register and unregister then zero writes and no fallback()" classname="io.woowtech.odoo.data.repository.ApporoPushTransportTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

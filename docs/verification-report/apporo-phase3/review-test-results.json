@@ -1,0 +1,65 @@
+{
+  "review-apporo-initial-xml": {
+    "tests": 497,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 3,
+    "passed": 493
+  },
+  "review-focused-final-xml": {
+    "tests": 99,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 99
+  },
+  "review-focused-initial-xml": {
+    "tests": 99,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 97
+  },
+  "review-guarded-apporo-xml": {
+    "tests": 502,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": 499
+  },
+  "review-guarded-related-xml": {
+    "tests": 143,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 143
+  },
+  "review-guarded-woowtech-xml": {
+    "tests": 502,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": 499
+  },
+  "review-hermetic-focused-xml": {
+    "tests": 27,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 27
+  },
+  "review-sandbox-agent-focused-xml": {
+    "tests": 27,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 27
+  },
+  "review-sandbox-ipv4-initial-xml": {
+    "tests": 27,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 24
+  }
+}

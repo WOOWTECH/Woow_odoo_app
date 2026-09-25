@@ -1,0 +1,32 @@
+// Local JVM/compile verification only. No APK/install or real Firebase input.
+// Existing validators still run, against explicitly synthetic client configurations.
+gradle.projectsEvaluated {
+    def app = gradle.rootProject.project(':app')
+    app.tasks.withType(Test).configureEach {
+        // Preload the already-resolved MockK agent: sandbox denies dynamic attach IPC.
+        // No download, Unix-socket exemption, or test assertion/skip change.
+        doFirst {
+            def agent = classpath.files.find { it.name.startsWith('byte-buddy-agent-') && it.name.endsWith('.jar') }
+            if (agent == null) throw new GradleException('Offline ByteBuddy agent missing')
+            jvmArgs("-javaagent:${agent.absolutePath}")
+        }
+    }
+    ['woowtech', 'apporo'].each { brand ->
+        def variant = brand.capitalize() + 'Debug'
+        def packageName = (brand == 'apporo' ? 'com.apporo.odoo' : 'io.woowtech.odoo') + '.debug'
+        def fixture = new File(app.layout.buildDirectory.get().asFile, "review-fixtures/${brand}/google-services.json")
+        fixture.parentFile.mkdirs()
+        fixture.text = groovy.json.JsonOutput.toJson([
+            project_info: [project_number: '1234567890', project_id: brand == 'apporo' ? 'apporo-odoo-app' : 'woow-odoo-de2cb'],
+            client: [[client_info: [mobilesdk_app_id: '1:1234567890:android:mockonly', android_client_info: [package_name: packageName]],
+                      api_key: [[current_key: 'MOCK_ONLY_NOT_A_FIREBASE_KEY']]]], configuration_version: '1'
+        ])
+        app.tasks.named("process${variant}GoogleServices").configure {
+            googleServicesJsonFiles.set([fixture])
+        }
+        app.tasks.named("validate${variant}BrandConfig").configure {
+            commandLine('python3', new File(gradle.rootProject.projectDir, 'scripts/validate_brand_config.py'),
+                '--brand', brand, '--build-type', 'debug', '--config', fixture)
+        }
+    }
+}

@@ -1,0 +1,5 @@
+{
+  "note": "After the pre-App blocked attempt, screenshot names were made snapshot-sequence-specific to preserve both events if a modal recurs. No runtime retry; final 69 offline tests cover final tooling. Modal code was never reached in this attempt.",
+  "runtimeUiDriverSHA256": "5eda1ec164147c9257f888dc285d385b11071bc58d0e6eef9b63ebd46dd4f5bd",
+  "finalUiDriverSHA256": "b1313856f7294ec0d19180f1393763fb90db0b55cdc39b1f0449eb93a1b0606d"
+}

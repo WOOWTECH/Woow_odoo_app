@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.auth.PinScreenLockoutTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:49" hostname="ElmodeMacBook-Air.local" time="0.003">
+  <properties/>
+  <testcase name="Given no active lockout when getLockoutRemainingMs then returns 0()" classname="io.woowtech.odoo.ui.auth.PinScreenLockoutTest" time="0.001"/>
+  <testcase name="Given isLockedOut false initially when getLockoutRemainingMs returns 0 then should not be locked()" classname="io.woowtech.odoo.ui.auth.PinScreenLockoutTest" time="0.001"/>
+  <testcase name="Given active lockout when getLockoutRemainingMs then returns positive value()" classname="io.woowtech.odoo.ui.auth.PinScreenLockoutTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

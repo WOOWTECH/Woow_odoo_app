@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.AccountRepositoryTest$AuthenticateExistingAccount" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:29" hostname="ElmodeMacBook-Air.local" time="0.029">
+  <properties/>
+  <testcase name="Given existing account when authenticate succeeds then updates existing instead of creating new()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$AuthenticateExistingAccount" time="0.029"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

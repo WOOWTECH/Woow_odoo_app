@@ -1,0 +1,180 @@
+{
+  "resources": {
+    "device": 16777256,
+    "free": {
+      "/": 9949200384,
+      "/Volumes/WOOW-BUILD": 6152409088
+    },
+    "uuid": "40C1C834-175B-4B27-A685-E27974CB8CB0"
+  },
+  "portsOpen": {
+    "5038": false,
+    "5580": false,
+    "5581": false
+  },
+  "simulators": {
+    "devices": {
+      "com.apple.CoreSimulator.SimRuntime.watchOS-26-5": [
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/9EF17BB1-47FA-4750-A82C-93127CE56605/data",
+          "dataPathSize": 4096,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/9EF17BB1-47FA-4750-A82C-93127CE56605",
+          "udid": "9EF17BB1-47FA-4750-A82C-93127CE56605",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm",
+          "state": "Shutdown",
+          "name": "Apple Watch Series 11 (46mm)"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/8BF5E1C5-473C-457F-81D1-9BBC905E1273/data",
+          "dataPathSize": 4096,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/8BF5E1C5-473C-457F-81D1-9BBC905E1273",
+          "udid": "8BF5E1C5-473C-457F-81D1-9BBC905E1273",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-42mm",
+          "state": "Shutdown",
+          "name": "Apple Watch Series 11 (42mm)"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/D178258A-953C-4FAB-8311-29A9C0A1E233/data",
+          "dataPathSize": 4096,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/D178258A-953C-4FAB-8311-29A9C0A1E233",
+          "udid": "D178258A-953C-4FAB-8311-29A9C0A1E233",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Ultra-3-49mm",
+          "state": "Shutdown",
+          "name": "Apple Watch Ultra 3 (49mm)"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/DF489F8B-D6F8-41C8-ABCD-8B77D5DA1327/data",
+          "dataPathSize": 4096,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/DF489F8B-D6F8-41C8-ABCD-8B77D5DA1327",
+          "udid": "DF489F8B-D6F8-41C8-ABCD-8B77D5DA1327",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-SE-3-44mm",
+          "state": "Shutdown",
+          "name": "Apple Watch SE 3 (44mm)"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/103FB5E8-9182-4BA5-9F25-38D57BC55F00/data",
+          "dataPathSize": 4096,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/103FB5E8-9182-4BA5-9F25-38D57BC55F00",
+          "udid": "103FB5E8-9182-4BA5-9F25-38D57BC55F00",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.Apple-Watch-SE-3-40mm",
+          "state": "Shutdown",
+          "name": "Apple Watch SE 3 (40mm)"
+        }
+      ],
+      "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+        {
+          "lastBootedAt": "2026-09-24T03:29:45Z",
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/B83D9BBB-67DE-499A-9AC2-724FD6477CC6/data",
+          "dataPathSize": 3596275712,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/B83D9BBB-67DE-499A-9AC2-724FD6477CC6",
+          "udid": "B83D9BBB-67DE-499A-9AC2-724FD6477CC6",
+          "isAvailable": true,
+          "logPathSize": 438272,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+          "state": "Shutdown",
+          "name": "unit-en-iPhone17Pro"
+        },
+        {
+          "lastBootedAt": "2026-09-23T02:14:45Z",
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/9642EB5D-9D16-4C3E-AD61-D487BE42997D/data",
+          "dataPathSize": 3553619968,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/9642EB5D-9D16-4C3E-AD61-D487BE42997D",
+          "udid": "9642EB5D-9D16-4C3E-AD61-D487BE42997D",
+          "isAvailable": true,
+          "logPathSize": 425984,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+          "state": "Shutdown",
+          "name": "AppStore-6.9"
+        },
+        {
+          "lastBootedAt": "2026-09-24T16:44:36Z",
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/607F8597-2EE9-4D1D-ABE8-5DD1BF042221/data",
+          "dataPathSize": 3288231936,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/607F8597-2EE9-4D1D-ABE8-5DD1BF042221",
+          "udid": "607F8597-2EE9-4D1D-ABE8-5DD1BF042221",
+          "isAvailable": true,
+          "logPathSize": 184320,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max",
+          "state": "Shutdown",
+          "name": "woowtech-store-17PM"
+        },
+        {
+          "lastBootedAt": "2026-09-25T15:49:07Z",
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/561AB997-DCD8-4DC3-BD73-3041F1FB40E8/data",
+          "dataPathSize": 2189135872,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/561AB997-DCD8-4DC3-BD73-3041F1FB40E8",
+          "udid": "561AB997-DCD8-4DC3-BD73-3041F1FB40E8",
+          "isAvailable": true,
+          "logPathSize": 524288,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+          "state": "Shutdown",
+          "name": "Apporo-Odoo-UnitTests-20260924"
+        },
+        {
+          "lastBootedAt": "2026-09-25T07:17:31Z",
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/18A3CF89-AF1A-43F1-A4E6-82D91A58F9A0/data",
+          "dataPathSize": 3345674240,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/18A3CF89-AF1A-43F1-A4E6-82D91A58F9A0",
+          "udid": "18A3CF89-AF1A-43F1-A4E6-82D91A58F9A0",
+          "isAvailable": true,
+          "logPathSize": 290816,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+          "state": "Shutdown",
+          "name": "woowtech-smart iPhone 17"
+        },
+        {
+          "lastBootedAt": "2026-09-22T07:11:37Z",
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/982D17EA-1CF9-4853-9774-CD1FF41094D2/data",
+          "dataPathSize": 2171625472,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/982D17EA-1CF9-4853-9774-CD1FF41094D2",
+          "udid": "982D17EA-1CF9-4853-9774-CD1FF41094D2",
+          "isAvailable": true,
+          "logPathSize": 192512,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB",
+          "state": "Shutdown",
+          "name": "AppStore-13"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/5C57DE2E-6939-4870-A492-C63D7B6E45E9/data",
+          "dataPathSize": 18337792,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/5C57DE2E-6939-4870-A492-C63D7B6E45E9",
+          "udid": "5C57DE2E-6939-4870-A492-C63D7B6E45E9",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB",
+          "state": "Shutdown",
+          "name": "iPad Pro 11-inch (M5)"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/264890A8-8C3E-4AD5-A040-C549E090147E/data",
+          "dataPathSize": 18337792,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/264890A8-8C3E-4AD5-A040-C549E090147E",
+          "udid": "264890A8-8C3E-4AD5-A040-C549E090147E",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPad-mini-A17-Pro",
+          "state": "Shutdown",
+          "name": "iPad mini (A17 Pro)"
+        },
+        {
+          "dataPath": "/Users/elmolin/Library/Developer/CoreSimulator/Devices/00E0C2BA-F797-4AEC-ACE2-657338D707F9/data",
+          "dataPathSize": 18337792,
+          "logPath": "/Users/elmolin/Library/Logs/CoreSimulator/00E0C2BA-F797-4AEC-ACE2-657338D707F9",
+          "udid": "00E0C2BA-F797-4AEC-ACE2-657338D707F9",
+          "isAvailable": true,
+          "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Air-11-inch-M4",
+          "state": "Shutdown",
+          "name": "iPad Air 11-inch (M4)"
+        }
+      ]
+    }
+  },
+  "preservedExistingProcesses": [
+    "42690 /opt/homebrew/bin/idb_companion"
+  ],
+  "allSimulatorsShutdown": true,
+  "artifactBaselineMatchesPrevious": true
+}

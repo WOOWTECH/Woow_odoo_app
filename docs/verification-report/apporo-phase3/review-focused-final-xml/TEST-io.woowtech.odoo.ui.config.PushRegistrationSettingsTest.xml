@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.PushRegistrationSettingsTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:20:51" hostname="ElmodeMacBook-Air.local" time="0.197">
+  <properties/>
+  <testcase name="Given every local status when mapped then Settings uses localized resource only()" classname="io.woowtech.odoo.ui.config.PushRegistrationSettingsTest" time="0.008"/>
+  <testcase name="Given A acknowledged and B unconfigured when active account switches then Settings follows B()" classname="io.woowtech.odoo.ui.config.PushRegistrationSettingsTest" time="0.189"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

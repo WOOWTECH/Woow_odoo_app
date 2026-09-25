@@ -1,0 +1,11 @@
+[
+  "app/src/main/java/io/woowtech/odoo/ui/login/LoginViewModel.kt",
+  "app/src/main/java/io/woowtech/odoo/ui/login/LoginScreen.kt",
+  "app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginViewModelTest.kt",
+  "scripts/tests/test_brand_contracts.py",
+  "app/src/main/res/values/strings.xml",
+  "app/src/main/res/values-zh-rTW/strings.xml",
+  "app/src/main/res/values-zh-rCN/strings.xml",
+  "app/src/main/java/io/woowtech/odoo/ui/login/LoginErrorResources.kt",
+  "app/src/test/kotlin/io/woowtech/odoo/ui/login/LoginErrorResourcesTest.kt"
+]

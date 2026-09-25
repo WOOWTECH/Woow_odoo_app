@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:50:07" hostname="ElmodeMacBook-Air.local" time="0.008">
+  <properties/>
+  <testcase name="Given notifications enabled when main screen shown then settings banner is not shown()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.002"/>
+  <testcase name="Given API 33 and already-requested flag set when launch logic runs then launcher NOT invoked()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.001"/>
+  <testcase name="Given API 32 and permission not granted when launch logic runs then launcher NOT invoked()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.0"/>
+  <testcase name="Given API 33 and permission not granted and never requested when launch logic runs then launcher invoked once()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.0"/>
+  <testcase name="Given API 24 when launch logic runs then launcher NOT invoked()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.0"/>
+  <testcase name="Given API 33 and permission already granted when launch logic runs then launcher NOT invoked()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.0"/>
+  <testcase name="Given permission denied but banner dismissed this session when main screen shown then banner hidden()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.002"/>
+  <testcase name="Given permission denied and banner not dismissed when main screen shown then settings banner is exposed()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.001"/>
+  <testcase name="Given API 33 relaunch after first request then dialog auto-launches exactly once across launches()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.001"/>
+  <testcase name="Given API 34 and permission not granted and never requested when launch logic runs then launcher invoked()" classname="io.woowtech.odoo.ui.main.NotificationPermissionLaunchDecisionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

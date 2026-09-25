@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.WoowFcmServiceTest$EdgeCases" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:00" hostname="ElmodeMacBook-Air.local" time="0.005">
+  <properties/>
+  <testcase name="Given payload with URL containing special chars when message received then passes URL intact()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$EdgeCases" time="0.002"/>
+  <testcase name="Given payload with extra unexpected keys when message received then ignores them()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$EdgeCases" time="0.001"/>
+  <testcase name="Given payload with unicode characters when message received then passes through intact()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$EdgeCases" time="0.0"/>
+  <testcase name="Given payload with empty title string when message received then shows notification with empty title()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$EdgeCases" time="0.0"/>
+  <testcase name="Given payload with very long body when message received then passes through intact()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$EdgeCases" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

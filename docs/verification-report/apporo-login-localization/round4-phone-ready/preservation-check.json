@@ -1,0 +1,74 @@
+{
+  "at": "2026-09-25T15:20:15.320079+00:00",
+  "source": {
+    "checked": 190,
+    "unchanged": 190,
+    "changed": []
+  },
+  "priorEvidence": {
+    "checked": 424,
+    "unchanged": 424,
+    "changed": []
+  },
+  "artifactsConfig": {
+    "checked": 9,
+    "unchanged": 9,
+    "changed": []
+  },
+  "trackedDiffIdentical": true,
+  "noStagedFiles": true,
+  "iOSInventoryUnchanged": true,
+  "ownedPIDsAbsent": {
+    "pids": [
+      95452,
+      95463
+    ],
+    "psExit": 1,
+    "absent": true
+  },
+  "portsClosed": {
+    "5038": true,
+    "5580": true,
+    "5581": true
+  },
+  "postflightUUID": {
+    "uuid": "40C1C834-175B-4B27-A685-E27974CB8CB0",
+    "at": "2026-09-25T15:20:17.674538+00:00"
+  },
+  "commands": {
+    "total": 85,
+    "rootRequests": 1,
+    "uiDumpCommands": 0,
+    "adbCommandsAll5038AndScoped": true
+  },
+  "failedArtifactReadback": [
+    {
+      "command": [
+        "/Users/elmolin/Library/Android/sdk/platform-tools/adb",
+        "-P",
+        "5038",
+        "-s",
+        "emulator-5580",
+        "shell",
+        "sha256sum",
+        "/data/app/~~vkUcFWHqFl6x1sZ_tHpfzw==/com.apporo.odoo.debug-x6UD1dqoiD8RVF825L2tnA==/base.apk"
+      ],
+      "exit": null,
+      "timeout": true,
+      "stdout": "",
+      "stderr": "command timeout",
+      "seconds": 15.006,
+      "at": "2026-09-25T15:18:49.451308+00:00",
+      "elapsedSeconds": 79.966
+    }
+  ],
+  "resourceSamples": {
+    "count": 39,
+    "minFreeGiB": {
+      "/": 9.564201354980469,
+      "/Volumes/WOOW-BUILD": 5.730712890625
+    },
+    "maxStartGapSeconds": 2.151073416999999
+  },
+  "guardSHA256": "92c8452fac33dd1c1251298154848b9ffcce070e4fa9966e0bac2086ccafd755"
+}

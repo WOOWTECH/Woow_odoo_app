@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.WoowFcmServiceTest$DataKeyContract" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:56" hostname="ElmodeMacBook-Air.local" time="0.044">
+  <properties/>
+  <testcase name="Given wrong key casing when accessed then returns null()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$DataKeyContract" time="0.039"/>
+  <testcase name="Given FCM data keys when verified then event_type uses underscores()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$DataKeyContract" time="0.0"/>
+  <testcase name="Given FCM data keys when verified then body key is lowercase()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$DataKeyContract" time="0.0"/>
+  <testcase name="Given FCM data keys when verified then odoo_action_url uses underscores()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$DataKeyContract" time="0.0"/>
+  <testcase name="Given FCM data keys when verified then title key is lowercase()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$DataKeyContract" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

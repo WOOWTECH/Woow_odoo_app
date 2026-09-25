@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.LogoutUnregisterTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:25" hostname="ElmodeMacBook-Air.local" time="0.017">
+  <properties/>
+  <testcase name="Given active account when logout then unregisterToken is called before session clear()" classname="io.woowtech.odoo.data.repository.LogoutUnregisterTest" time="0.004"/>
+  <testcase name="Given the last account when logging out then its row is removed and caller is told to show login()" classname="io.woowtech.odoo.data.repository.LogoutUnregisterTest" time="0.003"/>
+  <testcase name="Given two accounts on one device when logging out one then only its row and registration go and the sibling survives()" classname="io.woowtech.odoo.data.repository.LogoutUnregisterTest" time="0.007"/>
+  <testcase name="Given unregister fails when logout then logout completes and account is deleted()" classname="io.woowtech.odoo.data.repository.LogoutUnregisterTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

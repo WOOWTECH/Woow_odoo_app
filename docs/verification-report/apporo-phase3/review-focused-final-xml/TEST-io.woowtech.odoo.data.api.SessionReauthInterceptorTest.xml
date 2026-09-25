@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:20:51" hostname="ElmodeMacBook-Air.local" time="0.457">
+  <properties/>
+  <testcase name="Given persistent session-expired body when re-auth keeps succeeding then only one retry is made()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.018"/>
+  <testcase name="Given two concurrent session expiries for same host when re-auth then authenticate calls never overlap()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.375"/>
+  <testcase name="Given no account matches request host when session expires then engine declines without password POST()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.006"/>
+  <testcase name="Given account host stored as http when session expires then engine declines()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.003"/>
+  <testcase name="Given genuine 401 then 200 when request runs then re-auths once and retry succeeds()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.01"/>
+  <testcase name="Given 200 session-expired body then 200 when request runs then re-auths once and retry succeeds()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.012"/>
+  <testcase name="Given invalid stored credentials when re-auth then clears session emits re-login and does not retry()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.011"/>
+  <testcase name="Given successful 200 result body when request runs then no re-auth and body untouched()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.006"/>
+  <testcase name="Given repeated transient re-auth failures when threshold reached then circuit opens and signals()" classname="io.woowtech.odoo.data.api.SessionReauthInterceptorTest" time="0.011"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

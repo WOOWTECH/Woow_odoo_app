@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" tests="11" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:20:51" hostname="ElmodeMacBook-Air.local" time="0.257">
+  <properties/>
+  <testcase name="Given switch response has no proven SID then do not activate A or publish over B()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.094"/>
+  <testcase name="Given last-login local failure after activation then restore previous active and target row without publishing()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.015"/>
+  <testcase name="Given slow A login when newer B switch finishes then late A cannot alter active or cookie()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.023"/>
+  <testcase name="Given slow A login then newer B login when A completes late then active and SID both remain B()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.017"/>
+  <testcase name="Given push reset is waiting after commit then cancellation is not masked()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.011"/>
+  <testcase name="Given cancellation after manual insertion then finish local credential and SID commit()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.009"/>
+  <testcase name="Given successful manual login then push receives exact response SID with one authentication()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.014"/>
+  <testcase name="Given cancellation after switch activation then finish local SID commit before cancellation escapes()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.013"/>
+  <testcase name="Given credential write failure after new account insertion then remove row and restore previous active()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.018"/>
+  <testcase name="Given uid success without SID then preserve B and perform zero account credential or cookie mutations()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.014"/>
+  <testcase name="Given cancellation before commit then no local mutation()" classname="io.woowtech.odoo.data.repository.ApporoAccountSelectionTest" time="0.023"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

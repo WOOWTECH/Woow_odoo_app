@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.login.LoginViewModelTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:50:06" hostname="ElmodeMacBook-Air.local" time="0.077">
+  <properties/>
+  <testcase name="Given valid credentials when login succeeds then isLoading clears and onSuccess callback invoked()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest" time="0.01"/>
+  <testcase name="Given fresh ViewModel when created then initial state is SERVER_INFO step with empty fields()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest" time="0.004"/>
+  <testcase name="Given session establishment failure then retain typed localized session error and never navigate()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest" time="0.006"/>
+  <testcase name="Given error present when clearError then error is null()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest" time="0.055"/>
+  <testcase name="Given on CREDENTIALS step when goBack then returns to SERVER_INFO and clears credential errors()" classname="io.woowtech.odoo.ui.login.LoginViewModelTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

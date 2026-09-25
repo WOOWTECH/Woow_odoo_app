@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.DeepLinkRouterAmbiguousTenantTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:00" hostname="ElmodeMacBook-Air.local" time="0.002">
+  <properties/>
+  <testcase name="Given exactly one account with the tenant id when route then still resolves (no over-correction)()" classname="io.woowtech.odoo.data.push.DeepLinkRouterAmbiguousTenantTest" time="0.001"/>
+  <testcase name="Given duplicate NULL tenant ids when route with a real tenant id then drops as unresolved()" classname="io.woowtech.odoo.data.push.DeepLinkRouterAmbiguousTenantTest" time="0.0"/>
+  <testcase name="Given two accounts sharing one tenant id when route then drops instead of taking the first()" classname="io.woowtech.odoo.data.push.DeepLinkRouterAmbiguousTenantTest" time="0.0"/>
+  <testcase name="Given a duplicate tenant id where only one of the two is logged in when route then still drops()" classname="io.woowtech.odoo.data.push.DeepLinkRouterAmbiguousTenantTest" time="0.001"/>
+  <testcase name="Given a duplicate tenant id when route then order of the account list cannot change the outcome()" classname="io.woowtech.odoo.data.push.DeepLinkRouterAmbiguousTenantTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

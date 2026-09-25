@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.navigation.AuthRoutingTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:27" hostname="ElmodeMacBook-Air.local" time="0.002">
+  <properties/>
+  <testcase name="Given BiometricAndPin then routes to the biometric screen()" classname="io.woowtech.odoo.ui.navigation.AuthRoutingTest" time="0.002"/>
+  <testcase name="Given RecoveryNeeded then routes to the biometric screen()" classname="io.woowtech.odoo.ui.navigation.AuthRoutingTest" time="0.0"/>
+  <testcase name="Given PinOnly then routes directly to the PIN screen()" classname="io.woowtech.odoo.ui.navigation.AuthRoutingTest" time="0.0"/>
+  <testcase name="Given BiometricOnly then routes to the biometric screen()" classname="io.woowtech.odoo.ui.navigation.AuthRoutingTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

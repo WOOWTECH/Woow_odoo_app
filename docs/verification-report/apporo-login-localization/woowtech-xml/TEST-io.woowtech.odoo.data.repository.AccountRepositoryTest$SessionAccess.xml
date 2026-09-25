@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.AccountRepositoryTest$SessionAccess" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:00" hostname="ElmodeMacBook-Air.local" time="0.003">
+  <properties/>
+  <testcase name="Given server URL with https prefix when getSessionId then extracts host correctly()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SessionAccess" time="0.0"/>
+  <testcase name="Given server URL with path when getSessionId then uses host only()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SessionAccess" time="0.001"/>
+  <testcase name="Given no session when getSessionId then returns null()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SessionAccess" time="0.001"/>
+  <testcase name="Given server URL with http prefix when getSessionId then extracts host correctly()" classname="io.woowtech.odoo.data.repository.AccountRepositoryTest$SessionAccess" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

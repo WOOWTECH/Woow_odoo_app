@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.repository.BiometricCapabilityTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:14:00" hostname="ElmodeMacBook-Air.local" time="0.019">
+  <properties/>
+  <testcase name="Given no canEnable argument when updateBiometric true then defaults to enabled true()" classname="io.woowtech.odoo.data.repository.BiometricCapabilityTest" time="0.011"/>
+  <testcase name="Given canEnable false when updateBiometric true then biometricEnabled forced to false()" classname="io.woowtech.odoo.data.repository.BiometricCapabilityTest" time="0.002"/>
+  <testcase name="Given canEnable false when updateBiometric false then biometricEnabled stays false()" classname="io.woowtech.odoo.data.repository.BiometricCapabilityTest" time="0.002"/>
+  <testcase name="Given canEnable true when updateBiometric true then biometricEnabled becomes true()" classname="io.woowtech.odoo.data.repository.BiometricCapabilityTest" time="0.003"/>
+  <testcase name="Given biometric enabled when updateBiometric with canEnable false then disables it()" classname="io.woowtech.odoo.data.repository.BiometricCapabilityTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

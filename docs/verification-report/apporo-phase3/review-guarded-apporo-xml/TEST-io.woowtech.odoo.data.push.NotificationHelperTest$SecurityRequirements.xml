@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.NotificationHelperTest$SecurityRequirements" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:49:56" hostname="ElmodeMacBook-Air.local" time="0.004">
+  <properties/>
+  <testcase name="Given FLAG_IMMUTABLE requirement when source code reviewed then value is 67108864()" classname="io.woowtech.odoo.data.push.NotificationHelperTest$SecurityRequirements" time="0.002"/>
+  <testcase name="Given VISIBILITY_PRIVATE requirement when source code reviewed then value is -1()" classname="io.woowtech.odoo.data.push.NotificationHelperTest$SecurityRequirements" time="0.0"/>
+  <testcase name="Given FLAG_ACTIVITY_NEW_TASK requirement when source code reviewed then intent flags are correct()" classname="io.woowtech.odoo.data.push.NotificationHelperTest$SecurityRequirements" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.api.ApporoManualSessionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:20:50" hostname="ElmodeMacBook-Air.local" time="0.163">
+  <properties/>
+  <testcase name="Given foreign-domain cookie then login SID is unproven and not borrowed()" classname="io.woowtech.odoo.data.api.ApporoManualSessionTest" time="0.007"/>
+  <testcase name="Given empty or expired SID then fail session establishment without modifying B()" classname="io.woowtech.odoo.data.api.ApporoManualSessionTest" time="0.007"/>
+  <testcase name="Given no Set-Cookie when login succeeds then never borrow existing B SID()" classname="io.woowtech.odoo.data.api.ApporoManualSessionTest" time="0.014"/>
+  <testcase name="Given existing B UI cookie when A authenticates then return own SID and leave UI jar alone()" classname="io.woowtech.odoo.data.api.ApporoManualSessionTest" time="0.005"/>
+  <testcase name="Given expired WebView SID when MainViewModel heals through shared reauth then WebView source has new SID()" classname="io.woowtech.odoo.data.api.ApporoManualSessionTest" time="0.12"/>
+  <testcase name="Given auth redirect or invalid origin then no credential forwarding()" classname="io.woowtech.odoo.data.api.ApporoManualSessionTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

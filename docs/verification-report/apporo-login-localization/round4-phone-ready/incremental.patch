@@ -1,0 +1,126 @@
+--- docs/verification-report/apporo-login-localization/round3-ui-root/launcher.py	2026-09-25 16:32:54
++++ docs/verification-report/apporo-login-localization/round4-phone-ready/launcher.py	2026-09-25 23:14:59
+@@ -1,6 +1,7 @@
+ """One approved boot plus bounded offline UI session; no rebuild/install/auth request."""
+ import datetime
+ import hashlib
++import importlib.util
+ import json
+ import os
+ from pathlib import Path
+@@ -13,7 +14,11 @@
+ import time
+ 
+ ROOT = Path(__file__).resolve().parents[4]
+-EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round3-ui-root')
++EVIDENCE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/android/round4-phone-ready')
++GUARD_PATH = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/release-preparation/build-lane-20260925/guard.py')
++_spec = importlib.util.spec_from_file_location('release_resource_guard', GUARD_PATH)
++resource_guard = importlib.util.module_from_spec(_spec)
++_spec.loader.exec_module(resource_guard)
+ SDK = Path('/Users/elmolin/Library/Android/sdk')
+ BASE = Path('/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/validation/android-emulator-runtime.json')
+ GIB = 1024**3
+@@ -86,6 +91,7 @@
+         self.kernel = None
+         self.cleaning = False
+         self.previous_ime = None
++        self.mount_device = None
+         self.receipt = dict(startedAt=utc(),status='preflight',command=self.emulator_command,
+                             environment={k:self.env[k] for k in (*base['environmentPaths'],
+                             'ADB_SERVER_SOCKET','ANDROID_ADB_SERVER_PORT','ADB_MDNS_AUTO_CONNECT',
+@@ -137,11 +143,9 @@
+             while not self.monitor_done.is_set():
+                 began = time.monotonic()
+                 try:
+-                    free = {name:shutil.disk_usage(path).free for name,path in [('internal',ROOT),('external','/Volumes/WOOW-BUILD')]}
+-                    disks.write(json.dumps(dict(at=utc(),elapsed=began-self.started,freeBytes=free))+'\n');disks.flush()
+-                    if not disk_ok(free):
+-                        self.receipt['resourceStop']=dict(at=utc(),reason='volume free below 2GiB',freeBytes=free)
+-                        self.stop.set()
++                    sample = resource_guard.bounded_sample(diagnostic_path=EVIDENCE/'resource-samples.jsonl')
++                    resource_guard.validate(sample, self.mount_device)
++                    disks.write(json.dumps(dict(at=utc(),elapsed=began-self.started,sample=sample))+'\n');disks.flush()
+                     if began >= self.work_deadline:
+                         self.stop.set()
+                     if tick % 3 == 0:
+@@ -230,9 +234,9 @@
+     def execute(self, ui_action=None):
+         try:
+             self.receipt['priorXmlEvidence']=verified_prior_xml()
+-            free={name:shutil.disk_usage(path).free for name,path in [('internal',ROOT),('external','/Volumes/WOOW-BUILD')]}
+-            self.receipt['startFreeBytes']=free
+-            if not disk_ok(free,starting=True):raise RuntimeError('Start requires >=3GiB on both volumes')
++            sample = resource_guard.preflight(diagnostic_path=EVIDENCE/'resource-samples.jsonl')
++            self.mount_device = sample['device']
++            self.receipt['resourcePreflight'] = dict(sample, uuidCheckedAt=utc())
+             if any(port_open(p) for p in PORTS):raise RuntimeError('Dedicated ports already occupied; no operation')
+             self.monitor=threading.Thread(target=self.monitor_loop,daemon=True);self.monitor.start()
+             self.save()
+@@ -242,8 +246,8 @@
+             if result.get('exit')!=0:raise RuntimeError('Owned server startup failed')
+             self.server_pid=self.listener_pid();self.receipt['ownedAdbPID']=self.server_pid
+             if self.server_pid is None:raise RuntimeError('Unable to record unique owned adb listener')
+-            if not disk_ok({str(p):shutil.disk_usage(p).free for p in (ROOT,Path('/Volumes/WOOW-BUILD'))},starting=True):
+-                raise RuntimeError('Capacity fell below 3GiB before emulator launch')
++            resource_guard.validate(resource_guard.bounded_sample(diagnostic_path=EVIDENCE/'prelaunch-sample.jsonl'),
++                                    self.mount_device, floor=3*GIB)
+             if self.stop.is_set():raise RuntimeError('Monitor stopped before emulator launch')
+             self.kernel=(EVIDENCE/'kernel-emulator.raw.log').open('wb')
+             self.job=subprocess.Popen(self.emulator_command,env=self.env,stdout=self.kernel,stderr=subprocess.STDOUT,start_new_session=True)
+@@ -261,7 +265,10 @@
+             assert self.shell('getprop','ro.kernel.qemu')['stdout']=='1'
+             assert self.adb('devices')['stdout'].splitlines()[1:]==['emulator-5580\tdevice']
+             self.shell('cmd','connectivity','airplane-mode','enable')
+-            self.shell('svc','wifi','disable');self.shell('svc','data','disable')
++            self.shell('svc','wifi','disable')
++            from phone_ready import disable_data_when_phone_ready
++            self.receipt['phoneReady'] = disable_data_when_phone_ready(self.adb, self.work_deadline)
++            self.save()
+             self.shell('settings','put','global','http_proxy',':0')
+             assert 'Active default network: none' in self.shell('dumpsys','connectivity')['stdout']
+             from root_transition import ensure_root
+--- docs/verification-report/apporo-login-localization/round3-ui-root/ui_driver.py	2026-09-25 16:32:54
++++ docs/verification-report/apporo-login-localization/round4-phone-ready/ui_driver.py	2026-09-25 23:16:15
+@@ -157,6 +157,9 @@
+         verified[package]=actual
+     package_info=probe.shell('dumpsys','package',PACKAGE,maximum=8)['stdout']
+     assert re.search(r'\bversionCode=1\b',package_info) and 'versionName=1.0-debug' in package_info
++    helper_info=probe.shell('dumpsys','package',HELPER,maximum=8)['stdout']
++    assert re.search(r'\bversionCode=2004001\b',helper_info) and 'versionName=2.4.0' in helper_info
++    probe.receipt['installedHelperVersion']='2.4.0/2004001'
+     probe.receipt['installedArtifactSHA256']=verified
+     probe.receipt['installedVersion']='1.0-debug/1'
+     assert 'Active default network: none' in probe.shell('dumpsys','connectivity')['stdout']
+--- docs/verification-report/apporo-login-localization/round3-ui-root/test_launcher.py	2026-09-25 16:32:54
++++ docs/verification-report/apporo-login-localization/round4-phone-ready/test_launcher.py	2026-09-25 23:15:11
+@@ -10,6 +10,12 @@
+ 
+ 
+ class ProbeTests(unittest.TestCase):
++    def setUp(self):
++        sample={'device':123,'free':{'/':4*probe.GIB,'/Volumes/WOOW-BUILD':4*probe.GIB}}
++        for name in ('preflight','bounded_sample'):
++            mock=patch.object(probe.resource_guard,name,return_value=sample)
++            mock.start();self.addCleanup(mock.stop)
++
+     def test_capacity_boundaries_apply_to_both_volumes(self):
+         self.assertTrue(probe.disk_ok({'internal':3*probe.GIB,'external':3*probe.GIB},True))
+         self.assertFalse(probe.disk_ok({'internal':4*probe.GIB,'external':3*probe.GIB-1},True))
+@@ -51,7 +57,7 @@
+             self.assertTrue(any(x['step']=='close kernel log' and x['status']=='error' for x in receipt['cleanup']))
+ 
+     def test_preflight_failure_writes_receipt_without_launch_or_kill(self):
+-        with tempfile.TemporaryDirectory() as directory,patch.object(probe,'EVIDENCE',Path(directory)),patch.object(probe.shutil,'disk_usage',return_value=Mock(free=2*probe.GIB)),patch.object(probe,'port_open',return_value=False),patch.object(probe.subprocess,'Popen') as launch,patch.object(probe.os,'killpg') as kill:
++        with tempfile.TemporaryDirectory() as directory,patch.object(probe,'EVIDENCE',Path(directory)),patch.object(probe.resource_guard,'preflight',side_effect=RuntimeError('capacity-below-floor')),patch.object(probe,'port_open',return_value=False),patch.object(probe.subprocess,'Popen') as launch,patch.object(probe.os,'killpg') as kill:
+             result=probe.Probe().execute()
+             launch.assert_not_called();kill.assert_not_called()
+             self.assertTrue(result['cleanupResolved'])
+@@ -84,6 +90,7 @@
+                 elif args[:3]==('shell','getprop','ro.kernel.qemu'):out='1'
+                 elif args[:3]==('shell','dumpsys','connectivity'):out='Active default network: none'
+                 elif args==('shell','id','-u'):out='0'
++                elif args==('shell','service','check','phone'):out='Service phone: found'
+                 elif args[:5]==('shell','cmd','package','list','packages'):out='package:'+args[-1]+' uid:10213'
+                 return {'exit':0,'stdout':out}
+             p.adb=Mock(side_effect=adb);p.cleanup=Mock();ui=Mock()

@@ -1,0 +1,21 @@
+{
+  "sourceFiles": 185,
+  "sourceChanges": [],
+  "trackedDiffIdentical": true,
+  "noStagedFiles": true,
+  "oldEvidenceHashCounts": {
+    "localization": 54,
+    "localization-followup": 3
+  },
+  "avdConfigUnchanged": true,
+  "onlyEmulatorFlagAdded": "-show-kernel",
+  "portsClosed": {
+    "5038": true,
+    "5580": true,
+    "5581": true
+  },
+  "ownedPIDsGone": {
+    "61151": true,
+    "61144": true
+  }
+}

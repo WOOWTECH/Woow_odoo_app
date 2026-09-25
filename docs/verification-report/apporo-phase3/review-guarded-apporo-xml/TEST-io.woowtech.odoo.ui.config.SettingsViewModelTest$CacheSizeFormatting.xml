@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:50:06" hostname="ElmodeMacBook-Air.local" time="0.046">
+  <properties/>
+  <testcase name="Given cache size in bytes when formatted then shows B suffix()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" time="0.01"/>
+  <testcase name="Given cache size in megabytes when formatted then shows MB suffix()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" time="0.005"/>
+  <testcase name="Given cache size exactly 1024 when formatted then shows 1 KB()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" time="0.007"/>
+  <testcase name="Given cache size at 1023 bytes when formatted then shows bytes not KB()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" time="0.009"/>
+  <testcase name="Given cache size at KB-MB boundary when formatted then shows KB not MB()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" time="0.007"/>
+  <testcase name="Given cache size in kilobytes when formatted then shows KB suffix()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$CacheSizeFormatting" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

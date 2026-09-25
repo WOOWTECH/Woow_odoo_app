@@ -1,0 +1,302 @@
+{
+  "checkpoints": [
+    {
+      "id": "en-US-ready-login",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-database-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-https-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-invalid-url",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-username-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-password-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-canonical-return",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-ready-login",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-database-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-https-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-invalid-url",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-username-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-password-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-canonical-return",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-ready-login",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-database-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-https-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-invalid-url",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-username-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-password-required",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-canonical-return",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "en-US-input-1",
+      "field": "server_url",
+      "rawExpected": "  https://https://example.invalid  ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-input-2",
+      "field": "database_name",
+      "rawExpected": " local-db ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-input-3",
+      "field": "server_url",
+      "rawExpected": " http://example.invalid ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-input-4",
+      "field": "server_url",
+      "rawExpected": "bad host",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-input-5",
+      "field": "server_url",
+      "rawExpected": "  https://https://example.invalid  ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "en-US-input-6",
+      "field": "username",
+      "rawExpected": " local-user ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-input-1",
+      "field": "server_url",
+      "rawExpected": "  https://https://example.invalid  ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-input-2",
+      "field": "database_name",
+      "rawExpected": " local-db ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-input-3",
+      "field": "server_url",
+      "rawExpected": " http://example.invalid ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-input-4",
+      "field": "server_url",
+      "rawExpected": "bad host",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-input-5",
+      "field": "server_url",
+      "rawExpected": "  https://https://example.invalid  ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-TW-input-6",
+      "field": "username",
+      "rawExpected": " local-user ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-input-1",
+      "field": "server_url",
+      "rawExpected": "  https://https://example.invalid  ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-input-2",
+      "field": "database_name",
+      "rawExpected": " local-db ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-input-3",
+      "field": "server_url",
+      "rawExpected": " http://example.invalid ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-input-4",
+      "field": "server_url",
+      "rawExpected": "bad host",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-input-5",
+      "field": "server_url",
+      "rawExpected": "  https://https://example.invalid  ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    },
+    {
+      "id": "zh-CN-input-6",
+      "field": "username",
+      "rawExpected": " local-user ",
+      "result": "BLOCKED",
+      "reason": "Pre-App boot guard: dumpsys connectivity hit unchanged 4s timeout; partial output not accepted; stopped without retry",
+      "attempted": false
+    }
+  ],
+  "summary": {
+    "checkpoints": {
+      "planned": 21,
+      "attempted": 0,
+      "passed": 0,
+      "failed": 0,
+      "blocked": 21
+    },
+    "inputs": {
+      "planned": 18,
+      "attempted": 0,
+      "passed": 0,
+      "failed": 0,
+      "blocked": 18
+    },
+    "runtimeLaunches": 1,
+    "uiTaps": 0,
+    "textInputs": 0,
+    "loginSubmits": 0,
+    "dumpAttempts": 0,
+    "xmlSaved": 0,
+    "diagnosticScreenshots": 0,
+    "appLaunches": 0,
+    "waitTaps": 0
+  },
+  "classification": "Environment/tooling pre-App blocker; System UI Wait not reached; not established product defect; no second attempt"
+}

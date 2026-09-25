@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" tests="12" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:27" hostname="ElmodeMacBook-Air.local" time="0.025">
+  <properties/>
+  <testcase name="Given BIOMETRIC_ERROR_NONE_ENROLLED when canAuthenticate then returns NoneEnrolled()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.001"/>
+  <testcase name="Given BIOMETRIC_ERROR_HW_UNAVAILABLE when canAuthenticate then returns HardwareUnavailable()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.0"/>
+  <testcase name="Given ERROR_LOCKOUT_PERMANENT when onAuthenticationError then calls onPermanentLockout()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.001"/>
+  <testcase name="Given BIOMETRIC_ERROR_NO_HARDWARE when canAuthenticate then returns NoHardware()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.0"/>
+  <testcase name="Given ERROR_LOCKOUT when onAuthenticationError then calls onPermanentLockout()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.0"/>
+  <testcase name="Given ERROR_NEGATIVE_BUTTON when onAuthenticationError then calls onFallbackToPin()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.001"/>
+  <testcase name="Given ERROR_USER_CANCELED when onAuthenticationError then calls onFallbackToPin()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.0"/>
+  <testcase name="Given BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED when canAuthenticate then returns SecurityUpdateRequired()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.0"/>
+  <testcase name="Given successful auth when onAuthenticationSucceeded then calls onSuccess()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.02"/>
+  <testcase name="Given BIOMETRIC_SUCCESS when canAuthenticate then returns Available()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.001"/>
+  <testcase name="Given generic error when onAuthenticationError then calls onError with message()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.0"/>
+  <testcase name="Given failed attempt when onAuthenticationFailed then calls onFailed()" classname="io.woowtech.odoo.ui.auth.BiometricPromptHelperTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

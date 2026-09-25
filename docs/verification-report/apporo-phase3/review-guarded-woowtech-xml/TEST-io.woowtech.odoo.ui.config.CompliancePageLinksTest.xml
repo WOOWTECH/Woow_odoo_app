@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.CompliancePageLinksTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:56" hostname="ElmodeMacBook-Air.local" time="0.055">
+  <properties/>
+  <testcase name="Given Traditional Chinese UI when opening compliance links then the non-suffixed pages are used" classname="io.woowtech.odoo.ui.config.CompliancePageLinksTest" time="0.023"/>
+  <testcase name="Given Simplified Chinese UI when opening compliance links then the non-suffixed pages are used" classname="io.woowtech.odoo.ui.config.CompliancePageLinksTest" time="0.012"/>
+  <testcase name="Given an untranslated locale when UI falls back to English then the -en pages are used" classname="io.woowtech.odoo.ui.config.CompliancePageLinksTest" time="0.01"/>
+  <testcase name="Given English UI when opening compliance links then the -en pages are used" classname="io.woowtech.odoo.ui.config.CompliancePageLinksTest" time="0.01"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

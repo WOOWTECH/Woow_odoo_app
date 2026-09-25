@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.SettingsViewModelTest$ThemeModeTests" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:51:49" hostname="ElmodeMacBook-Air.local" time="0.004">
+  <properties/>
+  <testcase name="Given theme mode selected when updateThemeMode SYSTEM then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$ThemeModeTests" time="0.001"/>
+  <testcase name="Given theme mode selected when updateThemeMode LIGHT then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$ThemeModeTests" time="0.001"/>
+  <testcase name="Given theme mode selected when updateThemeMode DARK then delegates to repository()" classname="io.woowtech.odoo.ui.config.SettingsViewModelTest$ThemeModeTests" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

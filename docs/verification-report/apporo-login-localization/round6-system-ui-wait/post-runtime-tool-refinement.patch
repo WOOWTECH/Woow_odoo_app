@@ -1,0 +1,20 @@
+--- runtime-ui_driver.py
++++ final-ui_driver.py
+@@ -79,7 +79,7 @@
+                    readinessDeadline=deadline,status='inspecting',waitAlreadyUsed=self.wait_used)
+         self.p.receipt.setdefault('systemUiModalEvents',[]).append(event)
+         try:
+-            before=self.image(stage+'-modal-before',deadline=deadline)
++            before=self.image(snapshot[1].stem+'-modal-before',deadline=deadline)
+             event['beforeScreenshot']=before.name
+             header=before.read_bytes()[:24]
+             if len(header)!=24 or header[:8]!=b'\x89PNG\r\n\x1a\n' or header[12:16]!=b'IHDR':
+@@ -101,7 +101,7 @@
+             event['status']='Wait-tapped'
+             after=self.dump(stage+'-modal-after',deadline)
+             event['afterXml']=after[1].name
+-            event['afterScreenshot']=self.image(stage+'-modal-after',deadline=deadline).name
++            event['afterScreenshot']=self.image(after[1].stem,deadline=deadline).name
+             launcher.remaining_timeout(deadline,1)
+             # Reappearance/any other modal stops immediately, never a second Wait.
+             wait_center(after[0],screen,False,self.wait_used)

@@ -1,0 +1,10 @@
+{
+  "at": "2026-09-25T15:17:19.278288+00:00",
+  "ownedPIDsAbsent": [
+    82661,
+    82676
+  ],
+  "allSimulatorsShutdown": true,
+  "priorReceipt": "/Users/elmolin/WOOW-mobile-app-analysis/research/apporo-odoo/simulator-validation/ios-standard-ui-20260925/attempt-20260925-231000-ui/independent-cleanup.json",
+  "foreignCompanionUntouched": 42690
+}

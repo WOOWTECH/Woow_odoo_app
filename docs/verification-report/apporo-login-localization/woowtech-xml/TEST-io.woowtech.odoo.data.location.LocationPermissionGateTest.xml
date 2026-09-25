@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.location.LocationPermissionGateTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:13:59" hostname="ElmodeMacBook-Air.local" time="0.064">
+  <properties/>
+  <testcase name="Given origin host different from active account then Reject origin-host-mismatch()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.054"/>
+  <testcase name="Given locationEnabled=false then Reject user-opted-out()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.002"/>
+  <testcase name="Given only COARSE granted then Grant()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.001"/>
+  <testcase name="Given origin null then Reject()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.002"/>
+  <testcase name="Given origin not HTTPS then Reject origin-not-https()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.001"/>
+  <testcase name="Given FINE granted and origin matches and toggle on then Grant()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.001"/>
+  <testcase name="Given no active account then Reject no-active-account()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.001"/>
+  <testcase name="Given no permission then NeedsRuntimePrompt()" classname="io.woowtech.odoo.data.location.LocationPermissionGateTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

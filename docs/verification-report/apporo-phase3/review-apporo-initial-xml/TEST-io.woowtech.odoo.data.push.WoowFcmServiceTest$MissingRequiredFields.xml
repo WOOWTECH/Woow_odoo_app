@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.data.push.WoowFcmServiceTest$MissingRequiredFields" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-25T03:21:29" hostname="ElmodeMacBook-Air.local" time="0.023">
+  <properties/>
+  <testcase name="Given payload with only event_type when message received then does NOT show notification()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$MissingRequiredFields" time="0.004"/>
+  <testcase name="Given payload without body when message received then does NOT show notification()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$MissingRequiredFields" time="0.005"/>
+  <testcase name="Given payload with only odoo_action_url when message received then does NOT show notification()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$MissingRequiredFields" time="0.002"/>
+  <testcase name="Given completely empty data when message received then does NOT show notification()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$MissingRequiredFields" time="0.003"/>
+  <testcase name="Given payload without title when message received then does NOT show notification()" classname="io.woowtech.odoo.data.push.WoowFcmServiceTest$MissingRequiredFields" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

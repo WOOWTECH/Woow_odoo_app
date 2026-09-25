@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-09-25T06:12:27" hostname="ElmodeMacBook-Air.local" time="0.002">
+  <properties/>
+  <testcase name="Given reduceMotion flag when BiometricScreen reads it then snap spec should be used()" classname="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" time="0.0"/>
+  <testcase name="Given reduceMotion false when updateReduceMotion true then settings reflect true()" classname="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" time="0.0"/>
+  <testcase name="Given updateReduceMotion false when called then persists false to EncryptedPrefs()" classname="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" time="0.001"/>
+  <testcase name="Given reduceMotion false by default when settings read then reduceMotion is false()" classname="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" time="0.0"/>
+  <testcase name="Given updateReduceMotion true when called then persists to EncryptedPrefs()" classname="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" time="0.0"/>
+  <testcase name="Given reduceMotion true when updateReduceMotion false then settings reflect false()" classname="io.woowtech.odoo.ui.config.AnimationReduceMotionTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

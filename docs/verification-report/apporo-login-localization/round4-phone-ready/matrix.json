@@ -1,0 +1,215 @@
+{
+  "checkpointSummary": {
+    "planned": 21,
+    "executed": 0,
+    "PASS": 0,
+    "FAIL": 0,
+    "BLOCKED": 21
+  },
+  "inputSummary": {
+    "planned": 18,
+    "executed": 0,
+    "PASS": 0,
+    "FAIL": 0,
+    "BLOCKED": 18
+  },
+  "checkpoints": [
+    {
+      "id": "en-US-ready-login",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "en-US-database-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "en-US-https-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "en-US-invalid-url",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "en-US-username-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "en-US-password-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "en-US-canonical-return",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-ready-login",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-database-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-https-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-invalid-url",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-username-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-password-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-TW-canonical-return",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-ready-login",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-database-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-https-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-invalid-url",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-username-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-password-required",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    },
+    {
+      "id": "zh-CN-canonical-return",
+      "result": "BLOCKED",
+      "reason": "Installed APK SHA readback timed out before launch"
+    }
+  ],
+  "readbacks": [
+    {
+      "id": "en-US-server-repeated-https",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "en-US-database-spaces",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "en-US-server-http",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "en-US-server-invalid-host",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "en-US-server-repeated-https-again",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "en-US-username-spaces",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-TW-server-repeated-https",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-TW-database-spaces",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-TW-server-http",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-TW-server-invalid-host",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-TW-server-repeated-https-again",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-TW-username-spaces",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-CN-server-repeated-https",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-CN-database-spaces",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-CN-server-http",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-CN-server-invalid-host",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-CN-server-repeated-https-again",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    },
+    {
+      "id": "zh-CN-username-spaces",
+      "result": "BLOCKED",
+      "reason": "App not launched; no input action attempted"
+    }
+  ]
+}
