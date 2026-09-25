@@ -105,3 +105,7 @@ __pycache__/
 
 # BMAD personal (user-scoped) config — never shared
 _bmad/config.user.yaml
+
+# Separate Apporo upload signing and variant client injection
+apporo-keystore.properties
+app/src/*/google-services.json

@@ -16,6 +16,26 @@ _Critical rules and patterns for implementing code in this repo. Focused on unob
 
 ---
 
+
+## 2026-09-25 階段 3 推播候選（尚未編譯／獨立 review）
+
+- Apporo 專用 account-ID/session transport：每個寫入前 capability、固定 brand、register echo/version；heal 最多一次且換 SID 重做 cap。WOOW 保留原 host/session 與 switch unregister。
+- Apporo manual auth 只採當次 isolated response 的有效 SID；缺 SID 零帳號／credential／active／jar 寫入。有 SID 但 push 缺 cap 不改登入成功。push heal 不發布 UI jar；manual active/cookie commit 使用同一 selection-attempt fence。
+- Settings 顯示目前 account-ID 的記憶體診斷（三語），ACK 不保證送達。captured unregister 仍可 best-effort 清理；移除帳號後不能重新認證或借別人 SID。
+- 本輪只准 stdlib 離線檢查；新增 JVM 未跑，兩 flavor build/unit 由父代理序列驗證。37 offline 的兩個 stage2 freeze 測試已按核准的精確 5 個 session/push seams、10 個新增 strings keys 更新，其他安全檔／legacy string 語意保留。歷史 438 PASS/3 SKIP 不是本輪結果。
+- live 拒絕閘門仍保留；不代表部署、送達、合併或發布就緒。詳見 `docs/plans/2026-09-25-apporo-push-client.md`、`docs/verification-report/apporo-phase3/validation.md`。
+
+## 2026-09-24 階段 2 品牌候選補充（未完整驗證）
+
+- 新工作分支由 `73ad528` 起；flavors 為 `woowtech` / `apporo`，namespace 仍為 `io.woowtech.odoo`。下方歷史的單一 variant/CI 敘述不適用本候選。
+- WOOW 1.4.2/23 不變；Apporo 1.0/1、`com.apporo.odoo` / `.debug`；scheme `apporoodoo` / `apporoodoo-dev`。名稱三語均 `Apporo platform`。
+- 真正任務改為 `assembleWoowtechDebug` / `testWoowtechDebugUnitTest` 與 `assembleApporoDebug` / `testApporoDebugUnitTest`；正式任務同理替換 Debug→Release。本輪由**主代理因磁碟僅約 5.4GiB 暫緩 Gradle 重型建置**（不是擁有者明文禁止所有 build），仍不得執行 Gradle；裝置/網路操作另屬禁止範圍。完整 gate 仍 BLOCKED，不代表免驗。
+- Firebase plugin 無條件接線；每 variant `app/src/<variant>/google-services.json`。只有 WOOW 可保留既有 `app/google-services.json`。Apporo 無配置不能出包；正式缺 `APPORO_RELEASE_*` 簽章亦拒絕。client 檔不得印 API key。
+- Apporo signing 只讀 `apporo-keystore.properties` 或同名 Gradle/env properties，禁止 WOOW key 路徑。真 key 尚未建立；正式 signer 指紋仍待另批驗證。
+- 離線腳本需 Python 3（stdlib），`python3 -B -m unittest discover -s scripts/tests -p 'test_brand*.py' -v`；CI 僅兩 flavor debug build/unit/internal artifact，不自動 publish。
+- live scripts 必須顯式 `APP_VARIANT`，package 與 Firebase project 不得跨品牌覆寫；device/Odoo 寫入各須授權旗標。Apporo live tests 仍拒絕：階段 3 品牌推播契約尚未實作。Activity 類別保持 WOOW namespace。
+- 詳見 `docs/plans/2026-09-24-apporo-Implementation_Plan.md` / `2026-09-24-apporo-Test_Plan.md`。只交未 staged 候選 diff，不 commit 產品碼、不宣稱可發布。
+
 ## 0. Rule Precedence
 
 1. **`CLAUDE.md` entries marked `CRITICAL RULE`** — process law, override any generic Kotlin/Android style advice. Summarized in §7.

@@ -3,7 +3,13 @@ package io.woowtech.odoo.ui.config
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.woowtech.odoo.data.repository.AccountRepository
+import io.woowtech.odoo.data.repository.FcmTokenRepository
+import io.woowtech.odoo.data.repository.PushRegistrationStatus
 import io.woowtech.odoo.data.repository.CacheRepository
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import io.woowtech.odoo.data.repository.SettingsRepository
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
@@ -17,10 +23,18 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
-    private val cacheRepository: CacheRepository
+    private val cacheRepository: CacheRepository,
+    accountRepository: AccountRepository,
+    fcmTokenRepository: FcmTokenRepository,
 ) : ViewModel() {
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
+
+    val pushRegistrationStatus: StateFlow<PushRegistrationStatus> = combine(
+        accountRepository.activeAccount, fcmTokenRepository.registrationStatuses,
+    ) { account, statuses ->
+        account?.let { statuses[it.id] } ?: PushRegistrationStatus.NOT_CHECKED
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PushRegistrationStatus.NOT_CHECKED)
 
     private val _cacheSizeText = MutableStateFlow("")
     val cacheSizeText: StateFlow<String> = _cacheSizeText.asStateFlow()

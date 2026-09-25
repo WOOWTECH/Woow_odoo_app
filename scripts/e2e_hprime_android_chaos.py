@@ -43,12 +43,16 @@ import requests
 # ─── Config (shared with happy-path harness) ─────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
+    require_live_test_authorization,
     APP_PACKAGE as PKG,
     ODOO_DB,
     ODOO_PASS,
     ODOO_URL,
     ODOO_USER,
 )
+
+require_live_test_authorization()
+
 
 # ─── Fixed IDs ───────────────────────────────────────────────────────────────
 ADMIN_USER_ID = 2
@@ -223,7 +227,7 @@ def _assert_no_fcm_notification(marker: str, wait_s: int) -> tuple[bool, str]:
         ws_appeared = _find_notification_record(marker, dump=dump, require_group_key="discuss")
         our_records = [
             l for l in dump.split("\n")
-            if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
+            if PKG in l and "NotificationRecord" in l
         ]
         absence_proof = (
             f"no FCM-path notification (groupKey=mention) after {wait_s}s; "
@@ -247,7 +251,7 @@ def _assert_no_notification(marker: str, wait_s: int) -> tuple[bool, str]:
         dump = _dump_notification()
         our_records = [
             l for l in dump.split("\n")
-            if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
+            if PKG in l and "NotificationRecord" in l
         ]
         absence_proof = (
             f"marker absent after {wait_s}s; "
@@ -575,7 +579,7 @@ try:
     dump_baseline = _dump_notification()
     baseline_records = [
         l for l in dump_baseline.split("\n")
-        if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
+        if PKG in l and "NotificationRecord" in l
     ]
     print(f"  Baseline our-app notification records: {len(baseline_records)}")
 
@@ -692,7 +696,7 @@ try:
     dump_pre_c2 = _dump_notification()
     pre_c2_records = [
         l for l in dump_pre_c2.split("\n")
-        if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
+        if PKG in l and "NotificationRecord" in l
     ]
     print(f"  Pre-C2 our-app notification records: {len(pre_c2_records)}")
 
@@ -753,7 +757,7 @@ try:
             dump_c2 = _dump_notification()
             our_recs = [
                 l for l in dump_c2.split("\n")
-                if "io.woowtech.odoo.debug" in l and "NotificationRecord" in l
+                if PKG in l and "NotificationRecord" in l
             ]
             errs.append(
                 f"NFC-1 violation: notification did NOT arrive within 60s "

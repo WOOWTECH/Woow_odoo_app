@@ -20,10 +20,11 @@ data class LoginUiState(
     val rememberMe: Boolean = true,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val serverUrlError: String? = null,
-    val databaseError: String? = null,
-    val usernameError: String? = null,
-    val passwordError: String? = null
+    val errorType: AuthResult.ErrorType? = null,
+    val serverUrlError: LoginFieldError? = null,
+    val databaseError: LoginFieldError? = null,
+    val usernameError: LoginFieldError? = null,
+    val passwordError: LoginFieldError? = null
 )
 
 enum class LoginStep {
@@ -43,7 +44,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             serverUrl = url,
             serverUrlError = null,
-            error = null
+            error = null, errorType = null
         )
     }
 
@@ -51,7 +52,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             database = database,
             databaseError = null,
-            error = null
+            error = null, errorType = null
         )
     }
 
@@ -59,7 +60,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             username = username,
             usernameError = null,
-            error = null
+            error = null, errorType = null
         )
     }
 
@@ -67,7 +68,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             password = password,
             passwordError = null,
-            error = null
+            error = null, errorType = null
         )
     }
 
@@ -80,25 +81,25 @@ class LoginViewModel @Inject constructor(
 
         // Validate server URL
         if (state.serverUrl.isBlank()) {
-            _uiState.value = state.copy(serverUrlError = "Server URL is required")
+            _uiState.value = state.copy(serverUrlError = LoginFieldError.SERVER_URL_REQUIRED)
             return
         }
 
         // Validate database
         if (state.database.isBlank()) {
-            _uiState.value = state.copy(databaseError = "Database name is required")
+            _uiState.value = state.copy(databaseError = LoginFieldError.DATABASE_REQUIRED)
             return
         }
 
         // Check URL format (must not start with http://)
         if (ServerUrlInput.isInsecure(state.serverUrl)) {
-            _uiState.value = state.copy(serverUrlError = "HTTPS is required for security")
+            _uiState.value = state.copy(serverUrlError = LoginFieldError.HTTPS_REQUIRED)
             return
         }
 
         val normalized = ServerUrlInput.normalize(state.serverUrl)
         if (normalized == null) {
-            _uiState.value = state.copy(serverUrlError = "Invalid server URL")
+            _uiState.value = state.copy(serverUrlError = LoginFieldError.INVALID_URL)
             return
         }
 
@@ -106,14 +107,14 @@ class LoginViewModel @Inject constructor(
             step = LoginStep.CREDENTIALS,
             serverUrl = ServerUrlInput.displayValue(normalized),
             database = state.database.trim(),
-            error = null
+            error = null, errorType = null
         )
     }
 
     fun goBack() {
         _uiState.value = _uiState.value.copy(
             step = LoginStep.SERVER_INFO,
-            error = null,
+            error = null, errorType = null,
             passwordError = null,
             usernameError = null
         )
@@ -124,20 +125,20 @@ class LoginViewModel @Inject constructor(
 
         // Validate credentials
         if (state.username.isBlank()) {
-            _uiState.value = state.copy(usernameError = "Username is required")
+            _uiState.value = state.copy(usernameError = LoginFieldError.USERNAME_REQUIRED)
             return
         }
         if (state.password.isBlank()) {
-            _uiState.value = state.copy(passwordError = "Password is required")
+            _uiState.value = state.copy(passwordError = LoginFieldError.PASSWORD_REQUIRED)
             return
         }
 
         viewModelScope.launch {
-            _uiState.value = state.copy(isLoading = true, error = null)
+            _uiState.value = state.copy(isLoading = true, error = null, errorType = null)
 
             val serverUrl = ServerUrlInput.normalize(state.serverUrl)
             if (serverUrl == null) {
-                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL")
+                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL", errorType = AuthResult.ErrorType.INVALID_URL)
                 return@launch
             }
 
@@ -167,7 +168,8 @@ class LoginViewModel @Inject constructor(
                     }
                     _uiState.value = state.copy(
                         isLoading = false,
-                        error = errorMessage
+                        error = errorMessage,
+                        errorType = result.type
                     )
                 }
             }
@@ -175,6 +177,6 @@ class LoginViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+        _uiState.value = _uiState.value.copy(error = null, errorType = null)
     }
 }

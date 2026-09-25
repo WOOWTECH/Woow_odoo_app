@@ -1,5 +1,6 @@
 package io.woowtech.odoo.data.local
 
+import io.woowtech.odoo.brand.AppBrand
 import android.content.Context
 import android.content.SharedPreferences
 import dev.spght.encryptedprefs.EncryptedSharedPreferences
@@ -74,7 +75,7 @@ class EncryptedPrefs @Inject constructor(
 
     fun getAppSettings(): AppSettings {
         return AppSettings(
-            themeColor = prefs.getString(KEY_THEME_COLOR, "#6183FC") ?: "#6183FC",
+            themeColor = prefs.getString(KEY_THEME_COLOR, AppBrand.current.primaryHex) ?: AppBrand.current.primaryHex,
             themeMode = ThemeMode.entries.find {
                 it.code == prefs.getString(KEY_THEME_MODE, "system")
             } ?: ThemeMode.SYSTEM,

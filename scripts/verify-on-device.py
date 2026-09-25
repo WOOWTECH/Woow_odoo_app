@@ -21,7 +21,9 @@ import uiautomator2 as u2
 # Single source of truth for test config — see scripts/test_config.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
+    require_live_test_authorization,
     APP_ACTIVITY as ACTIVITY,
+    APP_TITLES,
     APP_PACKAGE as PKG,
     FIREBASE_PROJECT_ID,
     FIREBASE_SA_FILE,
@@ -32,6 +34,9 @@ from test_config import (
     ODOO_USER,
     VERIFY_REPORT_FILE,
 )
+
+require_live_test_authorization()
+
 
 if not (ODOO_URL and ODOO_DB and ODOO_USER and ODOO_PASS):
     print("ERROR: Odoo test server not configured. Set ODOO_URL, ODOO_DB, ODOO_USER "
@@ -89,10 +94,6 @@ def skip(vid, msg):
 
 
 
-# App 顯示名稱依裝置語系而異（AP-15 改名）：預設語系為英文 "woowtech platform"，
-# 中文語系為「渥屋系統」。任何斷言都必須同時接受兩者，否則換一台語系不同的
-# 裝置就會誤報失敗。字串來源：app/src/main/res/values*/strings.xml 的 app_name。
-APP_TITLES = ("woowtech platform", "渥屋系統")
 
 
 def app_title_visible(d, timeout=2):
@@ -568,7 +569,7 @@ check("V14a-C17", "App launches with deep link handler (no crash)", still_ok)
 # Send deep link intent
 subprocess.run([
     "adb", "shell", "am", "start",
-    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
+    "-n", f"{PKG}/{ACTIVITY}",
     "--es", "odoo_action_url", "/web#id=42&model=sale.order&view_type=form"
 ], capture_output=True, text=True, timeout=10)
 time.sleep(3)
@@ -716,7 +717,7 @@ time.sleep(3)
 # But if WebView allowed it, we'd still be in our app showing the external site
 subprocess.run([
     "adb", "shell", "am", "start",
-    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
+    "-n", f"{PKG}/{ACTIVITY}",
     "--es", "odoo_action_url", "https://evil.com/phish"
 ], capture_output=True, text=True, timeout=10)
 time.sleep(3)
@@ -784,7 +785,7 @@ d.app_stop(PKG)
 time.sleep(1)
 subprocess.run([
     "adb", "shell", "am", "start",
-    "-n", f"{PKG}/io.woowtech.odoo.ui.MainActivity",
+    "-n", f"{PKG}/{ACTIVITY}",
     "--es", "odoo_action_url", "/web#action=contacts"
 ], capture_output=True, text=True, timeout=10)
 time.sleep(6)
@@ -878,7 +879,7 @@ if os.path.exists(SA_FILE):
             ).stdout
 
             has_notif = "E2E Test" in notif_dump or (
-                "io.woowtech.odoo.debug" in notif_dump and "woow_odoo_messages" in notif_dump
+                PKG in notif_dump and "woow_odoo_messages" in notif_dump
                 and "NotificationRecord" in notif_dump
             )
             check("V20c", "Push notification appeared in notification shade", has_notif)
@@ -1523,6 +1524,7 @@ print()
 
 # Write results to markdown (path from test_config.VERIFY_REPORT_FILE)
 report_path = VERIFY_REPORT_FILE
+os.makedirs(os.path.dirname(report_path), exist_ok=True)
 os.makedirs(os.path.dirname(os.path.abspath(report_path)), exist_ok=True)
 with open(report_path, "a") as f:
     f.write(f"\n\n## uiautomator2 Verification Run — {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")

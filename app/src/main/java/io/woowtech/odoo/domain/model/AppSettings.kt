@@ -1,7 +1,9 @@
 package io.woowtech.odoo.domain.model
 
+import io.woowtech.odoo.brand.AppBrand
+
 data class AppSettings(
-    val themeColor: String = "#6183FC",
+    val themeColor: String = AppBrand.current.primaryHex,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val reduceMotion: Boolean = false,
     val appLockEnabled: Boolean = false,

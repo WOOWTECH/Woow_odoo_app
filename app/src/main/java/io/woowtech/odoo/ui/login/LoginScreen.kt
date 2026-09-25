@@ -124,10 +124,10 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 品牌圓標。白底，所以用與 iOS 同一張純圓標（無白色襯底）。
+            // Flavor overlay selects the brand mark at every density.
             Image(
                 painter = painterResource(id = R.drawable.woow_logo),
-                contentDescription = null,
+                contentDescription = stringResource(R.string.content_description_logo),
                 modifier = Modifier.size(80.dp)
             )
 
@@ -213,7 +213,7 @@ fun LoginScreen(
                     )
                 ) {
                     Text(
-                        text = error,
+                        text = uiState.errorType?.messageResource()?.let { stringResource(it) } ?: error,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
@@ -233,8 +233,8 @@ fun LoginScreen(
 private fun ServerInfoForm(
     serverUrl: String,
     database: String,
-    serverUrlError: String?,
-    databaseError: String?,
+    serverUrlError: LoginFieldError?,
+    databaseError: LoginFieldError?,
     onServerUrlChange: (String) -> Unit,
     onDatabaseChange: (String) -> Unit,
     onNextClick: () -> Unit
@@ -255,7 +255,7 @@ private fun ServerInfoForm(
             placeholder = stringResource(R.string.server_url_hint),
             prefix = stringResource(R.string.https_prefix),
             isError = serverUrlError != null,
-            errorMessage = serverUrlError,
+            errorMessage = serverUrlError?.let { stringResource(it.messageResource()) },
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
                 imeAction = ImeAction.Next
@@ -274,7 +274,7 @@ private fun ServerInfoForm(
             label = stringResource(R.string.database_name),
             placeholder = stringResource(R.string.database_name_hint),
             isError = databaseError != null,
-            errorMessage = databaseError,
+            errorMessage = databaseError?.let { stringResource(it.messageResource()) },
             keyboardOptions = KeyboardOptions(
                 imeAction = ImeAction.Done
             ),
@@ -313,8 +313,8 @@ private fun CredentialsForm(
     username: String,
     password: String,
     rememberMe: Boolean,
-    usernameError: String?,
-    passwordError: String?,
+    usernameError: LoginFieldError?,
+    passwordError: LoginFieldError?,
     isLoading: Boolean,
     onUsernameChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
@@ -337,7 +337,7 @@ private fun CredentialsForm(
             label = stringResource(R.string.username),
             placeholder = stringResource(R.string.username_hint),
             isError = usernameError != null,
-            errorMessage = usernameError,
+            errorMessage = usernameError?.let { stringResource(it.messageResource()) },
             enabled = !isLoading,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
@@ -357,7 +357,7 @@ private fun CredentialsForm(
             label = stringResource(R.string.password),
             placeholder = stringResource(R.string.password_hint),
             isError = passwordError != null,
-            errorMessage = passwordError,
+            errorMessage = passwordError?.let { stringResource(it.messageResource()) },
             enabled = !isLoading,
             visualTransformation = if (passwordVisible) {
                 VisualTransformation.None

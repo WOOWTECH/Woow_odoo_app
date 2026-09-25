@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.theme
 
+import io.woowtech.odoo.brand.AppBrand
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +51,7 @@ private fun createLightColorScheme(primaryColor: Color) = lightColorScheme(
     onPrimary = OnPrimaryLight,
     primaryContainer = PrimaryContainerLight,
     onPrimaryContainer = OnPrimaryContainerLight,
-    secondary = AccentSkyBlue,                       // Accent 5%
+    secondary = Color(AppBrand.current.secondary),                       // Accent 5%
     onSecondary = OnPrimaryLight,
     tertiary = AccentCoral,                          // Accent 5%
     onTertiary = OnPrimaryLight,
@@ -71,7 +72,7 @@ private fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
     onPrimary = OnPrimaryDark,
     primaryContainer = PrimaryContainerDark,
     onPrimaryContainer = OnPrimaryContainerDark,
-    secondary = AccentSkyBlue,
+    secondary = Color(AppBrand.current.secondary),
     onSecondary = OnPrimaryDark,
     tertiary = AccentCoral,
     onTertiary = OnPrimaryDark,
@@ -131,7 +132,7 @@ fun WoowTechOdooTheme(
  * - 登入前沒有帳號脈絡，「要套誰的主題色」沒有答案 —— 沿用上一個帳號的顏色，
  *   等於把別人的品牌色漏到一個還不屬於他的畫面上。
  * - 主題色的用途是讓客戶把 App **裡面**（他自己的 Odoo）品牌化；登入畫面是本
- *   產品自己的門面，必須維持品牌藍。
+ *   產品自己的門面，必須維持所選 flavor 的品牌色。
  *
  * 用法：包住整個畫面的最外層 composable。包起來之後，畫面內所有
  * `MaterialTheme.colorScheme.primary` / `primaryContainer` 都會自動取得固定色，
@@ -146,6 +147,12 @@ fun WoowFixedBrandTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = base.copy(
             primary = WoowTechBlue,
+            onPrimary = Color.White,
+            onPrimaryContainer = if (base.background.luminance() > 0.5f) {
+                OnPrimaryContainerLight
+            } else {
+                OnPrimaryContainerDark
+            },
             primaryContainer = if (base.background.luminance() > 0.5f) {
                 PrimaryContainerLight
             } else {

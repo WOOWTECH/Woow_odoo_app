@@ -45,6 +45,7 @@ import uiautomator2 as u2
 # ─── Config (single source of truth from test_config.py) ─────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
+    require_live_test_authorization,
     APP_ACTIVITY as ACTIVITY,
     APP_PACKAGE as PKG,
     ODOO_DB,
@@ -55,6 +56,9 @@ from test_config import (
     enable_adb_keyboard,
     restore_ime,
 )
+
+require_live_test_authorization()
+
 
 # ─── Identifiers fixed for this Odoo database ────────────────────────────────
 # admin: uid=2, partner_id=3 ("Mitchell Admin")
@@ -730,7 +734,7 @@ for trigger_id, trigger_desc in TRIGGERS:
     else:
         # Capture full dump for diagnosis
         dump = _dump_notification()
-        our_records = [l for l in dump.split("\n") if "io.woowtech.odoo.debug" in l]
+        our_records = [l for l in dump.split("\n") if PKG in l]
         _mark(trigger_id, False,
               error=f"marker not found in dumpsys after 35s "
                     f"(our_app_records_in_shade={len(our_records)})")
@@ -819,7 +823,7 @@ print(f"  NotificationRecord count for our app: {len(our_lines)}")
 
 # Check for groupKey
 group_key_lines = [l for l in dump.split("\n")
-                   if "io.woowtech.odoo.debug" in l and "groupKey=" in l]
+                   if PKG in l and "groupKey=" in l]
 print(f"  Lines with groupKey for our app: {len(group_key_lines)}")
 for gkl in group_key_lines[:5]:
     print(f"    {gkl.strip()[:120]}")

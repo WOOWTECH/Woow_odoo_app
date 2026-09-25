@@ -196,4 +196,22 @@
     <string name="settings_location_section">Privacy</string>
     <string name="settings_location_title">Use location for clock-in</string>
     <string name="settings_location_description">Tags your Odoo clock-in record with your current location. Your phone never tracks you in the background.</string>
+
+    <!-- Local account-keyed observation, not end-to-end delivery health. -->
+    <string name="push_registration_title">Push registration · current account</string>
+    <string name="push_registration_not_checked">Not checked in this app session</string>
+    <string name="push_registration_checking">Checking push registration…</string>
+    <string name="push_registration_acknowledged">Server acknowledged registration</string>
+    <string name="push_registration_not_configured">Server has not configured Apporo push or its capability could not be verified</string>
+    <string name="push_registration_contract_rejected">Server push contract could not be verified</string>
+    <string name="push_registration_retry">Push request failed; waiting for the next retry</string>
+    <string name="push_registration_sign_in">Sign in again to verify push registration</string>
+    <string name="push_registration_unregistered">Push registration removed</string>
+    <string name="push_registration_disclaimer">Registration acknowledgement is not a delivery guarantee. Notification permission and server delivery services are separate.</string>
+
+    <!-- Login form validation -->
+    <string name="login_server_url_required">Server URL is required</string>
+    <string name="login_database_required">Database name is required</string>
+    <string name="login_username_required">Username is required</string>
+    <string name="login_password_required">Password is required</string>
 </resources>

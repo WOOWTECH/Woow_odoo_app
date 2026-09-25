@@ -9,12 +9,14 @@ import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import io.woowtech.odoo.BuildConfig
+import io.woowtech.odoo.brand.AppBrand
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -23,7 +25,19 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class OdooJsonRpcClient @Inject constructor() {
+class OdooJsonRpcClient internal constructor(
+    apporoAuthClient: OkHttpClient,
+    private val brand: AppBrand,
+    sharedAuthClient: OkHttpClient? = null,
+) {
+    @Inject
+    constructor() : this(OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS).build(), AppBrand.current)
+
+    private val isolatedAuthClient = apporoAuthClient.newBuilder()
+        .cookieJar(CookieJar.NO_COOKIES).followRedirects(false).followSslRedirects(false).build()
 
     private val gson = Gson()
     private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<Cookie>>()
@@ -41,7 +55,7 @@ class OdooJsonRpcClient @Inject constructor() {
         }
     }
 
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = (sharedAuthClient?.newBuilder() ?: OkHttpClient.Builder())
         .cookieJar(cookieJar)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -73,6 +87,12 @@ class OdooJsonRpcClient @Inject constructor() {
         username: String,
         password: String
     ): AuthResult = withContext(Dispatchers.IO) {
+        if (brand.isApporo) {
+            val result = authenticateApporo(serverUrl, database, username, password)
+            // Shared WebView reauth retains its publish-on-success contract.
+            if (result is AuthResult.Success) publishApporoSession(serverUrl, result.sessionId)
+            return@withContext result
+        }
         try {
             if (!serverUrl.startsWith("https://")) {
                 return@withContext AuthResult.Error(
@@ -142,6 +162,61 @@ class OdooJsonRpcClient @Inject constructor() {
         } catch (e: Exception) {
             AuthResult.Error("Error: ${e.message}", AuthResult.ErrorType.UNKNOWN)
         }
+    }
+
+    /** Apporo login reads only THIS response's SID; a concurrent host login cannot supply it. */
+    internal suspend fun authenticateApporoIsolated(
+        serverUrl: String, database: String, username: String, password: String,
+    ): AuthResult = withContext(Dispatchers.IO) {
+        check(brand.isApporo)
+        authenticateApporo(serverUrl, database, username, password)
+    }
+
+    private fun authenticateApporo(serverUrl: String, database: String, username: String, password: String): AuthResult {
+        return try {
+            val url = serverUrl.toHttpUrlOrNull()
+            if (url == null && serverUrl.startsWith("https://")) {
+                return AuthResult.Error("Invalid server URL", AuthResult.ErrorType.INVALID_URL)
+            }
+            if (url == null || !url.isHttps || url.username.isNotEmpty() || url.password.isNotEmpty() ||
+                url.query != null || url.fragment != null
+            ) return AuthResult.Error("HTTPS origin required", AuthResult.ErrorType.HTTPS_REQUIRED)
+            val request = Request.Builder().url(url.newBuilder().addPathSegments("web/session/authenticate").build())
+                .post(gson.toJson(JsonRpcRequest(method = "call", params = mapOf(
+                    "db" to database, "login" to username, "password" to password,
+                ), id = 1)).toRequestBody("application/json".toMediaType())).build()
+            isolatedAuthClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return AuthResult.Error("Sign-in request failed", AuthResult.ErrorType.SERVER_ERROR)
+                val envelope = gson.fromJson(response.body?.string(), JsonObject::class.java)
+                val error = envelope?.getAsJsonObject("error")
+                if (error != null) {
+                    val denied = error.getAsJsonObject("data")?.get("name")?.asString == "odoo.exceptions.AccessDenied"
+                    return AuthResult.Error("Sign-in request rejected", if (denied) AuthResult.ErrorType.INVALID_CREDENTIALS else AuthResult.ErrorType.SERVER_ERROR)
+                }
+                val result = envelope?.getAsJsonObject("result")
+                val uid = runCatching { result?.get("uid")?.asInt }.getOrNull()
+                if (uid == null || uid <= 0) return AuthResult.Error("Invalid credentials", AuthResult.ErrorType.INVALID_CREDENTIALS)
+                val sid = Cookie.parseAll(request.url, response.headers)
+                    .firstOrNull { it.name == "session_id" && it.matches(request.url) && it.expiresAt > System.currentTimeMillis() }
+                    ?.value.orEmpty()
+                if (sid.isBlank() || sid.any { it <= ' ' || it == ';' || it >= '\u007f' }) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
+                AuthResult.Success(uid, sid, username, result?.get("name")?.asString ?: username)
+            }
+        } catch (_: IOException) {
+            AuthResult.Error("Sign-in network error", AuthResult.ErrorType.NETWORK_ERROR)
+        } catch (_: Exception) {
+            AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)
+        }
+    }
+
+    /** Shared reauth or the manual selection commit may publish; isolated auth/push heal never do. */
+    internal fun publishApporoSession(serverUrl: String, sessionId: String) {
+        check(brand.isApporo)
+        val url = serverUrl.toHttpUrlOrNull() ?: return
+        require(sessionId.isNotBlank()) { "A proven session is required" }
+        val cookie = Cookie.Builder().name("session_id").value(sessionId)
+            .hostOnlyDomain(url.host).path("/").secure().httpOnly().build()
+        cookieStore[url.host] = mutableListOf(cookie)
     }
 
     private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {

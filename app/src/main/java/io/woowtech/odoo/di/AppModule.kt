@@ -150,6 +150,7 @@ object AppModule {
     @Provides
     @Singleton
     fun provideFcmTokenRepository(
+        apporoPushTransport: io.woowtech.odoo.data.repository.ApporoPushTransport,
         encryptedPrefs: EncryptedPrefs,
         accountDao: AccountDao,
         sessionCookieProvider: SessionCookieProvider,
@@ -160,6 +161,7 @@ object AppModule {
             accountDao = accountDao,
             sessionCookieProvider = sessionCookieProvider,
             sessionReauthInterceptor = sessionReauthInterceptor,
+            apporoTransport = apporoPushTransport,
         )
     }
 }

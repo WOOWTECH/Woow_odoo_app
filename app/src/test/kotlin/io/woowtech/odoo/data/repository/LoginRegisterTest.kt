@@ -63,6 +63,7 @@ class LoginRegisterTest {
             accountDao = accountDao,
             encryptedPrefs = encryptedPrefs,
             odooClient = odooClient,
+            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
         ).also {
             it.fcmTokenRepository = fcmTokenRepository
         }

@@ -1,5 +1,7 @@
 package io.woowtech.odoo.ui.config
 
+import io.woowtech.odoo.brand.AppBrand
+import io.woowtech.odoo.data.repository.PushRegistrationStatus
 import android.app.Activity
 import android.app.LocaleManager
 import android.content.Context
@@ -96,6 +98,7 @@ fun SettingsScreen(
     onBackClick: () -> Unit
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val pushStatus by viewModel.pushRegistrationStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -164,6 +167,15 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            SettingsSection(title = stringResource(R.string.push_registration_title)) {
+                Text(stringResource(pushRegistrationStatusResource(pushStatus)))
+                Text(
+                    stringResource(R.string.push_registration_disclaimer),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Appearance Section
             SettingsSection(title = stringResource(R.string.appearance)) {
                 SettingsItem(
@@ -322,7 +334,7 @@ fun SettingsScreen(
                     icon = Icons.AutoMirrored.Filled.HelpCenter,
                     title = stringResource(R.string.support_title),
                     subtitle = stringResource(R.string.support_subtitle),
-                    onClick = { openUrl(context, context.getString(R.string.url_support)) }
+                    onClick = { openUrl(context, context.getString(AppBrand.current.supportUrlResource)) }
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
@@ -331,7 +343,7 @@ fun SettingsScreen(
                     icon = Icons.Default.PrivacyTip,
                     title = stringResource(R.string.privacy_policy_title),
                     subtitle = stringResource(R.string.privacy_policy_subtitle),
-                    onClick = { openUrl(context, context.getString(R.string.url_privacy_policy)) }
+                    onClick = { openUrl(context, context.getString(AppBrand.current.privacyUrlResource)) }
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
@@ -340,7 +352,7 @@ fun SettingsScreen(
                     icon = Icons.Default.PersonRemove,
                     title = stringResource(R.string.delete_account_title),
                     subtitle = stringResource(R.string.delete_account_subtitle),
-                    onClick = { openUrl(context, context.getString(R.string.url_account_deletion)) }
+                    onClick = { openUrl(context, context.getString(AppBrand.current.deletionUrlResource)) }
                 )
             }
 
@@ -351,8 +363,8 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Public,
                     title = stringResource(R.string.visit_website),
-                    subtitle = "aiot.woowtech.io",
-                    onClick = { openUrl(context, "https://aiot.woowtech.io") }
+                    subtitle = AppBrand.current.websiteLabel,
+                    onClick = { openUrl(context, AppBrand.current.website) }
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
@@ -360,10 +372,10 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Email,
                     title = stringResource(R.string.contact_us),
-                    subtitle = "woowtech@designsmart.com.tw",
+                    subtitle = AppBrand.current.supportEmail,
                     onClick = {
                         val intent = Intent(Intent.ACTION_SENDTO).apply {
-                            data = Uri.parse("mailto:woowtech@designsmart.com.tw")
+                            data = Uri.parse("mailto:${AppBrand.current.supportEmail}")
                         }
                         context.startActivity(intent)
                     }
@@ -582,7 +594,7 @@ private fun ColorPickerDialog(
 ) {
     // Brand colors (from brand guide)
     val brandColors = listOf(
-        "#6183FC", // Primary Blue
+        AppBrand.current.primaryHex, // Build-selected brand default
         "#FFFFFF", // White
         "#EFF1F5", // Light Gray
         "#646262", // Gray
@@ -882,4 +894,15 @@ private fun applyLocaleChange(context: Context, languageCode: String) {
 private fun openUrl(context: Context, url: String) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
     context.startActivity(intent)
+}
+
+internal fun pushRegistrationStatusResource(status: PushRegistrationStatus): Int = when (status) {
+    PushRegistrationStatus.NOT_CHECKED -> R.string.push_registration_not_checked
+    PushRegistrationStatus.REGISTERING -> R.string.push_registration_checking
+    PushRegistrationStatus.ACKNOWLEDGED -> R.string.push_registration_acknowledged
+    PushRegistrationStatus.NOT_CONFIGURED -> R.string.push_registration_not_configured
+    PushRegistrationStatus.CONTRACT_REJECTED -> R.string.push_registration_contract_rejected
+    PushRegistrationStatus.RETRY_NEEDED -> R.string.push_registration_retry
+    PushRegistrationStatus.SIGN_IN_REQUIRED -> R.string.push_registration_sign_in
+    PushRegistrationStatus.UNREGISTERED -> R.string.push_registration_unregistered
 }

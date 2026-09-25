@@ -41,7 +41,7 @@ class AccountRepositoryTest {
         accountDao = mockk(relaxed = true)
         encryptedPrefs = mockk(relaxed = true)
         odooClient = mockk(relaxed = true)
-        repository = AccountRepository(accountDao, encryptedPrefs, odooClient)
+        repository = AccountRepository(accountDao, encryptedPrefs, odooClient, io.woowtech.odoo.brand.AppBrand.forCode("woowtech"))
     }
 
     @AfterEach

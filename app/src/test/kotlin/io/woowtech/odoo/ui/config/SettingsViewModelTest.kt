@@ -53,7 +53,14 @@ class SettingsViewModelTest {
     }
 
     private fun createViewModel(): SettingsViewModel {
-        return SettingsViewModel(settingsRepository, cacheRepository)
+        return SettingsViewModel(settingsRepository, cacheRepository,
+            mockk<io.woowtech.odoo.data.repository.AccountRepository>(relaxed = true).also {
+                every { it.activeAccount } returns kotlinx.coroutines.flow.MutableStateFlow(null)
+            },
+            mockk<io.woowtech.odoo.data.repository.FcmTokenRepository>(relaxed = true).also {
+                every { it.registrationStatuses } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+            },
+        )
     }
 
     // ──────────────────────────────────────────────────────────

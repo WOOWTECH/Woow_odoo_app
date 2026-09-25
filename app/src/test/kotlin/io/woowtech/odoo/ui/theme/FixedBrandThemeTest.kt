@@ -1,6 +1,8 @@
 package io.woowtech.odoo.ui.theme
 
 import android.app.Application
+import io.woowtech.odoo.BuildConfig
+import io.woowtech.odoo.domain.model.ThemeMode
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -38,13 +40,18 @@ class FixedBrandThemeTest {
     val composeRule = createComposeRule()
 
     /** 一個明顯不是品牌藍的顏色，用來確認「跟著變」與「不跟著變」的差異。 */
+    private val expectedPrimary = if (BuildConfig.APP_BRAND == "apporo") Color(0xFF8B6B24) else Color(0xFF6183FC)
+    private val originalPrimary = ThemeManager.primaryColor.value
+    private val originalMode = ThemeManager.themeMode.value
+
     private val userPickedGreen = Color(0xFF00C853)
 
     @After
     fun restoreThemeManager() {
         // ThemeManager 是 process 範圍的 singleton，測試改過就要還原，
         // 否則會污染同一個 JVM 上後續的測試。
-        ThemeManager.setPrimaryColor(WoowTechBlue)
+        ThemeManager.setPrimaryColor(originalPrimary)
+        ThemeManager.setThemeMode(originalMode)
     }
 
     @Test
@@ -75,12 +82,12 @@ class FixedBrandThemeTest {
         assertEquals(
             "WoowFixedBrandTheme 內的 primary 必須固定為 WoowTechBlue，" +
                 "不得跟隨使用者選的主題色",
-            WoowTechBlue,
+            expectedPrimary,
             wrapped,
         )
         assertNotEquals(
             "測試設定有誤：使用者選的顏色不該等於品牌藍，否則驗不出差異",
-            WoowTechBlue,
+            expectedPrimary,
             userPickedGreen,
         )
     }
@@ -97,6 +104,44 @@ class FixedBrandThemeTest {
         }
         composeRule.waitForIdle()
 
-        assertEquals(WoowTechBlue, wrapped)
+        assertEquals(expectedPrimary, wrapped)
+    }
+
+    @Test
+    fun `Given light mode and saved user color when fixed theme then brand container and foreground are paired`() {
+        assertFixedRoles(ThemeMode.LIGHT)
+    }
+
+    @Test
+    fun `Given dark mode and saved user color when fixed theme then brand container and foreground are paired`() {
+        assertFixedRoles(ThemeMode.DARK)
+    }
+
+    private fun assertFixedRoles(mode: ThemeMode) {
+        ThemeManager.setThemeMode(mode)
+        ThemeManager.setPrimaryColor(userPickedGreen)
+        var actual: List<Color>? = null
+        composeRule.setContent {
+            WoowTechOdooTheme {
+                WoowFixedBrandTheme {
+                    val scheme = MaterialTheme.colorScheme
+                    actual = listOf(scheme.primary, scheme.onPrimary, scheme.primaryContainer, scheme.onPrimaryContainer)
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val apporo = BuildConfig.APP_BRAND == "apporo"
+        val dark = mode == ThemeMode.DARK
+        val container = if (apporo) {
+            if (dark) Color(0xFF4C3B14) else Color(0xFFEEE9DE)
+        } else {
+            if (dark) Color(0xFF3A4B8C) else Color(0xFFDBE1FF)
+        }
+        val foreground = if (apporo) {
+            if (dark) Color(0xFFEEE9DE) else Color(0xFF241C09)
+        } else {
+            if (dark) Color(0xFFDBE1FF) else Color(0xFF001A41)
+        }
+        assertEquals(listOf(expectedPrimary, Color.White, container, foreground), actual)
     }
 }

@@ -1,6 +1,9 @@
 package io.woowtech.odoo.data.api
 
 import io.woowtech.odoo.domain.model.AuthResult
+import io.woowtech.odoo.brand.AppBrand
+import io.woowtech.odoo.testutil.MockOnlyHttpFixture
+import java.net.UnknownHostException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -28,16 +31,25 @@ class OdooJsonRpcClientTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var client: OdooJsonRpcClient
+    private lateinit var transport: MockOnlyHttpFixture
 
     @BeforeEach
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        client = OdooJsonRpcClient()
+        transport = MockOnlyHttpFixture { request ->
+            if (request.url.host == "unreachable.fixture.test" && request.url.encodedPath == "/web/session/authenticate") {
+                throw UnknownHostException("Mock network failure")
+            }
+            throw AssertionError("Unexpected auth request")
+        }
+        client = OdooJsonRpcClient(transport.client, AppBrand.current, transport.client)
     }
 
     @AfterEach
     fun tearDown() {
         Dispatchers.resetMain()
+        assertEquals(0, transport.dnsCalls.get())
+        assertEquals(0, transport.connectCalls.get())
     }
 
     // ──────────────────────────────────────────────────────────
@@ -110,9 +122,9 @@ class OdooJsonRpcClientTest {
 
         @Test
         fun `Given unreachable server when authenticate then returns NETWORK_ERROR`() = runTest {
-            // Use a host that cannot resolve
+            // Simulated failure before DNS; the fixture never connects to any host.
             val result = client.authenticate(
-                serverUrl = "https://this-server-definitely-does-not-exist-12345.invalid",
+                serverUrl = "https://unreachable.fixture.test",
                 database = "mydb",
                 username = "admin",
                 password = "pass"
@@ -256,10 +268,10 @@ class OdooJsonRpcClientTest {
     // Play 審查退件 2026-09-23：主機名稱帶尾端空白時 OkHttp 丟 IllegalArgumentException，
     // 原本以 "Error: Invalid URL host: ..." 原文顯示給使用者。
     @Test
-    fun `Given host with trailing space when authenticate then returns INVALID_URL without raw exception text`() = runTest {
+    fun `Given syntactically invalid host when authenticate then returns INVALID_URL without raw exception text`() = runTest {
         val result = client.authenticate(
-            serverUrl = "https://demo222-odoo.woowtech.io ",
-            database = "demo222",
+            serverUrl = "https://bad host/",
+            database = "fixture-db",
             username = "u",
             password = "p"
         )

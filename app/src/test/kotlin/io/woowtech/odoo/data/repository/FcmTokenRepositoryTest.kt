@@ -12,6 +12,7 @@ import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.test.runTest
 import okhttp3.Cookie
 import okhttp3.MediaType.Companion.toMediaType
+import io.woowtech.odoo.testutil.MockOnlyHttpFixture
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
@@ -51,8 +52,8 @@ class FcmTokenRepositoryTest {
         repo = FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,
-            sessionCookieProvider = sessionCookieProvider,
-            sessionReauthInterceptor = sessionReauthInterceptor,
+            httpClient = fakeClient { request -> jsonResponse(request, 200) },
+            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
         )
     }
 
@@ -91,8 +92,7 @@ class FcmTokenRepositoryTest {
         coEvery { accountDao.getAccountById("a1") } returns accounts[0]
         coEvery { accountDao.getAccountById("a2") } returns accounts[1]
 
-        // Network calls will fail (no real server) but that's expected — we verify the
-        // token is saved and the loop iterates over all accounts.
+        // Fixture-only transport: never resolve or contact an external host.
         repo.registerTokenForAllAccounts("tok_multi")
 
         verify { encryptedPrefs.saveFcmToken("tok_multi") }
@@ -105,11 +105,11 @@ class FcmTokenRepositoryTest {
 
     /** A repo wired to [client] via the test-only primary constructor (bypasses the real network). */
     private fun repoWith(client: OkHttpClient): FcmTokenRepositoryImpl =
-        FcmTokenRepositoryImpl(encryptedPrefs = encryptedPrefs, accountDao = accountDao, httpClient = client)
+        FcmTokenRepositoryImpl(encryptedPrefs = encryptedPrefs, accountDao = accountDao, httpClient = client, brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"))
 
     /** Builds a client whose interceptor delegates each request to [handler] (which may throw). */
     private fun fakeClient(handler: (Request) -> Response): OkHttpClient =
-        OkHttpClient.Builder().addInterceptor { chain -> handler(chain.request()) }.build()
+        MockOnlyHttpFixture(handler).client
 
     private fun jsonResponse(request: Request, code: Int, body: String = "{\"result\":{}}"): Response =
         Response.Builder()

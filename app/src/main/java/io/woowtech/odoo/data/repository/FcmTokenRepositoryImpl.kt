@@ -1,6 +1,10 @@
 package io.woowtech.odoo.data.repository
 
 import android.os.Build
+import io.woowtech.odoo.brand.AppBrand
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import io.woowtech.odoo.data.api.SessionReauthInterceptor
@@ -53,6 +57,8 @@ class FcmTokenRepositoryImpl(
     private val encryptedPrefs: EncryptedPrefs,
     private val accountDao: AccountDao,
     private val httpClient: OkHttpClient,
+    private val brand: AppBrand,
+    private val apporoTransport: ApporoPushTransport? = null,
 ) : FcmTokenRepository {
 
     /**
@@ -67,13 +73,55 @@ class FcmTokenRepositoryImpl(
         accountDao: AccountDao,
         sessionCookieProvider: SessionCookieProvider,
         sessionReauthInterceptor: SessionReauthInterceptor,
+        apporoTransport: ApporoPushTransport,
     ) : this(
         encryptedPrefs = encryptedPrefs,
         accountDao = accountDao,
         httpClient = buildFcmHttpClient(sessionCookieProvider, sessionReauthInterceptor),
+        brand = AppBrand.current,
+        apporoTransport = apporoTransport,
     )
 
     private val gson = Gson()
+    private val _registrationStatuses = MutableStateFlow<Map<String, PushRegistrationStatus>>(emptyMap())
+    override val registrationStatuses = _registrationStatuses.asStateFlow()
+
+    private fun status(accountId: String, status: PushRegistrationStatus) {
+        _registrationStatuses.update { it + (accountId to status) }
+    }
+
+    override suspend fun onManualLogin(accountId: String, sessionId: String?) {
+        registrationMutex.withLock {
+            _registrationStatuses.update { it - accountId }
+            if (brand.isApporo) {
+                try {
+                    apporoTransport?.onManualLogin(accountId, sessionId)
+                    if (sessionId.isNullOrBlank()) status(accountId, PushRegistrationStatus.SIGN_IN_REQUIRED)
+                } catch (error: PushContractException) {
+                    status(accountId, error.status)
+                }
+            }
+        }
+    }
+
+    override suspend fun forgetAccount(accountId: String) {
+        registrationMutex.withLock {
+            if (brand.isApporo) apporoTransport?.forgetAccount(accountId)
+            _registrationStatuses.update { it - accountId }
+        }
+    }
+
+    private fun failureStatus(error: Throwable): PushRegistrationStatus =
+        (error as? PushContractException)?.status ?: PushRegistrationStatus.RETRY_NEEDED
+
+    /** All write paths, including old-token rotation, pass through this boundary. */
+    private suspend fun writeToOdoo(account: OdooAccount, path: String, params: Map<String, String>): String {
+        if (!brand.isApporo) return postToOdoo(account.fullServerUrl, path, params, account)
+        val body = checkNotNull(apporoTransport) { "Apporo transport required" }.write(account, path, params)
+        if (path == REGISTER_PATH) ApporoPushContract.requireRegistration(body)
+        else ApporoPushContract.requireUnregistration(body)
+        return body
+    }
 
     /**
      * Serializes register / unregister calls so that concurrent callers
@@ -108,14 +156,15 @@ class FcmTokenRepositoryImpl(
                 if (oldToken != null && oldToken != token) {
                     accounts.forEach { account ->
                         runCatching {
-                            postToOdoo(
-                                serverUrl = account.fullServerUrl,
+                            writeToOdoo(
                                 path = UNREGISTER_PATH,
                                 params = mapOf(PARAM_FCM_TOKEN to oldToken),
                                 account = account,
                             )
                         }.onFailure { error ->
-                            Timber.w(error, "Failed to unregister rotated token for account %s", account.id)
+                            if (error is CancellationException) throw error
+                            status(account.id, failureStatus(error))
+                            Timber.w("Failed to unregister rotated token for account %s", account.id)
                         }
                     }
                 }
@@ -222,8 +271,8 @@ class FcmTokenRepositoryImpl(
             val account = accountDao.getAccountById(accountId)
                 ?: error("Account not found: $accountId")
 
-            val responseBody = postToOdoo(
-                serverUrl = account.fullServerUrl,
+            status(accountId, PushRegistrationStatus.REGISTERING)
+            val responseBody = writeToOdoo(
                 path = REGISTER_PATH,
                 params = mapOf(
                     PARAM_FCM_TOKEN to token,
@@ -243,12 +292,15 @@ class FcmTokenRepositoryImpl(
                 accountDao.updateTenantId(id = accountId, tenantId = tenantId)
                 Timber.d("Persisted tenant id for account %s", accountId)
             }
+            status(accountId, PushRegistrationStatus.ACKNOWLEDGED)
             Result.success(Unit)
         } catch (cancellation: CancellationException) {
             // Never swallow cancellation — let it propagate so the coroutine cancels cleanly.
+            status(accountId, PushRegistrationStatus.RETRY_NEEDED)
             throw cancellation
         } catch (error: Throwable) {
             // The caller classifies (reachable vs hard) and logs at the appropriate level.
+            status(accountId, failureStatus(error))
             Result.failure(error)
         }
 
@@ -270,15 +322,17 @@ class FcmTokenRepositoryImpl(
                     val token = encryptedPrefs.getFcmToken()
                         ?: error("No FCM token stored — nothing to unregister for account $accountId")
 
-                    postToOdoo(
-                        serverUrl = account.fullServerUrl,
+                    writeToOdoo(
                         path = UNREGISTER_PATH,
                         params = mapOf(PARAM_FCM_TOKEN to token),
                         account = account,
                     )
+                    status(accountId, PushRegistrationStatus.UNREGISTERED)
                     Timber.d("FCM token unregistered for account %s", accountId)
                 }.onFailure { error ->
-                    Timber.w(error, "FCM token unregister failed for account %s — proceeding with logout", accountId)
+                    if (error is CancellationException) throw error
+                    status(accountId, failureStatus(error))
+                    Timber.w("FCM token unregister failed for account %s — proceeding with logout", accountId)
                 }
             }
         }
@@ -356,7 +410,7 @@ class FcmTokenRepositoryImpl(
             val json = gson.fromJson(responseBody, JsonObject::class.java)
             val error = json.get("error")
             if (error != null && !error.isJsonNull) {
-                throw IOException("Odoo error at $url: $error")
+                throw IOException("Odoo push request rejected")
             }
         }.onFailure { parseError ->
             if (parseError is IOException) throw parseError

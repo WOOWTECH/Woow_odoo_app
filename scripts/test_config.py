@@ -52,27 +52,38 @@ ODOO_USER = _get("ODOO_USER", "")
 ODOO_PASS = _get("ODOO_PASS", "")
 
 # ─── Android app under test ─────────────────────────────────────────────────
-APP_PACKAGE = _get("APP_PACKAGE", "io.woowtech.odoo.debug")
-APP_ACTIVITY = _get("APP_ACTIVITY", "io.woowtech.odoo.ui.MainActivity")
+from brand_test_target import authorize_live, target_for
 
-# ─── Firebase (FCM tests) ───────────────────────────────────────────────────
+APP_VARIANT = _get("APP_VARIANT", "woowtechDebug")
+APP_TARGET = target_for(APP_VARIANT)
+APP_PACKAGE = _get("APP_PACKAGE", APP_TARGET.package)
+if APP_PACKAGE != APP_TARGET.package:
+    raise ValueError("APP_PACKAGE must match APP_VARIANT; cross-brand overrides are forbidden")
+# The Activity class belongs to the unchanged namespace, not the applicationId.
+APP_ACTIVITY = "io.woowtech.odoo.ui.MainActivity"
+APP_TITLES = (APP_TARGET.title,)
+APP_APK_PATH = str(_REPO_ROOT / APP_TARGET.apk_path)
+
+# Only WOOW retains the existing SA path. Apporo must explicitly select its own path.
 FIREBASE_SA_FILE = _get(
     "FIREBASE_SA_FILE",
-    str(_REPO_ROOT / "app" / "firebase-service-account.json"),
+    str(_REPO_ROOT / "app" / "firebase-service-account.json") if APP_TARGET.brand == "woowtech" else "",
 )
-FIREBASE_PROJECT_ID = _get("FIREBASE_PROJECT_ID", "woow-odoo-de2cb")
+FIREBASE_PROJECT_ID = _get("FIREBASE_PROJECT_ID", APP_TARGET.firebase_project)
+if FIREBASE_PROJECT_ID != APP_TARGET.firebase_project:
+    raise ValueError("FIREBASE_PROJECT_ID must match APP_VARIANT")
 
-# ─── Verification report output (e2e-verification-report.py) ────────────────
-VERIFICATION_REPORT_DIR = _get(
-    "VERIFICATION_REPORT_DIR",
-    str(_REPO_ROOT / "docs" / "verification-report"),
-)
+# Separate every artifact directory by variant; never merge cross-brand evidence.
+VERIFICATION_REPORT_DIR = str(Path(_get(
+    "VERIFICATION_REPORT_DIR", str(_REPO_ROOT / "docs" / "verification-report")
+)) / APP_VARIANT)
+VERIFY_REPORT_FILE = str(Path(VERIFICATION_REPORT_DIR) / "device-verification-log.md")
+E2E_REPORT_FILE = str(Path(VERIFICATION_REPORT_DIR) / "e2e-test-results.md")
 
-# ─── verify-on-device.py run log (appended after every run) ─────────────────
-VERIFY_REPORT_FILE = _get(
-    "VERIFY_REPORT_FILE",
-    str(_REPO_ROOT / "docs" / "plans" / "2026-03-22-device-verification-log.md"),
-)
+
+def require_live_test_authorization():
+    authorize_live(APP_TARGET, ODOO_URL, os.environ)
+    print(f"Explicit live target: {APP_VARIANT} / {APP_PACKAGE}")
 
 
 # ─── ADBKeyboard helpers (avoid IME autocorrect mangling URLs/passwords) ────
@@ -117,8 +128,5 @@ def restore_ime(previous_ime: str | None) -> None:
 
 
 if __name__ == "__main__":
-    # Print resolved config — useful for debugging "which value did it pick up?"
-    for k in sorted(globals()):
-        if k.startswith("_") or k.islower():
-            continue
-        print(f"{k:25s} = {globals()[k]!r}")
+    # Never dump resolved config: it includes ODOO_PASS and potentially secret paths.
+    print(f"Target: {APP_VARIANT} / {APP_PACKAGE}; credentials are not displayed")

@@ -7,6 +7,15 @@ package io.woowtech.odoo.data.repository
  */
 interface FcmTokenRepository {
 
+    /** In-memory observations keyed by account UUID, never by the currently selected server. */
+    val registrationStatuses: kotlinx.coroutines.flow.StateFlow<Map<String, PushRegistrationStatus>>
+
+    /** Clear only the newly authenticated account's push session/circuit. */
+    suspend fun onManualLogin(accountId: String, sessionId: String? = null)
+
+    /** Drop local diagnostic/session state after local removal, even if cleanup failed. */
+    suspend fun forgetAccount(accountId: String)
+
     /**
      * Registers the FCM token with all active Odoo server accounts.
      * Called when Firebase issues a new token via onNewToken.

@@ -11,7 +11,10 @@ from playwright.sync_api import sync_playwright
 # Single source of truth for test config — see scripts/test_config.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
+    require_live_test_authorization,
     APP_PACKAGE as PKG,
+    APP_ACTIVITY as ACTIVITY,
+    APP_VARIANT,
     ODOO_DB as DB,
     ODOO_HOST,
     ODOO_PASS,
@@ -20,8 +23,12 @@ from test_config import (
     VERIFICATION_REPORT_DIR,
 )
 
+require_live_test_authorization()
+
+
 SS = os.path.join(VERIFICATION_REPORT_DIR, "screenshots")
 REPORT = os.path.join(VERIFICATION_REPORT_DIR, "verification-report.md")
+os.makedirs(SS, exist_ok=True)
 STEPS = []
 N = 0
 
@@ -64,7 +71,7 @@ print(f"📱 Device: {dev} (SDK {sdk})")
 # ══════════════════════════════════════════════════════════
 
 step("Launch app — fresh install")
-d.app_stop(PKG); time.sleep(1); d.app_start(PKG, "io.woowtech.odoo.ui.MainActivity"); time.sleep(5)
+d.app_stop(PKG); time.sleep(1); d.app_start(PKG, ACTIVITY); time.sleep(5)
 p = phone_ss("01_login_screen")
 ok("Login screen with server URL field", True, p)
 
@@ -216,7 +223,7 @@ SA = "/Users/alanlin/Woow_odoo_app/app/firebase-service-account.json"
 
 # Get current token
 subprocess.run(["adb","logcat","-c"], capture_output=True)
-d.app_start(PKG, "io.woowtech.odoo.ui.MainActivity"); time.sleep(12)
+d.app_start(PKG, ACTIVITY); time.sleep(12)
 logcat = subprocess.run(["adb","logcat","-d"], capture_output=True, encoding="utf-8", errors="replace").stdout
 tok = None
 for l in logcat.split("\n"):

@@ -197,4 +197,22 @@
     <string name="settings_location_section">隐私</string>
     <string name="settings_location_title">打卡时使用定位</string>
     <string name="settings_location_description">为您的 Odoo 打卡记录附上当前位置。我们不会在后台追踪您。</string>
+
+    <!-- Local account-keyed observation, not end-to-end delivery health. -->
+    <string name="push_registration_title">推送注册 · 当前账号</string>
+    <string name="push_registration_not_checked">本次打开尚未检查</string>
+    <string name="push_registration_checking">正在检查推送注册…</string>
+    <string name="push_registration_acknowledged">服务器已确认注册</string>
+    <string name="push_registration_not_configured">服务器尚未配置 Apporo 推送，或无法验证其能力</string>
+    <string name="push_registration_contract_rejected">无法验证服务器推送契约</string>
+    <string name="push_registration_retry">推送请求失败，等待下次重试</string>
+    <string name="push_registration_sign_in">请重新登录以验证推送注册</string>
+    <string name="push_registration_unregistered">已解除推送注册</string>
+    <string name="push_registration_disclaimer">注册确认不保证通知送达；通知权限与服务器发送服务仍须另外确认。</string>
+
+    <!-- Login form validation -->
+    <string name="login_server_url_required">请输入服务器网址</string>
+    <string name="login_database_required">请输入数据库名称</string>
+    <string name="login_username_required">请输入用户名</string>
+    <string name="login_password_required">请输入密码</string>
 </resources>

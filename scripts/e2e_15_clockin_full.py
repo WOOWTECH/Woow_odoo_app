@@ -37,6 +37,7 @@ import websocket
 # Single source of truth for test config — see scripts/test_config.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
+    require_live_test_authorization,
     APP_ACTIVITY as ACTIVITY,
     APP_PACKAGE as PKG,
     ODOO_DB as DB,
@@ -44,6 +45,9 @@ from test_config import (
     ODOO_URL as TUNNEL,
     ODOO_USER as USER,
 )
+
+require_live_test_authorization()
+
 
 LOCAL_CDP_PORT = 9222
 

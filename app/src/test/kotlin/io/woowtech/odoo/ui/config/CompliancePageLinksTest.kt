@@ -3,6 +3,8 @@ package io.woowtech.odoo.ui.config
 import android.app.Application
 import org.robolectric.RuntimeEnvironment
 import io.woowtech.odoo.R
+import io.woowtech.odoo.BuildConfig
+import io.woowtech.odoo.brand.AppBrand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -27,10 +29,22 @@ class CompliancePageLinksTest {
         RuntimeEnvironment.getApplication().getString(id)
 
     private fun assertLinks(suffix: String) {
-        assertEquals("https://aiot.woowtech.io/odoo-support$suffix", str(R.string.url_support))
-        assertEquals("https://aiot.woowtech.io/odoo-privacy$suffix", str(R.string.url_privacy_policy))
+        val origin = if (BuildConfig.APP_BRAND == "apporo") "https://www.apporo.ai" else "https://aiot.woowtech.io"
+        assertEquals(R.string.url_support, AppBrand.current.supportUrlResource)
+        assertEquals(R.string.url_privacy_policy, AppBrand.current.privacyUrlResource)
+        assertEquals(R.string.url_account_deletion, AppBrand.current.deletionUrlResource)
+        if (BuildConfig.APP_BRAND == "apporo") {
+            assertEquals("Apporo platform", str(R.string.app_name))
+            assertEquals("Apporo platform", str(R.string.notification_channel_messages))
+            assertEquals("Apporo platform / APPORO UNION INC.", str(R.string.copyright))
+        } else {
+            assertEquals("woowtech platform", str(R.string.app_name))
+            assertEquals("© 2026 WoowTech", str(R.string.copyright))
+        }
+        assertEquals("$origin/odoo-support$suffix", str(R.string.url_support))
+        assertEquals("$origin/odoo-privacy$suffix", str(R.string.url_privacy_policy))
         assertEquals(
-            "https://aiot.woowtech.io/odoo-account-deletion$suffix",
+            "$origin/odoo-account-deletion$suffix",
             str(R.string.url_account_deletion)
         )
         listOf(R.string.url_support, R.string.url_privacy_policy, R.string.url_account_deletion)

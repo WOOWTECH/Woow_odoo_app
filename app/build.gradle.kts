@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.google.gms.googleservices.GoogleServicesTask
 
 plugins {
     alias(libs.plugins.android.application)
@@ -8,10 +9,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// Apply google-services plugin only when google-services.json exists
-if (file("google-services.json").exists()) {
-    apply(plugin = libs.plugins.google.services.get().pluginId)
-}
+// Always wire Firebase tasks: a missing client configuration must not produce a push-less APK.
+apply(plugin = libs.plugins.google.services.get().pluginId)
 
 // EP-02A: reproducible dependency resolution evidence.
 // Locks the release/debug runtime+compile classpaths so an artifact can be
@@ -20,29 +19,22 @@ dependencyLocking {
     lockAllConfigurations()
 }
 
-// Release signing. Credentials are read from, in order of precedence:
-//   1. keystore.properties at the repo root (gitignored)
-//   2. Gradle properties WOOW_RELEASE_* (e.g. in the user-level gradle.properties)
-//   3. Environment variables of the same names (for CI)
-// When no credentials are present the release signing config is simply not
-// created and `bundleRelease` produces an unsigned artifact, exactly as before.
-val keystorePropsFile = rootProject.file("keystore.properties")
-val keystoreProps = Properties().apply {
-    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+// Brand-specific signing inputs; never share a fallback key. No secret values are logged.
+fun signingProperties(brand: String): Properties = Properties().apply {
+    val source = rootProject.file(if (brand == "woowtech") "keystore.properties" else "apporo-keystore.properties")
+    if (source.exists()) source.inputStream().use { load(it) }
 }
-
-fun signingValue(name: String): String? =
-    keystoreProps.getProperty(name)
-        ?: providers.gradleProperty(name).orNull
-        ?: System.getenv(name)
-
-val releaseStoreFile = signingValue("WOOW_RELEASE_STORE_FILE")
-val releaseStorePassword = signingValue("WOOW_RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = signingValue("WOOW_RELEASE_KEY_ALIAS")
-val releaseKeyPassword = signingValue("WOOW_RELEASE_KEY_PASSWORD")
-val hasReleaseSigning = listOf(
-    releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword
-).all { !it.isNullOrBlank() } && file(releaseStoreFile!!).exists()
+val woowSigning = signingProperties("woowtech")
+val apporoSigning = signingProperties("apporo")
+fun signingValue(brand: String, suffix: String): String? {
+    val name = "${if (brand == "apporo") "APPORO" else "WOOW"}_RELEASE_$suffix"
+    return (if (brand == "apporo") apporoSigning else woowSigning).getProperty(name)
+        ?: providers.gradleProperty(name).orNull ?: System.getenv(name)
+}
+fun hasSigning(brand: String): Boolean =
+    listOf("STORE_FILE", "STORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD").all {
+        !signingValue(brand, it).isNullOrBlank()
+    } && file(signingValue(brand, "STORE_FILE")!!).exists()
 
 android {
     namespace = "io.woowtech.odoo"
@@ -62,19 +54,40 @@ android {
     }
 
     signingConfigs {
-        if (hasReleaseSigning) {
-            create("release") {
-                storeFile = file(releaseStoreFile!!)
-                storePassword = releaseStorePassword
-                keyAlias = releaseKeyAlias
-                keyPassword = releaseKeyPassword
+        for (brand in listOf("woowtech", "apporo")) {
+            if (hasSigning(brand)) {
+                create("${brand}Release") {
+                    storeFile = file(signingValue(brand, "STORE_FILE")!!)
+                    storePassword = signingValue(brand, "STORE_PASSWORD")
+                    keyAlias = signingValue(brand, "KEY_ALIAS")
+                    keyPassword = signingValue(brand, "KEY_PASSWORD")
+                }
             }
+        }
+    }
+
+    flavorDimensions += "brand"
+    productFlavors {
+        create("woowtech") {
+            dimension = "brand"
+            applicationId = "io.woowtech.odoo"
+            buildConfigField("String", "APP_BRAND", "\"woowtech\"")
+            manifestPlaceholders["brandScheme"] = "woowodoo"
+            signingConfig = signingConfigs.findByName("woowtechRelease")
+        }
+        create("apporo") {
+            dimension = "brand"
+            applicationId = "com.apporo.odoo"
+            versionName = "1.0"
+            versionCode = 1
+            buildConfigField("String", "APP_BRAND", "\"apporo\"")
+            manifestPlaceholders["brandScheme"] = "apporoodoo"
+            signingConfig = signingConfigs.findByName("apporoRelease")
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -114,6 +127,49 @@ android {
         // JVM unit-test classpath (e.g. PinDotsRow shake render test).
         unitTests {
             isIncludeAndroidResources = true
+        }
+    }
+}
+
+// Explicit per-variant files prevent the Google plugin's normal root-file fallback for Apporo.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val brand = variant.productFlavors.single { it.first == "brand" }.second
+        val release = variant.buildType == "release"
+        if (brand == "apporo" && !release) {
+            variant.manifestPlaceholders.put("brandScheme", "apporoodoo-dev")
+        }
+        val capitalized = variant.name.replaceFirstChar { it.uppercase() }
+        val variantConfig = file("src/${variant.name}/google-services.json")
+        val firebaseConfig = if (brand == "woowtech" && !variantConfig.exists()) {
+            file("google-services.json") // Existing WOOW client only; never copied or changed.
+        } else variantConfig
+        val validateBrand = tasks.register<Exec>("validate${capitalized}BrandConfig") {
+            group = "verification"
+            // python3 stdlib only; no network, no key material, no config values printed.
+            commandLine("python3", rootProject.file("scripts/validate_brand_config.py"),
+                "--brand", brand, "--build-type", variant.buildType!!,
+                "--config", firebaseConfig)
+            doFirst {
+                if (brand == "apporo" && release) {
+                    check(hasSigning("apporo")) { "Apporo release requires its own APPORO_RELEASE_* signing inputs" }
+                    val apporoStore = file(signingValue("apporo", "STORE_FILE")!!).canonicalFile
+                    val woowStore = signingValue("woowtech", "STORE_FILE")?.let { file(it).canonicalFile }
+                    check(apporoStore != woowStore &&
+                        apporoStore != file("${System.getProperty("user.home")}/keystores/woow-odoo-release.jks").canonicalFile) {
+                        "Apporo release must not use the WOOW keystore"
+                    }
+                }
+            }
+        }
+        tasks.withType<GoogleServicesTask>().configureEach {
+            if (name == "process${capitalized}GoogleServices") {
+                googleServicesJsonFiles.set(listOf(firebaseConfig))
+                dependsOn(validateBrand)
+            }
+        }
+        tasks.matching { it.name == "pre${capitalized}Build" }.configureEach {
+            dependsOn(validateBrand)
         }
     }
 }

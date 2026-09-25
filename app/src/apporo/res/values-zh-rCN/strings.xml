@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Apporo platform</string>
+    <string name="copyright">Apporo platform / APPORO UNION INC.</string>
+    <string name="content_description_logo">Apporo platform 标志</string>
+    <string name="support_subtitle">常见问题与联系 Apporo platform</string>
+    <string name="notification_channel_messages">Apporo platform</string>
+    <string name="notification_channel_messages_desc">Odoo 消息、提及和活动的通知</string>
+    <string name="url_support">https://www.apporo.ai/odoo-support</string>
+    <string name="url_privacy_policy">https://www.apporo.ai/odoo-privacy</string>
+    <string name="url_account_deletion">https://www.apporo.ai/odoo-account-deletion</string>
+</resources>

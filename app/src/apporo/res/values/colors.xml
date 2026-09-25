@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="woowtech_blue">#8B6B24</color>
+    <color name="woowtech_blue_dark">#4C3B14</color>
+    <color name="woowtech_blue_light">#EEE9DE</color>
+    <color name="splash_background">#FFFFFF</color>
+</resources>

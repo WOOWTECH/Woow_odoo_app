@@ -51,8 +51,8 @@ class FcmTokenEmptyAccountsTest {
         repo = FcmTokenRepositoryImpl(
             encryptedPrefs = encryptedPrefs,
             accountDao = accountDao,
-            sessionCookieProvider = sessionCookieProvider,
-            sessionReauthInterceptor = sessionReauthInterceptor,
+            httpClient = io.woowtech.odoo.testutil.MockOnlyHttpFixture().client,
+            brand = io.woowtech.odoo.brand.AppBrand.forCode("woowtech"),
         )
     }
 

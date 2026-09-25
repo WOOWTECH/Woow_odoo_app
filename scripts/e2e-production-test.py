@@ -38,7 +38,9 @@ import uiautomator2 as u2
 # Single source of truth — see scripts/test_config.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
+    require_live_test_authorization,
     APP_ACTIVITY as ACTIVITY,
+    E2E_REPORT_FILE,
     APP_PACKAGE as PKG,
     FIREBASE_PROJECT_ID as PROJECT_ID,
     FIREBASE_SA_FILE as SA_FILE,
@@ -50,6 +52,9 @@ from test_config import (
     enable_adb_keyboard,
     restore_ime,
 )
+
+require_live_test_authorization()
+
 
 PASS = 0
 FAIL = 0
@@ -889,7 +894,7 @@ if fcm_token and os.path.exists(SA_FILE):
     check("E2E-11a", f"3 chatter notifications posted ({posted} found)", posted >= 3)
 
     # Check grouping
-    group_chatter = notif.count("groupKey=0|io.woowtech.odoo.debug|g:chatter")
+    group_chatter = notif.count(f"groupKey=0|{PKG}|g:chatter")
     check("E2E-11b", f"Notifications grouped by 'chatter' event type ({group_chatter} in group)", group_chatter >= 3)
 else:
     check("E2E-11a", "FCM prerequisites", False)
@@ -904,7 +909,7 @@ else:
 section("E2E-12: FCM token registration after fresh install reaches Odoo")
 try:
     # Clear app data to simulate fresh install
-    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
+    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
     time.sleep(2)
     # CRITICAL: log in after pm clear. The `AccountRepository.authenticate`
     # → `registerSavedFcmToken` chain is what triggers the server-side
@@ -955,7 +960,7 @@ try:
     # gets `Odoo Session Expired` and the server-side record stays
     # active — which is a TEST artefact, not a code bug. Re-establish
     # before testing logout.
-    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
+    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
     time.sleep(2)
     if not perform_login_for_test():
         check("E2E-13-precondition", "Pre-test re-login succeeded", False)
@@ -987,7 +992,7 @@ try:
         # NOT inside the Settings screen. UI dumped on this device shows:
         #   '設定' (Settings), '切換帳號' (Switch Account), '登出' (Logout)
         # all at the drawer level. So: open drawer, tap Logout, confirm.
-        d.app_start("io.woowtech.odoo.debug", "io.woowtech.odoo.ui.MainActivity")
+        d.app_start(PKG, ACTIVITY)
         time.sleep(4)
         # Open menu drawer
         for desc in ["開啟選單", "开启菜单", "Menu", "menu", "Open menu"]:
@@ -1066,7 +1071,7 @@ section("E2E-14: Reduce Motion → biometric animations are instant")
 try:
     # Test independence: E2E-13 logged out the user. Re-login before E2E-14
     # so we can navigate from the dashboard's drawer to Settings.
-    subprocess.run(["adb", "shell", "pm", "clear", "io.woowtech.odoo.debug"], timeout=10)
+    subprocess.run(["adb", "shell", "pm", "clear", PKG], timeout=10)
     time.sleep(2)
     if not perform_login_for_test():
         check("E2E-14-precondition", "Pre-test re-login succeeded", False)
@@ -1274,7 +1279,8 @@ else:
 print()
 
 # Write results
-report_path = "/Users/alanlin/Woow_odoo_app/docs/plans/2026-03-23-e2e-test-results.md"
+report_path = E2E_REPORT_FILE
+os.makedirs(os.path.dirname(report_path), exist_ok=True)
 with open(report_path, "w") as f:
     f.write(f"# E2E Production Test Results\n\n")
     f.write(f"> **Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n")

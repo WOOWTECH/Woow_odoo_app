@@ -1,10 +1,11 @@
 package io.woowtech.odoo.ui.theme
 
+import io.woowtech.odoo.brand.AppBrand
 import androidx.compose.ui.graphics.Color
 
 // ─── Brand Colors (from woowtech_claude_brand_prompt_library.pdf) ───
 
-val BrandPrimaryBlue = Color(0xFF6183FC)
+val BrandPrimaryBlue = Color(AppBrand.current.primaryArgb)
 val BrandWhite = Color(0xFFFFFFFF)
 val BrandLightGray = Color(0xFFEFF1F5)
 val BrandGray = Color(0xFF646262)
@@ -26,8 +27,8 @@ val AccentLavender = Color(0xFFC09FE0)
 // ─── Legacy aliases (keep for existing code references) ───
 
 val WoowTechBlue = BrandPrimaryBlue
-val WoowTechBlueDark = Color(0xFF4A6AE0)
-val WoowTechBlueLight = Color(0xFF8BA3FF)
+val WoowTechBlueDark = Color(AppBrand.current.darkPrimary)
+val WoowTechBlueLight = Color(AppBrand.current.lightPrimary)
 
 // ─── Surface colors ───
 
@@ -61,10 +62,10 @@ val OnBackgroundDark = Color(0xFFE6E1E5)
 
 // ─── Container colors ───
 
-val PrimaryContainerLight = Color(0xFFDBE1FF)
-val PrimaryContainerDark = Color(0xFF3A4B8C)
-val OnPrimaryContainerLight = Color(0xFF001A41)
-val OnPrimaryContainerDark = Color(0xFFDBE1FF)
+val PrimaryContainerLight = Color(AppBrand.current.lightContainer)
+val PrimaryContainerDark = Color(AppBrand.current.darkContainer)
+val OnPrimaryContainerLight = Color(AppBrand.current.onLightContainer)
+val OnPrimaryContainerDark = Color(AppBrand.current.onDarkContainer)
 
 // ─── Outline colors ───
 
@@ -78,7 +79,7 @@ val OutlineVariantDark = Color(0xFF49454F)
 val PinDotEmptyLight = Color(0xFFB0B0B0)
 val PinDotEmptyDark = Color(0xFF6B6B6B)
 val PinDotFilledLight = BrandPrimaryBlue
-val PinDotFilledDark = Color(0xFF8BA3FF)
+val PinDotFilledDark = Color(AppBrand.current.lightPrimary)
 
 // ─── Number pad colors ───
 

@@ -52,7 +52,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="woowodoo" android:host="open" />
+                <data android:scheme="${brandScheme}" android:host="open" />
             </intent-filter>
         </activity>
 

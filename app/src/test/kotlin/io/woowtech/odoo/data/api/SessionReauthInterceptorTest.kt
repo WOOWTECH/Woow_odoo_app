@@ -13,6 +13,7 @@ import io.woowtech.odoo.data.repository.ReloginSignal
 import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.test.runTest
+import io.woowtech.odoo.testutil.onlyLoopback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -68,6 +69,7 @@ class SessionReauthInterceptorTest {
         interceptor = SessionReauthInterceptor(reauthenticator)
         client = OkHttpClient.Builder()
             .addInterceptor(interceptor)
+            .onlyLoopback(server)
             .build()
     }
 

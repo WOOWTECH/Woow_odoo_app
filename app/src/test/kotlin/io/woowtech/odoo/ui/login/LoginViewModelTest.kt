@@ -131,7 +131,7 @@ class LoginViewModelTest {
         fun `Given previous serverUrlError when updateServerUrl then error is cleared`() = runTest {
             // Trigger a server URL error first
             viewModel.goToNextStep() // blank URL => error
-            assertEquals("Server URL is required", viewModel.uiState.value.serverUrlError)
+            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, viewModel.uiState.value.serverUrlError)
 
             // Now type a URL — error should clear
             viewModel.updateServerUrl("odoo.example.com")
@@ -153,7 +153,7 @@ class LoginViewModelTest {
 
             val state = viewModel.uiState.value
             assertEquals(LoginStep.SERVER_INFO, state.step)
-            assertEquals("Server URL is required", state.serverUrlError)
+            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, state.serverUrlError)
         }
 
         @Test
@@ -163,7 +163,7 @@ class LoginViewModelTest {
 
             val state = viewModel.uiState.value
             assertEquals(LoginStep.SERVER_INFO, state.step)
-            assertEquals("Database name is required", state.databaseError)
+            assertEquals(LoginFieldError.DATABASE_REQUIRED, state.databaseError)
         }
 
         @Test
@@ -174,7 +174,7 @@ class LoginViewModelTest {
 
             val state = viewModel.uiState.value
             assertEquals(LoginStep.SERVER_INFO, state.step)
-            assertEquals("HTTPS is required for security", state.serverUrlError)
+            assertEquals(LoginFieldError.HTTPS_REQUIRED, state.serverUrlError)
         }
 
         @Test
@@ -202,7 +202,7 @@ class LoginViewModelTest {
             viewModel.goToNextStep()
 
             val state = viewModel.uiState.value
-            assertEquals("Server URL is required", state.serverUrlError)
+            assertEquals(LoginFieldError.SERVER_URL_REQUIRED, state.serverUrlError)
             // Database error is not set because validation short-circuits
             assertNull(state.databaseError)
         }
@@ -244,7 +244,7 @@ class LoginViewModelTest {
 
             viewModel.login {}
 
-            assertEquals("Username is required", viewModel.uiState.value.usernameError)
+            assertEquals(LoginFieldError.USERNAME_REQUIRED, viewModel.uiState.value.usernameError)
             coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
         }
 
@@ -257,7 +257,7 @@ class LoginViewModelTest {
 
             viewModel.login {}
 
-            assertEquals("Password is required", viewModel.uiState.value.passwordError)
+            assertEquals(LoginFieldError.PASSWORD_REQUIRED, viewModel.uiState.value.passwordError)
             coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
         }
     }
@@ -575,7 +575,7 @@ class LoginViewModelTest {
             viewModel.goToNextStep()
 
             assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
-            assertEquals("HTTPS is required for security", viewModel.uiState.value.serverUrlError)
+            assertEquals(LoginFieldError.HTTPS_REQUIRED, viewModel.uiState.value.serverUrlError)
         }
 
         @Test
@@ -585,7 +585,66 @@ class LoginViewModelTest {
             viewModel.goToNextStep()
 
             assertEquals(LoginStep.SERVER_INFO, viewModel.uiState.value.step)
-            assertEquals("Invalid server URL", viewModel.uiState.value.serverUrlError)
+            assertEquals(LoginFieldError.INVALID_URL, viewModel.uiState.value.serverUrlError)
         }
     }
+
+    @Test
+    fun `Given session establishment failure then retain typed localized session error and never navigate`() = runTest {
+        coEvery { accountRepository.authenticate(any(), any(), any(), any()) } returns
+            AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
+        viewModel.updateServerUrl("https://fixture.test")
+        viewModel.updateDatabase("fixture-db")
+        viewModel.updateUsername("fixture-user")
+        viewModel.updatePassword("fixture-password")
+        var navigated = false
+        viewModel.login { navigated = true }
+        testScheduler.advanceUntilIdle()
+        assertFalse(navigated)
+        assertEquals(AuthResult.ErrorType.SESSION_EXPIRED, viewModel.uiState.value.errorType)
+        viewModel.clearError()
+        assertNull(viewModel.uiState.value.errorType)
+    }
+
+    @Test
+    fun `Given blank fields when corrected then typed errors clear without authenticating`() = runTest {
+        viewModel.goToNextStep()
+        assertEquals(LoginFieldError.SERVER_URL_REQUIRED, viewModel.uiState.value.serverUrlError)
+        viewModel.updateServerUrl("  https://https://fixture.invalid  ")
+        assertNull(viewModel.uiState.value.serverUrlError)
+        viewModel.goToNextStep()
+        assertEquals(LoginFieldError.DATABASE_REQUIRED, viewModel.uiState.value.databaseError)
+        viewModel.updateDatabase(" db ")
+        assertNull(viewModel.uiState.value.databaseError)
+        viewModel.goToNextStep()
+        assertEquals(LoginStep.CREDENTIALS, viewModel.uiState.value.step)
+        assertEquals("fixture.invalid", viewModel.uiState.value.serverUrl)
+        assertEquals("db", viewModel.uiState.value.database)
+        viewModel.login {}
+        assertEquals(LoginFieldError.USERNAME_REQUIRED, viewModel.uiState.value.usernameError)
+        viewModel.updateUsername(" user ")
+        assertNull(viewModel.uiState.value.usernameError)
+        viewModel.login {}
+        assertEquals(LoginFieldError.PASSWORD_REQUIRED, viewModel.uiState.value.passwordError)
+        viewModel.updatePassword(" secret ")
+        assertNull(viewModel.uiState.value.passwordError)
+        assertEquals(" secret ", viewModel.uiState.value.password)
+        coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `Given URL changed to invalid before login when submitted then typed banner blocks repository`() = runTest {
+        viewModel.updateServerUrl("fixture.invalid")
+        viewModel.updateDatabase("db")
+        viewModel.goToNextStep()
+        viewModel.updateUsername("user")
+        viewModel.updatePassword("secret")
+        viewModel.updateServerUrl("bad host")
+        viewModel.login {}
+        testScheduler.advanceUntilIdle()
+        assertEquals(AuthResult.ErrorType.INVALID_URL, viewModel.uiState.value.errorType)
+        assertFalse(viewModel.uiState.value.isLoading)
+        coVerify(exactly = 0) { accountRepository.authenticate(any(), any(), any(), any()) }
+    }
+
 }

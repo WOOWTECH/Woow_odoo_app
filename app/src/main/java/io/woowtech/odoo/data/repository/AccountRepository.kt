@@ -1,5 +1,12 @@
 package io.woowtech.odoo.data.repository
 
+import io.woowtech.odoo.brand.AppBrand
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
@@ -11,11 +18,21 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AccountRepository @Inject constructor(
+class AccountRepository(
     private val accountDao: AccountDao,
     private val encryptedPrefs: EncryptedPrefs,
-    private val odooClient: OdooJsonRpcClient
+    private val odooClient: OdooJsonRpcClient,
+    private val brand: AppBrand,
 ) {
+    @Inject
+    constructor(accountDao: AccountDao, encryptedPrefs: EncryptedPrefs, odooClient: OdooJsonRpcClient) :
+        this(accountDao, encryptedPrefs, odooClient, AppBrand.current)
+
+    // Apporo-only: an old response cannot commit over a newer explicit login/switch intent.
+    private val selectionMutex = Mutex()
+    private var selectionAttempt = 0L
+    private suspend fun beginSelection(): Long = selectionMutex.withLock { ++selectionAttempt }
+
     val allAccounts: Flow<List<OdooAccount>> = accountDao.getAllAccounts()
     val activeAccount: Flow<OdooAccount?> = accountDao.getActiveAccount()
 
@@ -44,6 +61,7 @@ class AccountRepository @Inject constructor(
         username: String,
         password: String
     ): AuthResult {
+        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password)
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
 
         val result = odooClient.authenticate(fullUrl, database, username, password)
@@ -72,6 +90,7 @@ class AccountRepository @Inject constructor(
 
             // Save password securely
             encryptedPrefs.savePassword(account.id, password)
+            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
 
             // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
             // token is upserted for EACH logged-in account (not only this one). This starts push
@@ -96,6 +115,7 @@ class AccountRepository @Inject constructor(
     }
 
     suspend fun switchAccount(accountId: String): Boolean {
+        if (brand.isApporo) return switchApporoAccount(accountId)
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
 
@@ -153,6 +173,7 @@ class AccountRepository @Inject constructor(
             accountDao.deactivateAllAccounts()
             accountDao.activateAccount(accountId)
             accountDao.updateLastLogin(accountId)
+            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
             // Same reason as authenticate(): the FCM token may have been
             // saved before this account became active. Replay it.
             registerSavedFcmToken(accountId)
@@ -237,6 +258,7 @@ class AccountRepository @Inject constructor(
 
         // Delete account from database
         accountDao.deleteAccountById(id)
+        fcmTokenRepository?.forgetAccount(id)
 
         // Multi-account fallback: if other accounts remain and we logged out the ACTIVE one (or none
         // is active), promote the most-recently-used remaining account so the app stays authenticated
@@ -288,6 +310,102 @@ class AccountRepository @Inject constructor(
         }
         encryptedPrefs.removePassword(accountId)
         accountDao.deleteAccountById(accountId)
+        fcmTokenRepository?.forgetAccount(accountId)
+    }
+
+    // Apporo selection/session commit boundary. WOOW paths above retain legacy semantics.
+    private fun validApporoSession(sessionId: String): Boolean =
+        sessionId.isNotBlank() && sessionId.none { it <= ' ' || it == ';' || it >= '\u007f' }
+
+    private suspend fun authenticateApporo(
+        serverUrl: String, database: String, username: String, password: String,
+    ): AuthResult {
+        val attempt = beginSelection()
+        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
+        val result = odooClient.authenticateApporoIsolated(fullUrl, database, username, password)
+        if (result !is AuthResult.Success) return result
+        if (!validApporoSession(result.sessionId)) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
+        val committed = selectionMutex.withLock {
+            if (attempt != selectionAttempt) return@withLock false
+            val existing = accountDao.findAccount(fullUrl, database, username)
+            val account = existing?.copy(displayName = result.displayName, userId = result.userId,
+                lastLogin = System.currentTimeMillis(), isActive = true)
+                ?: OdooAccount(serverUrl = fullUrl, database = database, username = username,
+                    displayName = result.displayName, userId = result.userId, isActive = true)
+            commitApporoSelection(account, existing, password, result.sessionId) {
+                accountDao.insertAccount(account)
+            }
+            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
+            true
+        }
+        if (!committed) return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
+        fcmTokenRepository?.reconcileOnAccountAvailable()
+            ?.onFailure { Timber.w("Push reconcile after Apporo login failed; see account registration status") }
+        return result
+    }
+
+    private suspend fun switchApporoAccount(accountId: String): Boolean {
+        val attempt = beginSelection()
+        val account = accountDao.getAccountById(accountId) ?: return false
+        val password = encryptedPrefs.getPassword(accountId) ?: return false
+        val previous = accountDao.getActiveAccountOnce()?.id
+        // Preserve previous-account unregister BEFORE authentication, including same-host switches.
+        if (previous != null && previous != accountId) {
+            fcmTokenRepository?.unregisterToken(previous)
+                ?.onFailure { Timber.w("Push cleanup before Apporo switch failed") }
+        }
+        val result = odooClient.authenticateApporoIsolated(account.fullServerUrl, account.database, account.username, password)
+        if (result !is AuthResult.Success || !validApporoSession(result.sessionId) || result.userId != account.userId) return false
+        val committed = selectionMutex.withLock {
+            val current = accountDao.getAccountById(accountId)
+            if (attempt != selectionAttempt || current == null || current.serverUrl != account.serverUrl ||
+                current.database != account.database || current.username != account.username ||
+                current.userId != account.userId || encryptedPrefs.getPassword(accountId) != password
+            ) return@withLock false
+            commitApporoSelection(current, current, null, result.sessionId) {
+                accountDao.activateAccount(accountId)
+                accountDao.updateLastLogin(accountId)
+            }
+            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
+            true
+        }
+        if (committed) registerSavedFcmToken(accountId)
+        return committed
+    }
+
+    /** Only local writes are cancellation-protected. Push locks/network remain cancellable outside. */
+    private suspend fun commitApporoSelection(
+        target: OdooAccount,
+        original: OdooAccount?,
+        password: String?,
+        sessionId: String,
+        writeAccount: suspend () -> Unit,
+    ) {
+        val previous = accountDao.getActiveAccountOnce()
+        val previousPassword = encryptedPrefs.getPassword(target.id)
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable) {
+            try {
+                accountDao.deactivateAllAccounts()
+                writeAccount()
+                if (password != null) encryptedPrefs.savePassword(target.id, password)
+                // Last local operation: publication validates before its single in-memory assignment.
+                odooClient.publishApporoSession(target.fullServerUrl, sessionId)
+            } catch (failure: Exception) {
+                // No cookie has been published on a failed local commit. Restore rows/credentials
+                // before releasing the selection fence, including a newly inserted login account.
+                if (original == null) accountDao.deleteAccountById(target.id)
+                else accountDao.insertAccount(original)
+                accountDao.deactivateAllAccounts()
+                if (previous != null) accountDao.activateAccount(previous.id)
+                if (password != null) {
+                    if (previousPassword == null) encryptedPrefs.removePassword(target.id)
+                    else encryptedPrefs.savePassword(target.id, previousPassword)
+                }
+                throw failure
+            }
+        }
+        currentCoroutineContext().ensureActive()
     }
 
     fun getSessionId(serverUrl: String): String? {

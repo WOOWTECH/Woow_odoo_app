@@ -1,0 +1,292 @@
+{
+  "source_directory": "~/WOOW-mobile-app-analysis/sources/Woow_apporo_ha_app/tools/brand/assets/",
+  "method": "RGBA8 bilinear; composite white #FFFFFF; no crop/recolor; adaptive artwork square 60/108, contained in 66dp safe circle",
+  "inputs": {
+    "apporo-mark.png": {
+      "sha256": "9db14c6e5e3a84c4b7600a330ad3ad084875f4cffa2785f778cff2493539fdfa",
+      "size": [
+        1024,
+        1024
+      ]
+    },
+    "apporo-logo-full.png": {
+      "sha256": "6348631978bb668844b1896f33fd83da0436509f8e8abfbe341b50bce72c19d5",
+      "size": [
+        1024,
+        1024
+      ]
+    }
+  },
+  "outputs": [
+    {
+      "path": "app/src/apporo/res/drawable-mdpi/woow_logo.png",
+      "source": "apporo-mark.png",
+      "size": [
+        72,
+        72
+      ],
+      "fraction": 1,
+      "sha256": "c22ab64cb6248e860a46d6a09afa61fc7fa6ed867072e48c2537f64df24aebd5"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-mdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        108,
+        108
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "9b6df7b30254133e2fd4547c10ddc303393b33c1bcdfca38b95bb321d9ead189"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-mdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        108,
+        108
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "9b6df7b30254133e2fd4547c10ddc303393b33c1bcdfca38b95bb321d9ead189"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-mdpi/ic_launcher.png",
+      "source": "apporo-mark.png",
+      "size": [
+        48,
+        48
+      ],
+      "fraction": 0.7,
+      "sha256": "a575c22b4c018a99668bf9d6add4fb3c8776016bc95db0e7f78420b9d29de769"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-mdpi/ic_launcher_round.png",
+      "source": "apporo-mark.png",
+      "size": [
+        48,
+        48
+      ],
+      "fraction": 0.7,
+      "sha256": "a575c22b4c018a99668bf9d6add4fb3c8776016bc95db0e7f78420b9d29de769"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-hdpi/woow_logo.png",
+      "source": "apporo-mark.png",
+      "size": [
+        108,
+        108
+      ],
+      "fraction": 1,
+      "sha256": "b84b800cf9ccbb70a6a1f491497b74be2d4292e9b6f02b5e7af8fd407a619fa8"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-hdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        162,
+        162
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "9094f4e8eebc8e7d6b34424fc81f28774c356521469c34320dc9c3d564a7c44f"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-hdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        162,
+        162
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "9094f4e8eebc8e7d6b34424fc81f28774c356521469c34320dc9c3d564a7c44f"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-hdpi/ic_launcher.png",
+      "source": "apporo-mark.png",
+      "size": [
+        72,
+        72
+      ],
+      "fraction": 0.7,
+      "sha256": "0d9d756ef0c49bd89ac1487f4c597f7e4aa18c5ec0e46503f6411ff0ffcae11b"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-hdpi/ic_launcher_round.png",
+      "source": "apporo-mark.png",
+      "size": [
+        72,
+        72
+      ],
+      "fraction": 0.7,
+      "sha256": "0d9d756ef0c49bd89ac1487f4c597f7e4aa18c5ec0e46503f6411ff0ffcae11b"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-xhdpi/woow_logo.png",
+      "source": "apporo-mark.png",
+      "size": [
+        144,
+        144
+      ],
+      "fraction": 1,
+      "sha256": "c3f5141fe5df7bc8e02234bc9c7b3c990bdf8cce0e1beadbd3d57fed5683f0cd"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-xhdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        216,
+        216
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "a7d1e840ba73c8c0704b8050f917e8cdf729b82fcc0e0ec93ea51702c2eea764"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xhdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        216,
+        216
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "a7d1e840ba73c8c0704b8050f917e8cdf729b82fcc0e0ec93ea51702c2eea764"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xhdpi/ic_launcher.png",
+      "source": "apporo-mark.png",
+      "size": [
+        96,
+        96
+      ],
+      "fraction": 0.7,
+      "sha256": "ae8f551aec776d27f30eab53e5af3e329ef4b7fd4675821de8eb50c96fb04568"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xhdpi/ic_launcher_round.png",
+      "source": "apporo-mark.png",
+      "size": [
+        96,
+        96
+      ],
+      "fraction": 0.7,
+      "sha256": "ae8f551aec776d27f30eab53e5af3e329ef4b7fd4675821de8eb50c96fb04568"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-xxhdpi/woow_logo.png",
+      "source": "apporo-mark.png",
+      "size": [
+        216,
+        216
+      ],
+      "fraction": 1,
+      "sha256": "f4293044d1b7fe4c032dfb391981c6afe62488fd99da005cda0b5161817887a5"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-xxhdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        324,
+        324
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "d1c9d374077cb2b0499560052ee608f1977d66d219f86bfd3320bf064ff4a435"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        324,
+        324
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "d1c9d374077cb2b0499560052ee608f1977d66d219f86bfd3320bf064ff4a435"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xxhdpi/ic_launcher.png",
+      "source": "apporo-mark.png",
+      "size": [
+        144,
+        144
+      ],
+      "fraction": 0.7,
+      "sha256": "60d06b6076173422f1f162d5627bf1b1c8a9ee76dab4726f1b38e1ddfc3483ff"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xxhdpi/ic_launcher_round.png",
+      "source": "apporo-mark.png",
+      "size": [
+        144,
+        144
+      ],
+      "fraction": 0.7,
+      "sha256": "60d06b6076173422f1f162d5627bf1b1c8a9ee76dab4726f1b38e1ddfc3483ff"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-xxxhdpi/woow_logo.png",
+      "source": "apporo-mark.png",
+      "size": [
+        288,
+        288
+      ],
+      "fraction": 1,
+      "sha256": "a9cdfd650a6fd8bd5bd23ffcc215f48cde431a15907dae66e20d52836ce5200d"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-xxxhdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        432,
+        432
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "18b9a44c400553d8e8588683c577c30bddd3f0a8c7cc7dbf7ba4f3b42bbf01e6"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        432,
+        432
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "18b9a44c400553d8e8588683c577c30bddd3f0a8c7cc7dbf7ba4f3b42bbf01e6"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xxxhdpi/ic_launcher.png",
+      "source": "apporo-mark.png",
+      "size": [
+        192,
+        192
+      ],
+      "fraction": 0.7,
+      "sha256": "28c21122bb05c755781c7e2def1c013215417cae78e3d7d0524c70a080efd685"
+    },
+    {
+      "path": "app/src/apporo/res/mipmap-xxxhdpi/ic_launcher_round.png",
+      "source": "apporo-mark.png",
+      "size": [
+        192,
+        192
+      ],
+      "fraction": 0.7,
+      "sha256": "28c21122bb05c755781c7e2def1c013215417cae78e3d7d0524c70a080efd685"
+    },
+    {
+      "path": "app/src/apporo/res/drawable/ic_launcher_foreground.png",
+      "source": "apporo-mark.png",
+      "size": [
+        432,
+        432
+      ],
+      "fraction": 0.5555555555555556,
+      "sha256": "18b9a44c400553d8e8588683c577c30bddd3f0a8c7cc7dbf7ba4f3b42bbf01e6"
+    },
+    {
+      "path": "app/src/apporo/res/drawable-nodpi/apporo_logo_full.png",
+      "source": "apporo-logo-full.png",
+      "size": [
+        512,
+        512
+      ],
+      "fraction": 1,
+      "sha256": "ade7bc87710f10c5e37cb8825f9671068de118f1b309ff75e4cf59eb7a1dd901"
+    }
+  ]
+}

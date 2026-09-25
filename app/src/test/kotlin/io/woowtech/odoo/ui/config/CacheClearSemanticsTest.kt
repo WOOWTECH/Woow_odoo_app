@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.config
 
+import io.mockk.every
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.woowtech.odoo.data.local.EncryptedPrefs
@@ -69,7 +70,14 @@ class CacheClearSemanticsTest {
         settingsRepository = mockk(relaxed = true)
         cacheRepository = mockk(relaxed = true)
         encryptedPrefs = mockk(relaxed = true)
-        viewModel = SettingsViewModel(settingsRepository, cacheRepository)
+        viewModel = SettingsViewModel(settingsRepository, cacheRepository,
+            mockk<io.woowtech.odoo.data.repository.AccountRepository>(relaxed = true).also {
+                every { it.activeAccount } returns kotlinx.coroutines.flow.MutableStateFlow(null)
+            },
+            mockk<io.woowtech.odoo.data.repository.FcmTokenRepository>(relaxed = true).also {
+                every { it.registrationStatuses } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+            },
+        )
     }
 
     @AfterEach
