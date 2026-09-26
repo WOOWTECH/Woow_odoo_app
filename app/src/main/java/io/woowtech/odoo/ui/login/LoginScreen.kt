@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -95,10 +97,14 @@ fun LoginScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        // MainActivity 開了 enableEdgeToEdge()。其他畫面靠 Material3 TopAppBar／Scaffold 自動
+        // 避開系統列，登入頁沒有 TopAppBar，要自己吃 safeDrawing（狀態列、導覽列、瀏海、鍵盤），
+        // 否則帳密步驟的返回鍵會被畫在狀態列底下而點不到。背景仍鋪滿到螢幕邊緣（在外層 Box）。
+        // safeDrawing 已包含 ime，所以取代原本的 imePadding()。
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
