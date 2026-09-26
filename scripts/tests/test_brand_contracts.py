@@ -46,6 +46,46 @@ def fixture(brand, build_type):
                         "api_key": [{"current_key": "unit-test-only-not-a-real-api-key"}]}]}
 
 
+# W1-10 (owner-approved 2026-09-26): "Remember me" off must not persist a password; the active
+# account stays deep-link routable without one. Each pair is (current text, baseline text) and must
+# occur exactly once; everything else in these files keeps its byte-level baseline gate.
+W1_10_MAIN_ACTIVITY = (
+    ('            // "Remember me" off leaves no stored password; the active account still has its session.\n'
+     '            val activeAccountId = accounts.firstOrNull { it.isActive }?.id\n', ''),
+    ('isLoggedIn = { accountRepository.canRouteDeepLink(it, activeAccountId) },',
+     'isLoggedIn = { accountRepository.isLoggedIn(it) },'),
+)
+W1_10_ACCOUNT_WOOW = (
+    ('    /**\n'
+     '     * Deep-link routing predicate. The ACTIVE account is usable through its live session even when\n'
+     '     * "Remember me" was off (no stored password); any other account must be switched to, which needs\n'
+     '     * a stored password.\n'
+     '     */\n'
+     '    fun canRouteDeepLink(accountId: String, activeAccountId: String?): Boolean =\n'
+     '        accountId == activeAccountId || isLoggedIn(accountId)\n'
+     '\n'
+     '    /**\n'
+     '     * @param rememberPassword the login screen\'s "Remember me". When false the password is NOT\n'
+     '     * persisted and any password previously remembered for this same account is removed, so no\n'
+     '     * reusable secret outlives the session (silent re-auth / switching back will ask to sign in).\n'
+     '     */\n', ''),
+    ('        password: String,\n        rememberPassword: Boolean = true,\n    ): AuthResult {',
+     '        password: String\n    ): AuthResult {'),
+    ('            // Save password securely only when the user asked us to remember it (W1-10).\n'
+     '            if (rememberPassword) encryptedPrefs.savePassword(account.id, password)\n'
+     '            else encryptedPrefs.removePassword(account.id)\n',
+     '            // Save password securely\n'
+     '            encryptedPrefs.savePassword(account.id, password)\n'),
+)
+
+
+def reverse_apply(test, text, deltas):
+    for current, original in deltas:
+        test.assertEqual(1, text.count(current), current)
+        text = text.replace(current, original)
+    return text
+
+
 class BrandIdentityContracts(unittest.TestCase):
     def test_four_independent_variant_identities(self):
         expected = [("woowtechDebug", "io.woowtech.odoo.debug", "woowodoo"),
@@ -114,7 +154,10 @@ class BrandIdentityContracts(unittest.TestCase):
         for name in files:
             with self.subTest(file=name):
                 path = f'app/src/main/java/io/woowtech/odoo/{name}'
-                self.assertEqual(baseline(path), (ROOT / path).read_bytes())
+                current = (ROOT / path).read_bytes()
+                if name == 'ui/MainActivity.kt':
+                    current = reverse_apply(self, current.decode(), W1_10_MAIN_ACTIVITY).encode()
+                self.assertEqual(baseline(path), current)
         account = (K / 'data/repository/AccountRepository.kt').read_text()
         apporo_account = account.split('    // Apporo selection/session commit boundary.', 1)[1].split('    fun getSessionId(', 1)[0]
         self.assertIn('if (attempt != selectionAttempt)', apporo_account)
@@ -140,7 +183,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import kotlinx.coroutines.sync.Mutex\n', 'import kotlinx.coroutines.sync.withLock\n',
                      'import kotlinx.coroutines.NonCancellable\n', 'import kotlinx.coroutines.currentCoroutineContext\n',
                      'import kotlinx.coroutines.ensureActive\n', 'import kotlinx.coroutines.withContext\n',
-                     '        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password)\n',
+                     '        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)\n',
                      '        if (brand.isApporo) return switchApporoAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
@@ -150,6 +193,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
+        account = reverse_apply(self, account, W1_10_ACCOUNT_WOOW)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt').decode(), account)
         # Fifth approved seam: Apporo response-derived SID; byte-preserve the entire WOOW auth path.
         api = (K / 'data/api/OdooJsonRpcClient.kt').read_text()

@@ -55,13 +55,27 @@ class AccountRepository(
      */
     fun isLoggedIn(accountId: String): Boolean = encryptedPrefs.getPassword(accountId) != null
 
+    /**
+     * Deep-link routing predicate. The ACTIVE account is usable through its live session even when
+     * "Remember me" was off (no stored password); any other account must be switched to, which needs
+     * a stored password.
+     */
+    fun canRouteDeepLink(accountId: String, activeAccountId: String?): Boolean =
+        accountId == activeAccountId || isLoggedIn(accountId)
+
+    /**
+     * @param rememberPassword the login screen's "Remember me". When false the password is NOT
+     * persisted and any password previously remembered for this same account is removed, so no
+     * reusable secret outlives the session (silent re-auth / switching back will ask to sign in).
+     */
     suspend fun authenticate(
         serverUrl: String,
         database: String,
         username: String,
-        password: String
+        password: String,
+        rememberPassword: Boolean = true,
     ): AuthResult {
-        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password)
+        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
 
         val result = odooClient.authenticate(fullUrl, database, username, password)
@@ -88,8 +102,9 @@ class AccountRepository(
             accountDao.deactivateAllAccounts()
             accountDao.insertAccount(account)
 
-            // Save password securely
-            encryptedPrefs.savePassword(account.id, password)
+            // Save password securely only when the user asked us to remember it (W1-10).
+            if (rememberPassword) encryptedPrefs.savePassword(account.id, password)
+            else encryptedPrefs.removePassword(account.id)
             fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
 
             // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
@@ -318,7 +333,7 @@ class AccountRepository(
         sessionId.isNotBlank() && sessionId.none { it <= ' ' || it == ';' || it >= '\u007f' }
 
     private suspend fun authenticateApporo(
-        serverUrl: String, database: String, username: String, password: String,
+        serverUrl: String, database: String, username: String, password: String, rememberPassword: Boolean,
     ): AuthResult {
         val attempt = beginSelection()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
@@ -332,7 +347,8 @@ class AccountRepository(
                 lastLogin = System.currentTimeMillis(), isActive = true)
                 ?: OdooAccount(serverUrl = fullUrl, database = database, username = username,
                     displayName = result.displayName, userId = result.userId, isActive = true)
-            commitApporoSelection(account, existing, password, result.sessionId) {
+            commitApporoSelection(account, existing, password.takeIf { rememberPassword }, result.sessionId,
+                forgetPassword = !rememberPassword) {
                 accountDao.insertAccount(account)
             }
             fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
@@ -379,8 +395,10 @@ class AccountRepository(
         original: OdooAccount?,
         password: String?,
         sessionId: String,
+        forgetPassword: Boolean = false,
         writeAccount: suspend () -> Unit,
     ) {
+        val touchesPassword = password != null || forgetPassword
         val previous = accountDao.getActiveAccountOnce()
         val previousPassword = encryptedPrefs.getPassword(target.id)
         currentCoroutineContext().ensureActive()
@@ -389,6 +407,7 @@ class AccountRepository(
                 accountDao.deactivateAllAccounts()
                 writeAccount()
                 if (password != null) encryptedPrefs.savePassword(target.id, password)
+                else if (forgetPassword) encryptedPrefs.removePassword(target.id)
                 // Last local operation: publication validates before its single in-memory assignment.
                 odooClient.publishApporoSession(target.fullServerUrl, sessionId)
             } catch (failure: Exception) {
@@ -398,7 +417,7 @@ class AccountRepository(
                 else accountDao.insertAccount(original)
                 accountDao.deactivateAllAccounts()
                 if (previous != null) accountDao.activateAccount(previous.id)
-                if (password != null) {
+                if (touchesPassword) {
                     if (previousPassword == null) encryptedPrefs.removePassword(target.id)
                     else encryptedPrefs.savePassword(target.id, previousPassword)
                 }

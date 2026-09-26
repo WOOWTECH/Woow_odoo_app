@@ -2,6 +2,7 @@ package io.woowtech.odoo.data.repository
 
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
 import io.woowtech.odoo.data.local.AccountDao
@@ -10,44 +11,26 @@ import io.woowtech.odoo.domain.model.AuthResult
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 /**
- * EP-10R 子項 a（T43）：Remember me 的 UI 契約與實際持久化行為不一致。
+ * W1-10（EP-10R 子項 a／T43 修補）：「記住我」沒勾時不得保存密碼。
  *
- * ## 這些是 characterisation test，不是「行為正確」的宣告
+ * 修補前（`cb4ed19` 以 characterisation test 釘住）：`LoginViewModel` 的 `rememberMe` 只是
+ * UI state，`AccountRepository.authenticate()` 沒有對應參數，`savePassword()` 無條件執行。
+ * 該檔原本的「簽章不含 Boolean」測試在本次修補時如預期轉紅，已改寫為下列新契約：
  *
- * 斷言通過代表「**目前行為已被鎖定並記錄**」，不代表該行為符合使用者預期。
- * minimal-remediation §10 把修補方案列為 **owner 未決**（方案 A：未勾選就不存
- * 可重用密碼／方案 B：保留現行行為但改 UI 文案誠實告知），因此本票
- * **只重現、不改產品語意**。
+ * - `rememberPassword = true`（預設，與勾選預設值一致）→ 保存密碼。
+ * - `rememberPassword = false` → **不保存**，並移除同一帳號先前記住的密碼（不留可重用秘密）；
+ *   帳號列與登入 session 照常建立。WOOW 與 Apporo 兩條路徑都適用；Apporo 本地提交失敗時
+ *   仍回滾到原本的密碼。
+ * - 通知深層連結：active 帳號不需保存密碼也能接收；非 active 帳號要切換，仍需保存的密碼。
  *
- * ## 缺陷（file:line 佐證，2026-09-19 實查）
- *
- * - `ui/login/LoginViewModel.kt:20` —— `rememberMe: Boolean = true` 存在於 UI state
- * - `ui/login/LoginViewModel.kt:74-75` —— `updateRememberMe()` **只**更新 UI state
- * - `ui/login/LoginViewModel.kt:133-138` —— 呼叫 `authenticate()` 時**未傳遞** rememberMe
- * - `data/repository/AccountRepository.kt:41-45` —— `authenticate()` 簽章**沒有** rememberMe 參數
- * - `data/repository/AccountRepository.kt:74` —— `encryptedPrefs.savePassword()` **無條件**執行
- *
- * 結果：使用者取消勾選 Remember me，密碼**仍然**被持久化，且該密碼是
- * **可重用的** —— 被以下四處讀回用於靜默重新認證：
- * `AccountRepository.kt:39`(isLoggedIn)、`:100`、`ui/main/MainViewModel.kt:69`、
- * `data/api/SessionReauthenticator.kt:127`。
- *
- * ## 為什麼沒有 observed-RED
- *
- * `authenticate()` **根本沒有 rememberMe 參數**。要寫出「傳 false 時不得持久化」
- * 的紅測，就必須先新增該參數 —— 那是改變產品 API 與語意，已被本票明文禁止。
- * 硬寫只會得到**編譯失敗**，不是有意義的測試失敗。
- * 因此這裡採 characterisation：把現況精確釘住，owner 決定方案 A 後，
- * 第三條測試（簽章檢查）會**自動轉紅**，即為現成的紅測。
- *
- * ## 安全性界定
- *
- * 密碼存於 `EncryptedPrefs`（AndroidKeyStore AES-256-GCM/SIV，且已排除於備份）。
- * 這是 **UI 承諾與儲存行為不一致**的契約缺口，**不是**明文外洩或已發生的洩漏事件。
+ * 取捨：未記住密碼的帳號在 session 過期時不會靜默重新認證（`SessionReauthenticator`
+ * 會發出重新登入訊號），也無法不輸入密碼就切回；這正是使用者取消「記住我」的意思。
  */
 class RememberMePersistenceTest {
 
@@ -80,12 +63,45 @@ class RememberMePersistenceTest {
         )
     }
 
-    /**
-     * 現況鎖定：登入成功一律持久化密碼。UI 上的 Remember me 勾選與否對此**毫無影響**，
-     * 因為該旗標從未離開 `LoginViewModel` 的 UI state。
-     */
+    private suspend fun login(remember: Boolean) = accountRepository.authenticate(
+        serverUrl = "demo.example.invalid",
+        database = "db",
+        username = "tester",
+        password = "irrelevant-fixture-value",
+        rememberPassword = remember,
+    )
+
     @Test
-    fun `Given successful login when authenticate then password is persisted unconditionally`() = runTest {
+    fun `Given remember me checked when authenticate succeeds then password is persisted`() = runTest {
+        login(remember = true)
+
+        coVerify(exactly = 1) { encryptedPrefs.savePassword(any(), "irrelevant-fixture-value") }
+        coVerify(exactly = 0) { encryptedPrefs.removePassword(any()) }
+    }
+
+    @Test
+    fun `Given remember me unchecked when authenticate succeeds then no password is persisted and stale one removed`() = runTest {
+        val result = login(remember = false)
+
+        assertTrue(result is AuthResult.Success)
+        coVerify(exactly = 0) { encryptedPrefs.savePassword(any(), any()) }
+        coVerify(exactly = 1) { encryptedPrefs.removePassword(any()) }
+        coVerify(exactly = 1) { accountDao.insertAccount(any()) }
+    }
+
+    @Test
+    fun `Given remember me unchecked when authenticate fails then nothing is written or removed`() = runTest {
+        coEvery { odooClient.authenticate(any(), any(), any(), any()) } returns
+            AuthResult.Error("bad", AuthResult.ErrorType.INVALID_CREDENTIALS)
+
+        login(remember = false)
+
+        coVerify(exactly = 0) { encryptedPrefs.savePassword(any(), any()) }
+        coVerify(exactly = 0) { encryptedPrefs.removePassword(any()) }
+    }
+
+    @Test
+    fun `Given legacy caller without the flag when authenticate then it keeps remembering like the checkbox default`() = runTest {
         accountRepository.authenticate(
             serverUrl = "demo.example.invalid",
             database = "db",
@@ -96,52 +112,68 @@ class RememberMePersistenceTest {
         coVerify(exactly = 1) { encryptedPrefs.savePassword(any(), any()) }
     }
 
-    /**
-     * 現況鎖定：**取消勾選的路徑不存在**。
-     *
-     * 這條測試用反射檢查 `authenticate()` 的實際參數名稱。目前是
-     * `serverUrl / database / username / password` 四個，**沒有任何表達使用者
-     * 持久化意圖的參數** —— 這就是 UI 旗標與儲存層之間斷鏈的客觀證據。
-     *
-     * ★ owner 若採方案 A（未勾選就不存），此處必須新增參數，屆時本測試
-     *   **自動轉紅**，即為現成紅測，提醒實作者同步更新本檔的契約描述。
-     */
     @Test
-    fun `Given authenticate signature when inspected then it carries no user persistence intent`() {
-        // 用 Java reflection（測試 classpath 無 kotlin-reflect，且本票不得新增依賴）。
-        // suspend 函式在 bytecode 上會多一個尾端的 Continuation 參數，
-        // 故 4 個業務參數 + 1 Continuation = 5。
-        val authenticate = AccountRepository::class.java.methods
-            .single { it.name == "authenticate" }
+    fun `Given authenticate signature when inspected then it carries the user persistence intent`() {
+        // suspend 函式在 bytecode 上多一個尾端 Continuation：4 String + 1 Boolean + 1 Continuation。
+        val authenticate = AccountRepository::class.java.methods.single { it.name == "authenticate" }
         val paramTypes = authenticate.parameterTypes
 
-        assertEquals(
-            5,
-            paramTypes.size,
-            "authenticate() 目前是 serverUrl/database/username/password 四個業務參數" +
-                "（+1 個 suspend 的 Continuation）。參數個數一旦改變，代表 Remember me " +
-                "契約可能已被處理 —— 請同步更新本檔的 characterisation 描述，" +
-                "並確認 owner 已核定方案",
-        )
-        // 四個業務參數全是 String：沒有任何 Boolean 能承載「使用者是否要求持久化」。
-        assertEquals(
-            4,
-            paramTypes.count { it == String::class.java },
-            "四個業務參數皆為 String",
-        )
-        assertFalse(
-            paramTypes.any { it == Boolean::class.java || it == java.lang.Boolean::class.java },
-            "目前沒有任何 Boolean 參數表達『使用者是否要求持久化』—— " +
-                "UI 的 Remember me 勾選框因此無法影響儲存行為（T43 契約缺口）",
-        )
+        assertEquals(6, paramTypes.size)
+        assertEquals(java.lang.Boolean.TYPE, paramTypes[4], "第 5 個參數必須是 rememberPassword: Boolean")
     }
 
+    // ── Apporo 路徑（isolated session 提交邊界）──────────────────────────────
+
+    private fun apporoRepository(): AccountRepository {
+        coEvery { odooClient.authenticateApporoIsolated(any(), any(), any(), any()) } returns
+            AuthResult.Success(userId = 7, sessionId = "apporo-session", username = "tester", displayName = "Tester")
+        coEvery { accountDao.findAccount(any(), any(), any()) } returns null
+        coEvery { accountDao.getActiveAccountOnce() } returns null
+        return AccountRepository(accountDao, encryptedPrefs, odooClient, io.woowtech.odoo.brand.AppBrand.forCode("apporo"))
+    }
+
+    @Test
+    fun `Given Apporo and remember me unchecked when login commits then session is published without saving password`() = runTest {
+        val repo = apporoRepository()
+
+        val result = repo.authenticate("demo.example.invalid", "db", "tester", "irrelevant-fixture-value", rememberPassword = false)
+
+        assertTrue(result is AuthResult.Success)
+        coVerify(exactly = 0) { encryptedPrefs.savePassword(any(), any()) }
+        coVerify(exactly = 1) { encryptedPrefs.removePassword(any()) }
+        coVerify(exactly = 1) { odooClient.publishApporoSession("https://demo.example.invalid", "apporo-session") }
+    }
+
+    @Test
+    fun `Given Apporo and remember me checked when login commits then password is saved`() = runTest {
+        val repo = apporoRepository()
+
+        repo.authenticate("demo.example.invalid", "db", "tester", "irrelevant-fixture-value", rememberPassword = true)
+
+        coVerify(exactly = 1) { encryptedPrefs.savePassword(any(), "irrelevant-fixture-value") }
+        coVerify(exactly = 0) { encryptedPrefs.removePassword(any()) }
+    }
+
+    @Test
+    fun `Given Apporo unchecked login whose local commit fails then previously remembered password is restored`() = runTest {
+        val repo = apporoRepository()
+        every { encryptedPrefs.getPassword(any()) } returns "previous-fixture-value"
+        every { odooClient.publishApporoSession(any(), any()) } throws IllegalStateException("publish failed")
+
+        assertThrows(IllegalStateException::class.java) {
+            kotlinx.coroutines.runBlocking {
+                repo.authenticate("demo.example.invalid", "db", "tester", "irrelevant-fixture-value", rememberPassword = false)
+            }
+        }
+
+        coVerify(exactly = 1) { encryptedPrefs.removePassword(any()) }
+        coVerify(exactly = 1) { encryptedPrefs.savePassword(any(), "previous-fixture-value") }
+    }
+
+    // ── 讀回端 ─────────────────────────────────────────────────────────────
+
     /**
-     * 現況鎖定：持久化的密碼是**可重用**的 —— `isLoggedIn()` 僅憑「有沒有存密碼」判定。
-     *
-     * 這是為什麼 T43 屬契約缺口而非純外觀問題：取消勾選後留下的不是惰性資料，
-     * 而是足以在使用者不知情下完成靜默重新認證的憑據
-     * （`SessionReauthenticator.kt:127` 讀回同一把 key）。
+     * `isLoggedIn()` 仍僅憑「有沒有存密碼」判定（可切換、可靜默重新認證的帳號）。
      */
     @Test
     fun `Given a persisted password when isLoggedIn then it reports logged in purely from storage`() {
@@ -150,5 +182,16 @@ class RememberMePersistenceTest {
 
         assertEquals(true, accountRepository.isLoggedIn("acc-1"))
         assertEquals(false, accountRepository.isLoggedIn("acc-absent"))
+    }
+
+    @Test
+    fun `Given active account without remembered password when routing a deep link then it is still routable`() {
+        coEvery { encryptedPrefs.getPassword(any()) } returns null
+        coEvery { encryptedPrefs.getPassword("other-remembered") } returns "stored-fixture-value"
+
+        assertTrue(accountRepository.canRouteDeepLink("active", activeAccountId = "active"))
+        assertFalse(accountRepository.canRouteDeepLink("other-forgotten", activeAccountId = "active"))
+        assertTrue(accountRepository.canRouteDeepLink("other-remembered", activeAccountId = "active"))
+        assertFalse(accountRepository.canRouteDeepLink("any", activeAccountId = null))
     }
 }

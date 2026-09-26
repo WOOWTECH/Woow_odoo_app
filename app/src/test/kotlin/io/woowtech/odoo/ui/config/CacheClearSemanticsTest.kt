@@ -20,6 +20,12 @@ import org.junit.jupiter.api.Test
 /**
  * EP-10R 子項 c（T33）：「清除快取」的實際語意。
  *
+ * > **2026-09-26 W1-10 已修補**：`CacheRepository.clearWebViewCache()` 現在同時清 WebView
+ * > HTTP 快取（`WebView.clearCache(true)`）與網站資料（`WebStorage.deleteAllData()`），
+ * > 仍不碰 cookie／帳號／密碼；行為測試見 `data/repository/CacheClearWebViewDataTest.kt`。
+ * > 下方「落差 (1)」的 HTTP 快取部分因此已不成立；清網站資料（全域、不分實例）為本次決定保留的語意。
+ * > 本檔 ViewModel 層斷言不變。
+ *
  * ## 這些是 characterisation test
  *
  * 斷言通過代表「**目前行為已被鎖定並記錄**」。minimal-remediation §10 把

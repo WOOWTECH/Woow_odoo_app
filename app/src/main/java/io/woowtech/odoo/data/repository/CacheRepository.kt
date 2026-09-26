@@ -2,6 +2,7 @@ package io.woowtech.odoo.data.repository
 
 import android.content.Context
 import android.webkit.WebStorage
+import android.webkit.WebView
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,12 +12,34 @@ import javax.inject.Singleton
 
 /**
  * Handles cache clearing operations without holding a reference to Activity context.
- * Uses WebStorage API instead of creating throwaway WebView instances.
+ *
+ * "Clear cache" (W1-10) clears the WebView HTTP cache (memory + disk, process-wide) and the
+ * WebView site storage (localStorage / IndexedDB / Web SQL). It deliberately does NOT touch
+ * cookies (the Odoo session), accounts, stored credentials or app settings — clearing the cache
+ * must never sign the user out.
  */
 @Singleton
-class CacheRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+class CacheRepository internal constructor(
+    private val context: Context,
+    private val clearWebViewHttpCache: () -> Unit,
+    private val clearWebSiteStorage: () -> Unit,
 ) {
+
+    @Inject
+    constructor(@ApplicationContext context: Context) : this(
+        context,
+        clearWebViewHttpCache = {
+            // WebView.clearCache is per-application: one throwaway instance on the application
+            // context clears the HTTP cache used by every WebView, and holds no Activity.
+            val webView = WebView(context)
+            try {
+                webView.clearCache(true)
+            } finally {
+                webView.destroy()
+            }
+        },
+        clearWebSiteStorage = { WebStorage.getInstance().deleteAllData() },
+    )
 
     /**
      * Clears the app's cache directory and returns the new cache size.
@@ -32,12 +55,23 @@ class CacheRepository @Inject constructor(
     }
 
     /**
-     * Clears WebView storage data without creating a throwaway WebView.
-     * Must be called from the main thread.
+     * Clears the WebView HTTP cache and site storage (never cookies). Runs on the main thread, as
+     * WebView requires. Each step is independent: a missing/updating WebView provider must not
+     * stop the other step or crash Settings.
      */
     suspend fun clearWebViewCache() = withContext(Dispatchers.Main) {
-        WebStorage.getInstance().deleteAllData()
-        Timber.d("WebView cache cleared")
+        try {
+            clearWebViewHttpCache()
+            Timber.d("WebView HTTP cache cleared")
+        } catch (e: RuntimeException) {
+            Timber.e(e, "Failed to clear WebView HTTP cache")
+        }
+        try {
+            clearWebSiteStorage()
+            Timber.d("WebView site storage cleared")
+        } catch (e: RuntimeException) {
+            Timber.e(e, "Failed to clear WebView site storage")
+        }
     }
 
     /**

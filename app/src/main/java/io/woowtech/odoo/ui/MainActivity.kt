@@ -138,6 +138,8 @@ class MainActivity : FragmentActivity() {
 
         activityScope.launch(Dispatchers.IO) {
             val accounts = accountRepository.getAllAccountsOnce()
+            // "Remember me" off leaves no stored password; the active account still has its session.
+            val activeAccountId = accounts.firstOrNull { it.isActive }?.id
             val routableAccounts = accounts.map { account ->
                 RoutableAccount(
                     id = account.id,
@@ -151,7 +153,7 @@ class MainActivity : FragmentActivity() {
                     tenantId = tenantId,
                     actionUrl = actionUrl,
                     accounts = routableAccounts,
-                    isLoggedIn = { accountRepository.isLoggedIn(it) },
+                    isLoggedIn = { accountRepository.canRouteDeepLink(it, activeAccountId) },
                 )
             ) {
                 is DeepLinkRoute.SwitchAndApply -> applyResolvedDeepLink(route.accountId, route.url)

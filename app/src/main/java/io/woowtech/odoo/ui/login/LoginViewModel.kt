@@ -147,7 +147,8 @@ class LoginViewModel @Inject constructor(
                 serverUrl = serverUrl,
                 database = state.database.trim(),
                 username = state.username.trim(),
-                password = state.password
+                password = state.password,
+                rememberPassword = state.rememberMe,
             )
 
             when (result) {

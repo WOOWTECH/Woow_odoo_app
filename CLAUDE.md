@@ -4,6 +4,7 @@
 
 - W1-3：engineering `b1b052f`（繁中「渥屋平台」）已合併；名稱只放 `app/src/woowtech/res/values-zh-rTW/strings.xml`，`main/` 與 apporo 三語名稱不變。
 - W1-7：`authorize_live(..., scope, account)`；Apporo debug 只在 `scope="ui"`（`verify-on-device.py`、`e2e_15_clockin_full.py`）、`ALLOW_APPORO_LIVE_UI=<package>`、`ODOO_USER == APPORO_LIVE_ACCOUNT`、僅 demo111 時放行；push 範圍（其餘腳本、預設值）一律拒絕，V20 對 Apporo 記為 skip。實際開旗標跑 live 仍需擁有者 B14 批准。
+- W1-10：「記住我」未勾 → `authenticate(..., rememberPassword=false)` 不存密碼並移除同帳號舊密碼（WOOW／Apporo 兩路徑；Apporo 提交失敗回滾舊密碼）；active 帳號無密碼仍可收深層連結（`canRouteDeepLink`）。「清除快取」= `WebView.clearCache(true)` + `WebStorage.deleteAllData()`，不碰 cookie／帳號／密碼。已知取捨：未記住的帳號 session 過期需重新登入；Apporo 推播對未記住帳號回報 SIGN_IN_REQUIRED（push transport 以存有密碼判定帳號仍有效）。
 
 ## 2026-09-25 階段 3 review 修正（待獨立驗收）
 
