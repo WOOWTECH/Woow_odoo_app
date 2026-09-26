@@ -28,7 +28,9 @@ class CompliancePageLinksTest {
     private fun str(id: Int): String =
         RuntimeEnvironment.getApplication().getString(id)
 
-    private fun assertLinks(suffix: String) {
+    // woowtechName: engineering b1b052f gives the WOOW flavor a zh-TW-only name (渥屋平台);
+    // the Apporo flavor stays "Apporo platform" in every locale.
+    private fun assertLinks(suffix: String, woowtechName: String = "woowtech platform") {
         val origin = if (BuildConfig.APP_BRAND == "apporo") "https://www.apporo.ai" else "https://aiot.woowtech.io"
         assertEquals(R.string.url_support, AppBrand.current.supportUrlResource)
         assertEquals(R.string.url_privacy_policy, AppBrand.current.privacyUrlResource)
@@ -38,7 +40,7 @@ class CompliancePageLinksTest {
             assertEquals("Apporo platform", str(R.string.notification_channel_messages))
             assertEquals("Apporo platform / APPORO UNION INC.", str(R.string.copyright))
         } else {
-            assertEquals("woowtech platform", str(R.string.app_name))
+            assertEquals(woowtechName, str(R.string.app_name))
             assertEquals("© 2026 WoowTech", str(R.string.copyright))
         }
         assertEquals("$origin/odoo-support$suffix", str(R.string.url_support))
@@ -67,7 +69,7 @@ class CompliancePageLinksTest {
     @Test
     @Config(qualifiers = "zh-rTW")
     fun `Given Traditional Chinese UI when opening compliance links then the non-suffixed pages are used`() {
-        assertLinks("")
+        assertLinks("", woowtechName = "渥屋平台")
         assertEquals("刪除帳號", str(R.string.delete_account_title))
         assertEquals("隱私權政策", str(R.string.privacy_policy_title))
         assertEquals("支援", str(R.string.support_title))
