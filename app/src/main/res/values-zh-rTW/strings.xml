@@ -168,6 +168,7 @@
     <string name="error_unknown">發生未預期的錯誤</string>
     <string name="error_timeout">連線逾時</string>
     <string name="error_server">伺服器錯誤</string>
+    <string name="error_server_http">伺服器錯誤（HTTP %d）</string>
 
     <!-- Success Messages -->
     <string name="success_login">登入成功</string>

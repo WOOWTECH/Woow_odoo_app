@@ -168,6 +168,7 @@
     <string name="error_unknown">An unexpected error occurred</string>
     <string name="error_timeout">Connection timeout</string>
     <string name="error_server">Server error</string>
+    <string name="error_server_http">Server error (HTTP %d)</string>
 
     <!-- Success Messages -->
     <string name="success_login">Login successful</string>

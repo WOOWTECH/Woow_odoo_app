@@ -469,6 +469,22 @@ class LoginViewModelTest {
         }
 
         @Test
+        fun `Given non-200 sign-in status when login then state keeps the HTTP status for the localized text`() = runTest {
+            coEvery {
+                accountRepository.authenticate(any(), any(), any(), any())
+            } returns AuthResult.Error("HTTP 530", AuthResult.ErrorType.SERVER_ERROR, httpStatus = 530)
+
+            setupLoginFlow()
+            viewModel.login {}
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(AuthResult.ErrorType.SERVER_ERROR, viewModel.uiState.value.errorType)
+            assertEquals(530, viewModel.uiState.value.httpStatus)
+            viewModel.clearError()
+            assertEquals(null, viewModel.uiState.value.httpStatus)
+        }
+
+        @Test
         fun `Given unknown error when login then shows the original error message`() = runTest {
             coEvery {
                 accountRepository.authenticate(any(), any(), any(), any())

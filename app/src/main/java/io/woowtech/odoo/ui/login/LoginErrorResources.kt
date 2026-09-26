@@ -1,6 +1,9 @@
 package io.woowtech.odoo.ui.login
 
 import androidx.annotation.StringRes
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.ui.res.stringResource
 import io.woowtech.odoo.R
 import io.woowtech.odoo.domain.model.AuthResult
 
@@ -31,4 +34,19 @@ internal fun AuthResult.ErrorType.messageResource(): Int? = when (this) {
     AuthResult.ErrorType.HTTPS_REQUIRED -> R.string.error_https
     AuthResult.ErrorType.SERVER_ERROR -> R.string.error_server
     AuthResult.ErrorType.UNKNOWN -> null
+}
+
+/**
+ * Error-card text. A non-200 sign-in response names its HTTP status exactly once, inside the
+ * localized phrase (`error_server_http`, iOS `error_server_http_%lld` parity); every other error
+ * keeps its [messageResource] text, and UNKNOWN keeps the original [fallback] message.
+ */
+@Composable
+@ReadOnlyComposable
+internal fun LoginUiState.errorMessage(fallback: String): String {
+    val status = httpStatus
+    if (errorType == AuthResult.ErrorType.SERVER_ERROR && status != null) {
+        return stringResource(R.string.error_server_http, status)
+    }
+    return errorType?.messageResource()?.let { stringResource(it) } ?: fallback
 }

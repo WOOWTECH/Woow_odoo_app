@@ -78,6 +78,25 @@ W1_10_ACCOUNT_WOOW = (
      '            encryptedPrefs.savePassword(account.id, password)\n'),
 )
 
+# Server-error status (owner-approved 2026-09-26, iOS b9ebd0d parity): a non-200 sign-in response on
+# the WOOW path keeps its HTTP status for the localized `error_server_http` login text instead of
+# being parsed as JSON. Same (current, baseline) contract as W1-10; the rest stays byte-level.
+SERVER_HTTP_STATUS_WOOW_API = (
+    ('        } catch (e: SignInHttpStatusException) {\n'
+     '            signInHttpStatus(e.code)\n', ''),
+    ('        if (response.code != 200) {\n'
+     '            response.close()\n'
+     '            throw SignInHttpStatusException(response.code)\n'
+     '        }\n', ''),
+    ('    /** Status only; LoginScreen renders the localized `error_server_http` text (iOS parity). */\n'
+     '    private fun signInHttpStatus(code: Int) =\n'
+     '        AuthResult.Error("HTTP $code", AuthResult.ErrorType.SERVER_ERROR, httpStatus = code)\n'
+     '\n'
+     '    private class SignInHttpStatusException(val code: Int) : Exception("HTTP $code")\n'
+     '\n', ''),
+)
+SERVER_HTTP_STATUS_STRINGS = {'error_server_http'}
+
 
 def reverse_apply(test, text, deltas):
     for current, original in deltas:
@@ -211,6 +230,7 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn("if (sid.isBlank() || sid.any { it <= ' ' || it == ';' || it >= '\\u007f' }) return AuthResult.Error", isolated)
         self.assertIn('internal suspend fun authenticateApporoIsolated(', isolated)
         self.assertNotIn('getSessionId(', isolated)
+        self.assertIn('if (response.code != 200) return signInHttpStatus(response.code)', isolated)
         api = api.replace('    /** Apporo login reads only THIS response' + isolated, '')
         start = api.index('class OdooJsonRpcClient internal constructor(')
         end = api.index('    private val gson = Gson()', start)
@@ -233,6 +253,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import io.woowtech.odoo.brand.AppBrand\n'):
             self.assertEqual(1, api.count(line))
             api = api.replace(line, '')
+        api = reverse_apply(self, api, SERVER_HTTP_STATUS_WOOW_API)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt').decode(), api)
         module = (K / 'di/AppModule.kt').read_text()
         for line in ('        apporoPushTransport: io.woowtech.odoo.data.repository.ApporoPushTransport,\n',
@@ -281,7 +302,7 @@ class BrandIdentityContracts(unittest.TestCase):
                                'push_registration_retry', 'push_registration_sign_in',
                                'push_registration_unregistered', 'push_registration_disclaimer',
                                'login_server_url_required', 'login_database_required',
-                               'login_username_required', 'login_password_required'}
+                               'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):

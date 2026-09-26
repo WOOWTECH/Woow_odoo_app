@@ -150,6 +150,8 @@ class OdooJsonRpcClient internal constructor(
                 username = username,
                 displayName = name
             )
+        } catch (e: SignInHttpStatusException) {
+            signInHttpStatus(e.code)
         } catch (e: UnknownHostException) {
             AuthResult.Error("Unable to connect to server", AuthResult.ErrorType.NETWORK_ERROR)
         } catch (e: SocketTimeoutException) {
@@ -186,7 +188,7 @@ class OdooJsonRpcClient internal constructor(
                     "db" to database, "login" to username, "password" to password,
                 ), id = 1)).toRequestBody("application/json".toMediaType())).build()
             isolatedAuthClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return AuthResult.Error("Sign-in request failed", AuthResult.ErrorType.SERVER_ERROR)
+                if (response.code != 200) return signInHttpStatus(response.code)
                 val envelope = gson.fromJson(response.body?.string(), JsonObject::class.java)
                 val error = envelope?.getAsJsonObject("error")
                 if (error != null) {
@@ -228,10 +230,20 @@ class OdooJsonRpcClient internal constructor(
             .build()
 
         val response = client.newCall(request).execute()
+        if (response.code != 200) {
+            response.close()
+            throw SignInHttpStatusException(response.code)
+        }
         val responseBody = response.body?.string() ?: throw IOException("Empty response")
 
         return gson.fromJson(responseBody, JsonRpcResponse::class.java)
     }
+
+    /** Status only; LoginScreen renders the localized `error_server_http` text (iOS parity). */
+    private fun signInHttpStatus(code: Int) =
+        AuthResult.Error("HTTP $code", AuthResult.ErrorType.SERVER_ERROR, httpStatus = code)
+
+    private class SignInHttpStatusException(val code: Int) : Exception("HTTP $code")
 
     private fun extractHost(url: String): String {
         return url.removePrefix("https://").removePrefix("http://").split("/").first()

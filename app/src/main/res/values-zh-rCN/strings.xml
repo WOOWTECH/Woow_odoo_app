@@ -169,6 +169,7 @@
     <string name="error_unknown">发生意外错误</string>
     <string name="error_timeout">连接超时</string>
     <string name="error_server">服务器错误</string>
+    <string name="error_server_http">服务器错误（HTTP %d）</string>
 
     <!-- Success Messages -->
     <string name="success_login">登录成功</string>

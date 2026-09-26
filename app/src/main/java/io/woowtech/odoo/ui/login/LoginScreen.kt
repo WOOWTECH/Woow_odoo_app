@@ -226,7 +226,7 @@ fun LoginScreen(
                     )
                 ) {
                     Text(
-                        text = uiState.errorType?.messageResource()?.let { stringResource(it) } ?: error,
+                        text = uiState.errorMessage(fallback = error),
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,

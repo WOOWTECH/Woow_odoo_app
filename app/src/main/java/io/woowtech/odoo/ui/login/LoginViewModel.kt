@@ -21,6 +21,8 @@ data class LoginUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val errorType: AuthResult.ErrorType? = null,
+    /** Non-200 sign-in HTTP status behind a SERVER_ERROR; rendered by [LoginUiState.errorMessage]. */
+    val httpStatus: Int? = null,
     val serverUrlError: LoginFieldError? = null,
     val databaseError: LoginFieldError? = null,
     val usernameError: LoginFieldError? = null,
@@ -44,7 +46,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             serverUrl = url,
             serverUrlError = null,
-            error = null, errorType = null
+            error = null, errorType = null, httpStatus = null
         )
     }
 
@@ -52,7 +54,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             database = database,
             databaseError = null,
-            error = null, errorType = null
+            error = null, errorType = null, httpStatus = null
         )
     }
 
@@ -60,7 +62,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             username = username,
             usernameError = null,
-            error = null, errorType = null
+            error = null, errorType = null, httpStatus = null
         )
     }
 
@@ -68,7 +70,7 @@ class LoginViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             password = password,
             passwordError = null,
-            error = null, errorType = null
+            error = null, errorType = null, httpStatus = null
         )
     }
 
@@ -107,14 +109,14 @@ class LoginViewModel @Inject constructor(
             step = LoginStep.CREDENTIALS,
             serverUrl = ServerUrlInput.displayValue(normalized),
             database = state.database.trim(),
-            error = null, errorType = null
+            error = null, errorType = null, httpStatus = null
         )
     }
 
     fun goBack() {
         _uiState.value = _uiState.value.copy(
             step = LoginStep.SERVER_INFO,
-            error = null, errorType = null,
+            error = null, errorType = null, httpStatus = null,
             passwordError = null,
             usernameError = null
         )
@@ -134,11 +136,11 @@ class LoginViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.value = state.copy(isLoading = true, error = null, errorType = null)
+            _uiState.value = state.copy(isLoading = true, error = null, errorType = null, httpStatus = null)
 
             val serverUrl = ServerUrlInput.normalize(state.serverUrl)
             if (serverUrl == null) {
-                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL", errorType = AuthResult.ErrorType.INVALID_URL)
+                _uiState.value = state.copy(isLoading = false, error = "Invalid server URL", errorType = AuthResult.ErrorType.INVALID_URL, httpStatus = null)
                 return@launch
             }
 
@@ -170,7 +172,8 @@ class LoginViewModel @Inject constructor(
                     _uiState.value = state.copy(
                         isLoading = false,
                         error = errorMessage,
-                        errorType = result.type
+                        errorType = result.type,
+                        httpStatus = result.httpStatus
                     )
                 }
             }
@@ -178,6 +181,6 @@ class LoginViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null, errorType = null)
+        _uiState.value = _uiState.value.copy(error = null, errorType = null, httpStatus = null)
     }
 }
