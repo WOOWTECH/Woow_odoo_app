@@ -26,11 +26,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
@@ -176,6 +182,76 @@ fun MainScreen(
         }
     }
 
+    MainScreenLayout(
+        onMenuClick = onMenuClick,
+        banner = {
+            // WI-1: Denial affordance. Shown only while notifications are blocked at the app level
+            // and the user has not dismissed it this session. Its action deep-links to the system
+            // app-notification settings so a denied user can still enable notifications.
+            if (!notificationsEnabled && !notificationBannerDismissed) {
+                NotificationPermissionBanner(
+                    onEnableClick = {
+                        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        }
+                        context.startActivity(intent)
+                    },
+                    onDismissClick = { notificationBannerDismissed = true },
+                )
+            }
+        },
+    ) {
+        account?.let { acc ->
+            // Get session ID and sync to WebView's CookieManager
+            val sessionId = viewModel.getSessionId(acc.fullServerUrl)
+
+            // Only surface the pending deep link to the WebView when it belongs to the
+            // currently active account. It is NOT consumed here (that would be a state-set
+            // apply) — the WebView consumes it once, after the target page finishes loading.
+            val deepLinkUrl = pendingDeepLink
+                ?.takeIf { it.accountId == acc.id }
+                ?.url
+
+            OdooWebView(
+                serverUrl = acc.fullServerUrl,
+                database = acc.database,
+                sessionId = sessionId,
+                deepLinkUrl = deepLinkUrl,
+                onDeepLinkConsumed = { viewModel.consumePendingDeepLink(acc.id) },
+                locationPermissionGate = viewModel.locationPermissionGate,
+                activeHostSnapshot = activeHostSnapshot,
+                onWebViewCreated = { webView = it },
+                onLoadingChanged = { isLoading = it },
+                onSelfHeal = { host -> viewModel.selfHealActiveAccount(host) },
+                getFreshSessionId = { url -> viewModel.getSessionId(url) },
+                onReloginRequired = onMenuClick,
+            )
+        }
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+    }
+}
+
+/**
+ * Chrome of [MainScreen]: brand top bar, optional [banner], then the WebView area ([content]).
+ *
+ * Extracted so the window-inset behaviour can be rendered and measured on the JVM without the
+ * Hilt ViewModel or a real WebView (see `MainScreenWindowInsetsTest`).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun MainScreenLayout(
+    onMenuClick: () -> Unit,
+    banner: @Composable () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Top toolbar
         TopAppBar(
@@ -200,58 +276,23 @@ fun MainScreen(
             )
         )
 
-        // WI-1: Denial affordance. Shown only while notifications are blocked at the app level and
-        // the user has not dismissed it this session. Its action deep-links to the system
-        // app-notification settings so a denied user can still enable notifications.
-        if (!notificationsEnabled && !notificationBannerDismissed) {
-            NotificationPermissionBanner(
-                onEnableClick = {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    }
-                    context.startActivity(intent)
-                },
-                onDismissClick = { notificationBannerDismissed = true },
-            )
-        }
-
-        // WebView
-        Box(modifier = Modifier.fillMaxSize()) {
-            account?.let { acc ->
-                // Get session ID and sync to WebView's CookieManager
-                val sessionId = viewModel.getSessionId(acc.fullServerUrl)
-
-                // Only surface the pending deep link to the WebView when it belongs to the
-                // currently active account. It is NOT consumed here (that would be a state-set
-                // apply) — the WebView consumes it once, after the target page finishes loading.
-                val deepLinkUrl = pendingDeepLink
-                    ?.takeIf { it.accountId == acc.id }
-                    ?.url
-
-                OdooWebView(
-                    serverUrl = acc.fullServerUrl,
-                    database = acc.database,
-                    sessionId = sessionId,
-                    deepLinkUrl = deepLinkUrl,
-                    onDeepLinkConsumed = { viewModel.consumePendingDeepLink(acc.id) },
-                    locationPermissionGate = viewModel.locationPermissionGate,
-                    activeHostSnapshot = activeHostSnapshot,
-                    onWebViewCreated = { webView = it },
-                    onLoadingChanged = { isLoading = it },
-                    onSelfHeal = { host -> viewModel.selfHealActiveAccount(host) },
-                    getFreshSessionId = { url -> viewModel.getSessionId(url) },
-                    onReloginRequired = onMenuClick,
+        // Edge-to-edge (MainActivity.enableEdgeToEdge) means the window no longer makes room for
+        // system bars and adjustResize no longer shrinks the content. TopAppBar only handles the
+        // top/horizontal status-bar area, so everything below it must avoid the navigation bar
+        // (bottom in portrait, side in landscape), display cutouts and the keyboard itself —
+        // otherwise Odoo's bottom UI sits under the 3-button nav bar and focused inputs are hidden
+        // behind the IME (the WebView never shrinks, so Chromium never scrolls them into view).
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
                 )
-            }
+        ) {
+            banner()
 
-            if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
+            // WebView
+            Box(modifier = Modifier.fillMaxSize(), content = content)
         }
     }
 }
