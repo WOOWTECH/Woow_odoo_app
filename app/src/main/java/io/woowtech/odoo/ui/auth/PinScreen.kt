@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Backspace
@@ -147,10 +149,14 @@ fun PinScreen(
         // MainActivity 開了 enableEdgeToEdge()。有 TopAppBar／Scaffold 的畫面會自動避開系統列，
         // 這個畫面沒有，要自己吃 safeDrawing（狀態列、導覽列、瀏海），否則左上角返回鍵會被畫在
         // 狀態列底下而點不到（同 LoginScreen 29bb12f）。背景漸層仍鋪滿到螢幕邊緣（在外層 Box）。
+        // 扣掉系統列後短視窗（如 360×640dp）放不下 4 列 76dp 鍵盤，第四列（0／刪除）會被壓成 0 高度，
+        // 所以 inset 之後可捲動。verticalScroll 保留 fillMaxSize 給的最小高度，長視窗 weight spacer
+        // 照舊把鍵盤推到底部，版面不變（PinPadShortWindowTest）。
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
