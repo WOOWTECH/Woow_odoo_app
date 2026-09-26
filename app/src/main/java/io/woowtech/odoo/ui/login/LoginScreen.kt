@@ -1,5 +1,6 @@
 package io.woowtech.odoo.ui.login
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -90,6 +91,12 @@ fun LoginScreen(
 ) {
     WoowFixedBrandTheme {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // 系統返回（手勢／KEYCODE_BACK）在帳密步驟＝左上角返回鍵：回伺服器步驟並保留網址與 DB。
+    // 伺服器步驟不攔截，交還給 NavHost／Activity（離開）。
+    BackHandler(enabled = uiState.step == LoginStep.CREDENTIALS) {
+        viewModel.goBack()
+    }
 
     // 與 iOS LoginView 對齊：純色背景，不用品牌色漸層。
     Box(

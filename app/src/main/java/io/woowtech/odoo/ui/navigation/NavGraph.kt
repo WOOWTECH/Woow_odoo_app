@@ -52,10 +52,18 @@ internal fun authStartDestination(action: AuthAction): Screen = when (action) {
     -> Screen.Auth
 }
 
+/**
+ * @param loginScreen content of the [Screen.Login] destination. Production always uses the default
+ *   (Hilt-provided [LoginScreen]); JVM routing tests pass a Hilt-free LoginScreen so the real
+ *   graph/back-stack behaviour can be exercised without a Hilt test component.
+ */
 @Composable
 fun WoowOdooNavHost(
     navController: NavHostController = rememberNavController(),
-    authViewModel: AuthViewModel = hiltViewModel()
+    authViewModel: AuthViewModel = hiltViewModel(),
+    loginScreen: @Composable (onLoginSuccess: () -> Unit) -> Unit = { onLoginSuccess ->
+        LoginScreen(onLoginSuccess = onLoginSuccess)
+    },
 ) {
     val context = LocalContext.current
     val hasActiveAccount by authViewModel.hasActiveAccount.collectAsState()
@@ -101,24 +109,14 @@ fun WoowOdooNavHost(
         startDestination = startDestination
     ) {
         composable(Screen.Splash.route) {
-            // Just a loading indicator while checking account status
-            LaunchedEffect(hasActiveAccount, requiresAuth, isAuthenticated) {
-                when {
-                    hasActiveAccount == false -> navController.navigate(Screen.Login.route) {
-                        popUpTo(Screen.Splash.route) { inclusive = true }
-                    }
-                    hasActiveAccount == true && requiresAuth && !isAuthenticated -> {
-                        navController.navigate(authStartDestination(authAction).route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
-                        }
-                    }
-                    hasActiveAccount == true && (!requiresAuth || isAuthenticated) -> {
-                        navController.navigate(Screen.Main.route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
-                        }
-                    }
-                }
-            }
+            // Loading placeholder only — it must NOT navigate by itself. Leaving Splash is owned
+            // solely by `startDestination` above: once hasActiveAccount resolves, the start
+            // destination changes, NavHost swaps in a new graph and resets the back stack to it.
+            // A second, imperative navigate(...) { popUpTo(Splash) } here used to run AFTER that
+            // reset (Splash was already gone, so popUpTo was a no-op) and stacked a duplicate
+            // entry: [Login, Login]. System back from the credentials step then revealed the
+            // lower Login's blank server step (its own fresh LoginViewModel), and only a second
+            // back exited. Regression: LoginBackStackTest.
         }
 
         composable(Screen.Auth.route) {
@@ -163,13 +161,11 @@ fun WoowOdooNavHost(
         }
 
         composable(Screen.Login.route) {
-            LoginScreen(
-                onLoginSuccess = {
-                    navController.navigate(Screen.Main.route) {
-                        popUpTo(Screen.Login.route) { inclusive = true }
-                    }
+            loginScreen {
+                navController.navigate(Screen.Main.route) {
+                    popUpTo(Screen.Login.route) { inclusive = true }
                 }
-            )
+            }
         }
 
         composable(Screen.Main.route) {
