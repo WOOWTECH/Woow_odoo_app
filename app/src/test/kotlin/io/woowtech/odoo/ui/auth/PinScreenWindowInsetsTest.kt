@@ -30,6 +30,7 @@ import org.robolectric.annotation.GraphicsMode
  * 背景（2026-09-26，同 `LoginScreenWindowInsetsTest`）：`MainActivity` 呼叫 `enableEdgeToEdge()`，
  * 有 TopAppBar／Scaffold 的畫面會自動避開系統列，但 [PinScreen] 根 Column 只有 `padding(24.dp)`。
  * 返回鍵推算落在 [63,63][189,189]，與狀態列 [0,0][1080,118] 重疊，上半部點不到。
+ * 修正 commit：`76aacd7`（根 Column 加 `windowInsetsPadding(WindowInsets.safeDrawing)`，做法同登入頁 `29bb12f`）。
  *
  * 對 Compose 根 View 派送只有狀態列 118px 的合成 WindowInsets，再量返回鍵位置。
  */

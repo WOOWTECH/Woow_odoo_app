@@ -26,6 +26,7 @@ import org.robolectric.annotation.GraphicsMode
  * 其他畫面靠 Material3 `TopAppBar`／`Scaffold` 自動避開系統列，但 `LoginScreen` 的根 Column
  * 沒有任何 inset 處理。實機上返回 IconButton bounds 是 [22,22][148,148]，而 statusBars inset
  * 是 [0,0][1080,118]：按鈕上半部被狀態列蓋住，點圖示中心沒反應。
+ * 修正 commit：`29bb12f`（根 Column 改用 `windowInsetsPadding(WindowInsets.safeDrawing)`，取代 `imePadding()`）。
  *
  * 這裡對 Compose 根 View 派送一組合成的 WindowInsets（只有狀態列 118px），再量返回鍵的
  * 位置。沒有 inset 處理時按鈕頂端約在 8dp；修好後必須落在狀態列下緣之下。

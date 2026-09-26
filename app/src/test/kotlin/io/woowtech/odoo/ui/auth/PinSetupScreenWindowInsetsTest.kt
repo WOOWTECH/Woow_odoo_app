@@ -23,6 +23,7 @@ import org.robolectric.annotation.GraphicsMode
  * 背景（2026-09-26，同 `LoginScreenWindowInsetsTest`）：[PinSetupScreen] 由 `SettingsScreen`
  * 全螢幕蓋在設定頁上（不在 Scaffold 內），根 Column 只有 `padding(24.dp)`；`MainActivity` 開了
  * `enableEdgeToEdge()`，返回鍵因此與狀態列重疊。
+ * 修正 commit：`76aacd7`（根 Column 加 `windowInsetsPadding(WindowInsets.safeDrawing)`，做法同登入頁 `29bb12f`）。
  *
  * 對 Compose 根 View 派送只有狀態列 118px 的合成 WindowInsets，再量返回鍵位置。
  */
