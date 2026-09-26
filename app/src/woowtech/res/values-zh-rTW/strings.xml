@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- woowtech flavor only (engineering b1b052f, 1.0.1): 繁中桌面名稱與 App 內標題。
+         main/ 仍保留 woowtech platform；apporo flavor 以自己的 overlay 覆寫為 Apporo platform。 -->
+    <string name="app_name">渥屋平台</string>
+</resources>

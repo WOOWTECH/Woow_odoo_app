@@ -285,6 +285,21 @@ class BrandResourceContracts(unittest.TestCase):
                         self.assertEqual('Apporo platform', values['notification_channel_messages'])
                         self.assertFalse(any('woow' in v.lower() or '渥屋' in v or '©' in v for v in values.values()))
 
+    def test_woowtech_zh_tw_name_lives_only_in_woowtech_flavor_overlay(self):
+        # engineering b1b052f: WOOW zh-TW launcher/title name is 渥屋平台; it must not leak into
+        # main/ (shared by both brands) nor into any Apporo locale.
+        overlay = ROOT / 'app/src/woowtech'
+        files = sorted(str(p.relative_to(overlay)) for p in overlay.rglob('*') if p.is_file())
+        self.assertEqual(['res/values-zh-rTW/strings.xml'], files)
+        self.assertEqual({'app_name': '渥屋平台'}, strings('woowtech', 'values-zh-rTW'))
+        for locale in ('values', 'values-zh-rTW', 'values-zh-rCN'):
+            with self.subTest(locale=locale):
+                self.assertEqual('woowtech platform', strings('main', locale)['app_name'])
+                self.assertEqual('Apporo platform', strings('apporo', locale)['app_name'])
+        engineering = subprocess.run(['git', 'merge-base', '--is-ancestor', 'b1b052f', 'HEAD'], cwd=ROOT,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertEqual(0, engineering.returncode, 'engineering b1b052f must be merged into this line')
+
     def test_settings_links_are_resource_backed_and_mail_is_provider_backed(self):
         text = (K / 'ui/config/SettingsScreen.kt').read_text()
         for resource in ('supportUrlResource', 'privacyUrlResource', 'deletionUrlResource'):
