@@ -140,6 +140,14 @@ class BrandIdentityContracts(unittest.TestCase):
                 with self.subTest(file=name, value=forbidden):
                     self.assertNotIn(forbidden, text)
 
+    def test_webview_console_log_tag_is_provider_backed_not_woow_literal(self):
+        # W1-12: the Apporo APK must not emit "[WoowTech]" into the Odoo page console.
+        text = (K / 'ui/main/MainScreen.kt').read_text()
+        self.assertNotIn("[WoowTech]", text)
+        self.assertEqual(6, text.count("console.log('[${AppBrand.current.webLogTag}] "))
+        self.assertIn('"woowodoo",\n                "WoowTech"\n', BRAND)
+        self.assertIn('"apporoodoo", "Apporo"\n', BRAND)
+
     def test_preferences_only_default_changes(self):
         for file in ('data/local/EncryptedPrefs.kt', 'domain/model/AppSettings.kt'):
             path = f'app/src/main/java/io/woowtech/odoo/{file}'

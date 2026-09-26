@@ -11,6 +11,8 @@ class AppBrand private constructor(
     val website: String,
     val supportEmail: String,
     val scheme: String,
+    /** Prefix of the diagnostic console.log lines injected into the Odoo WebView page. */
+    val webLogTag: String,
 ) {
     val websiteLabel: String get() = website.removePrefix("https://")
     val primaryArgb: Long get() = 0xFF000000L or primaryHex.drop(1).toLong(16)
@@ -48,11 +50,12 @@ class AppBrand private constructor(
 
         fun forCode(code: String, debug: Boolean = false): AppBrand = when (code) {
             "woowtech" -> AppBrand(
-                code, "#6183FC", "https://aiot.woowtech.io", "woowtech@designsmart.com.tw", "woowodoo"
+                code, "#6183FC", "https://aiot.woowtech.io", "woowtech@designsmart.com.tw", "woowodoo",
+                "WoowTech"
             )
             "apporo" -> AppBrand(
                 code, "#8B6B24", "https://www.apporo.ai", "info@apporo.ai",
-                if (debug) "apporoodoo-dev" else "apporoodoo"
+                if (debug) "apporoodoo-dev" else "apporoodoo", "Apporo"
             )
             else -> error("Unknown app brand")
         }

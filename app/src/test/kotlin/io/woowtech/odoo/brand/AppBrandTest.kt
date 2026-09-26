@@ -16,6 +16,7 @@ class AppBrandTest {
         assertEquals("woowtech@designsmart.com.tw", brand.supportEmail)
         assertEquals("woowodoo", brand.scheme)
         assertEquals("woowodoo", AppBrand.forCode("woowtech", true).scheme)
+        assertEquals("WoowTech", brand.webLogTag)
         assertEquals(listOf(0xFFDBE1FF, 0xFF3A4B8C, 0xFF001A41, 0xFFDBE1FF,
             0xFF4A6AE0, 0xFF8BA3FF, 0xFF65C2E0),
             listOf(brand.lightContainer, brand.darkContainer, brand.onLightContainer,
@@ -30,6 +31,8 @@ class AppBrandTest {
         assertEquals("info@apporo.ai", brand.supportEmail)
         assertEquals("apporoodoo", brand.scheme)
         assertEquals("apporoodoo-dev", AppBrand.forCode("apporo", true).scheme)
+        assertEquals("Apporo", brand.webLogTag)
+        assertEquals("Apporo", AppBrand.forCode("apporo", true).webLogTag)
         assertEquals(listOf(0xFFEEE9DE, 0xFF4C3B14, 0xFF241C09, 0xFFEEE9DE,
             0xFF4C3B14, 0xFFEEE9DE, 0xFF8B6B24),
             listOf(brand.lightContainer, brand.darkContainer, brand.onLightContainer,

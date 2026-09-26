@@ -69,6 +69,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
+import io.woowtech.odoo.brand.AppBrand
 import io.woowtech.odoo.data.location.LocationPermissionGate
 import java.io.File
 import java.text.SimpleDateFormat
@@ -525,8 +526,8 @@ fun OdooWebView(
                         view?.evaluateJavascript(
                             """
                             (function() {
-                                console.log('[WoowTech] Page loaded: ' + window.location.href);
-                                console.log('[WoowTech] Viewport: ' + window.innerWidth + 'x' + window.innerHeight);
+                                console.log('[${AppBrand.current.webLogTag}] Page loaded: ' + window.location.href);
+                                console.log('[${AppBrand.current.webLogTag}] Viewport: ' + window.innerWidth + 'x' + window.innerHeight);
 
                                 // Force body to have correct dimensions
                                 document.body.style.minHeight = '100vh';
@@ -539,8 +540,8 @@ fun OdooWebView(
                                     am.style.minHeight = 'calc(100vh - 46px)';
                                     am.style.height = 'auto';
                                     am.style.overflow = 'auto';
-                                    console.log('[WoowTech] ActionManager found, innerHTML: ' + am.innerHTML.length + ' chars');
-                                    console.log('[WoowTech] ActionManager size: ' + am.offsetWidth + 'x' + am.offsetHeight);
+                                    console.log('[${AppBrand.current.webLogTag}] ActionManager found, innerHTML: ' + am.innerHTML.length + ' chars');
+                                    console.log('[${AppBrand.current.webLogTag}] ActionManager size: ' + am.offsetWidth + 'x' + am.offsetHeight);
                                 }
 
                                 // Trigger multiple resize events to wake up OWL
@@ -557,8 +558,8 @@ fun OdooWebView(
                                     window.dispatchEvent(new Event('resize'));
                                     var am2 = document.querySelector('.o_action_manager');
                                     if (am2) {
-                                        console.log('[WoowTech] After 1s - ActionManager size: ' + am2.offsetWidth + 'x' + am2.offsetHeight);
-                                        console.log('[WoowTech] After 1s - innerHTML: ' + am2.innerHTML.length + ' chars');
+                                        console.log('[${AppBrand.current.webLogTag}] After 1s - ActionManager size: ' + am2.offsetWidth + 'x' + am2.offsetHeight);
+                                        console.log('[${AppBrand.current.webLogTag}] After 1s - innerHTML: ' + am2.innerHTML.length + ' chars');
                                     }
                                 }, 1000);
                             })();
