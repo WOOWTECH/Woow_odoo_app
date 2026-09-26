@@ -102,7 +102,8 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('applicationId = "com.apporo.odoo"', GRADLE)
         self.assertIn('applicationIdSuffix = ".debug"', GRADLE)
         self.assertIn('versionName = "1.0"', GRADLE)
-        self.assertIn('versionCode = 1\n', GRADLE)
+        self.assertIn('versionCode = 2\n', GRADLE)
+        self.assertNotIn('versionCode = 1\n', GRADLE)  # vc1 candidate voided by W1 code changes
         self.assertIn('versionName = "1.4.2"', GRADLE)
         self.assertIn('versionCode = 23', GRADLE)
 

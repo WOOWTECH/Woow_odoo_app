@@ -79,7 +79,8 @@ android {
             dimension = "brand"
             applicationId = "com.apporo.odoo"
             versionName = "1.0"
-            versionCode = 1
+            // vc1 候選（b4cb1e8）因 W1-3／W1-10 程式變更作廢；每次上傳手動遞增。
+            versionCode = 2
             buildConfigField("String", "APP_BRAND", "\"apporo\"")
             manifestPlaceholders["brandScheme"] = "apporoodoo"
             signingConfig = signingConfigs.findByName("apporoRelease")
