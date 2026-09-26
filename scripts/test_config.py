@@ -81,8 +81,9 @@ VERIFY_REPORT_FILE = str(Path(VERIFICATION_REPORT_DIR) / "device-verification-lo
 E2E_REPORT_FILE = str(Path(VERIFICATION_REPORT_DIR) / "e2e-test-results.md")
 
 
-def require_live_test_authorization():
-    authorize_live(APP_TARGET, ODOO_URL, os.environ)
+def require_live_test_authorization(scope="push"):
+    """scope="ui" only for scripts that never send or assert push; default stays "push"."""
+    authorize_live(APP_TARGET, ODOO_URL, os.environ, scope=scope, account=ODOO_USER)
     print(f"Explicit live target: {APP_VARIANT} / {APP_PACKAGE}")
 
 

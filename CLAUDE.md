@@ -1,5 +1,10 @@
 # AI Instructions — Woow Odoo Android App
 
+## 2026-09-26 W1 程式修正（本機 commit，未 push）
+
+- W1-3：engineering `b1b052f`（繁中「渥屋平台」）已合併；名稱只放 `app/src/woowtech/res/values-zh-rTW/strings.xml`，`main/` 與 apporo 三語名稱不變。
+- W1-7：`authorize_live(..., scope, account)`；Apporo debug 只在 `scope="ui"`（`verify-on-device.py`、`e2e_15_clockin_full.py`）、`ALLOW_APPORO_LIVE_UI=<package>`、`ODOO_USER == APPORO_LIVE_ACCOUNT`、僅 demo111 時放行；push 範圍（其餘腳本、預設值）一律拒絕，V20 對 Apporo 記為 skip。實際開旗標跑 live 仍需擁有者 B14 批准。
+
 ## 2026-09-25 階段 3 review 修正（待獨立驗收）
 
 - 兩P1窄修：明確Apporo isolated manual/switch入口；shared WebView reauth成功發布有效SID。selection內ensureActive＋短local NonCancellable/rollback，push/network等待仍可取消。

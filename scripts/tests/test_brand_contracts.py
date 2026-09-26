@@ -526,12 +526,74 @@ class BrandToolingContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 authorize_live(target, bad_url, bad)
 
-    def test_apporo_live_remains_blocked_until_phase_three(self):
+    APPORO_ACCOUNT = 'designated.reviewer@example.invalid'
+
+    def apporo_ui_env(self, target, url):
+        return {'APP_VARIANT': target.variant, 'ALLOW_DEVICE_TEST_WRITES': target.package,
+                'ALLOW_ODOO_TEST_WRITES': url, 'ALLOW_APPORO_LIVE_UI': target.package,
+                'APPORO_LIVE_ACCOUNT': self.APPORO_ACCOUNT}
+
+    def test_apporo_debug_ui_allowed_only_with_explicit_flag_and_designated_account(self):
         target = target_for('apporoDebug')
         url = 'https://demo111-odoo.woowtech.io'
-        with self.assertRaisesRegex(ValueError, 'phase-3'):
-            authorize_live(target, url, {'APP_VARIANT': target.variant, 'ALLOW_DEVICE_TEST_WRITES': target.package,
-                                         'ALLOW_ODOO_TEST_WRITES': url})
+        env = self.apporo_ui_env(target, url)
+        authorize_live(target, url, env, scope='ui', account=self.APPORO_ACCOUNT)
+        for key in env:
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                bad = env.copy(); del bad[key]
+                authorize_live(target, url, bad, scope='ui', account=self.APPORO_ACCOUNT)
+            with self.subTest(wrong=key), self.assertRaises(ValueError):
+                bad = env.copy(); bad[key] = 'other'
+                authorize_live(target, url, bad, scope='ui', account=self.APPORO_ACCOUNT)
+        for account in ('', 'someone.else@example.invalid'):
+            with self.subTest(account=account), self.assertRaisesRegex(ValueError, 'APPORO_LIVE_ACCOUNT'):
+                authorize_live(target, url, env, scope='ui', account=account)
+        with self.assertRaisesRegex(ValueError, 'APPORO_LIVE_ACCOUNT'):
+            authorize_live(target, url, {**env, 'APPORO_LIVE_ACCOUNT': ''}, scope='ui', account='')
+
+    def test_apporo_ui_never_targets_demo222_or_release(self):
+        url = 'https://demo222-odoo.woowtech.io'
+        target = target_for('apporoDebug')
+        with self.assertRaisesRegex(ValueError, 'demo222 is read-only'):
+            authorize_live(target, url, self.apporo_ui_env(target, url), scope='ui', account=self.APPORO_ACCOUNT)
+        release = target_for('apporoRelease')
+        demo111 = 'https://demo111-odoo.woowtech.io'
+        with self.assertRaisesRegex(ValueError, 'release packages are protected'):
+            authorize_live(release, demo111, self.apporo_ui_env(release, demo111), scope='ui',
+                           account=self.APPORO_ACCOUNT)
+
+    def test_apporo_push_scope_remains_blocked_even_when_fully_flagged(self):
+        target = target_for('apporoDebug')
+        url = 'https://demo111-odoo.woowtech.io'
+        env = self.apporo_ui_env(target, url)
+        for kwargs in ({}, {'scope': 'push'}):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, 'push tests BLOCKED'):
+                authorize_live(target, url, env, account=self.APPORO_ACCOUNT, **kwargs)
+        with self.assertRaisesRegex(ValueError, "'ui' or 'push'"):
+            authorize_live(target, url, env, scope='all', account=self.APPORO_ACCOUNT)
+
+    def test_woow_scopes_unchanged_and_apporo_flag_does_not_unlock_woow(self):
+        target = target_for('woowtechDebug')
+        url = 'https://demo222-odoo.woowtech.io'
+        env = {'APP_VARIANT': target.variant, 'ALLOW_DEVICE_TEST_WRITES': target.package, 'ALLOW_ODOO_TEST_WRITES': url}
+        for scope in ('ui', 'push'):
+            authorize_live(target, url, env, scope=scope)
+        with self.assertRaises(ValueError):
+            authorize_live(target, url, {'APP_VARIANT': target.variant, 'ALLOW_APPORO_LIVE_UI': target.package,
+                                         'ALLOW_ODOO_TEST_WRITES': url}, scope='ui')
+
+    def test_only_ui_only_scripts_request_ui_scope_and_push_checks_skip_for_apporo(self):
+        ui_only = {'verify-on-device.py', 'e2e_15_clockin_full.py'}
+        for name in SCRIPTS:
+            with self.subTest(script=name):
+                text = (ROOT / 'scripts' / name).read_text()
+                self.assertEqual(name in ui_only, 'require_live_test_authorization(scope="ui")' in text)
+        verify = (ROOT / 'scripts/verify-on-device.py').read_text()
+        self.assertIn('if not APPORO_PUSH_BLOCKED and os.path.exists(SA_FILE):', verify)
+        self.assertIn('APPORO_PUSH_BLOCKED = APP_TARGET.brand == "apporo"', verify)
+        config = (ROOT / 'scripts/test_config.py').read_text()
+        self.assertIn('def require_live_test_authorization(scope="push"):', config)
+        self.assertIn('scope=scope, account=ODOO_USER', config)
 
     def test_all_six_live_scripts_gate_before_device_or_network_statements(self):
         for name in SCRIPTS:

@@ -46,7 +46,7 @@ from test_config import (
     ODOO_USER as USER,
 )
 
-require_live_test_authorization()
+require_live_test_authorization(scope="ui")
 
 
 LOCAL_CDP_PORT = 9222

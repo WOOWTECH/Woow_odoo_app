@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_config import (
     require_live_test_authorization,
     APP_ACTIVITY as ACTIVITY,
+    APP_TARGET,
     APP_TITLES,
     APP_PACKAGE as PKG,
     FIREBASE_PROJECT_ID,
@@ -35,7 +36,7 @@ from test_config import (
     VERIFY_REPORT_FILE,
 )
 
-require_live_test_authorization()
+require_live_test_authorization(scope="ui")
 
 
 if not (ODOO_URL and ODOO_DB and ODOO_USER and ODOO_PASS):
@@ -807,8 +808,10 @@ section("V20: FCM E2E Push Notification")
 # Path comes from test_config (FIREBASE_SA_FILE env / .env.test, default
 # app/firebase-service-account.json, which is gitignored).
 SA_FILE = FIREBASE_SA_FILE
+# This script runs under the "ui" live scope; Apporo push stays blocked until its backend exists.
+APPORO_PUSH_BLOCKED = APP_TARGET.brand == "apporo"
 
-if os.path.exists(SA_FILE):
+if not APPORO_PUSH_BLOCKED and os.path.exists(SA_FILE):
     try:
         import google.auth.transport.requests as gauth_requests
         from google.oauth2 import service_account as gauth_sa
@@ -893,7 +896,10 @@ if os.path.exists(SA_FILE):
         check("V20a", f"FCM test error: {e}", False)
 else:
     for _vid in ("V20a", "V20b", "V20c"):
-        skip(_vid, f"Firebase service account not found at {SA_FILE} (set FIREBASE_SA_FILE)")
+        if APPORO_PUSH_BLOCKED:
+            skip(_vid, "Apporo live push BLOCKED until the Apporo push backend is deployed")
+        else:
+            skip(_vid, f"Firebase service account not found at {SA_FILE} (set FIREBASE_SA_FILE)")
 
 # ═══════════════════════════════════════════════════════════
 # V21-V24: Security hardening regressions (commit 482a7bf)

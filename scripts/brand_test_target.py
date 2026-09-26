@@ -30,14 +30,35 @@ def target_for(variant):
     return BrandTestTarget(variant, *matrix[variant])
 
 
-def authorize_live(target, url, env):
-    """Opt-in is a safety interlock, not a substitute for the owner's authorization."""
+LIVE_SCOPES = ("ui", "push")
+APPORO_LIVE_ORIGIN = "https://demo111-odoo.woowtech.io"
+
+
+def authorize_live(target, url, env, *, scope="push", account=""):
+    """Opt-in is a safety interlock, not a substitute for the owner's authorization.
+
+    ``scope`` is what the calling script exercises: ``"ui"`` for app/WebView flows,
+    ``"push"`` (the default, most restrictive) for anything that sends or asserts FCM.
+    Apporo debug may run ``"ui"`` flows only with its own explicit flag, only against
+    demo111 (demo222 is read-only for Apporo) and only as the account the owner named in
+    ``APPORO_LIVE_ACCOUNT``. Apporo push stays refused until its backend is deployed.
+    """
+    if scope not in LIVE_SCOPES:
+        raise ValueError("Live scope must be 'ui' or 'push'")
     if env.get("APP_VARIANT") != target.variant:
         raise ValueError("Explicit APP_VARIANT is required for live tests")
     if not target.variant.endswith("Debug"):
         raise ValueError("Live scripts may clear data; release packages are protected")
     if target.brand == "apporo":
-        raise ValueError("Apporo live push tests BLOCKED until phase-3 brand protocol is implemented")
+        if scope != "ui":
+            raise ValueError("Apporo live push tests BLOCKED until the Apporo push backend is deployed")
+        if env.get("ALLOW_APPORO_LIVE_UI") != target.package:
+            raise ValueError("Explicit ALLOW_APPORO_LIVE_UI for this package is required for Apporo UI flows")
+        designated = env.get("APPORO_LIVE_ACCOUNT", "")
+        if not designated or account != designated:
+            raise ValueError("Apporo UI flows must run as the account named in APPORO_LIVE_ACCOUNT")
+        if url != APPORO_LIVE_ORIGIN:
+            raise ValueError("Apporo UI flows may only target demo111; demo222 is read-only")
     if env.get("ALLOW_DEVICE_TEST_WRITES") != target.package:
         raise ValueError("Explicit device-write authorization for this package is required")
     parsed = urlsplit(url)
