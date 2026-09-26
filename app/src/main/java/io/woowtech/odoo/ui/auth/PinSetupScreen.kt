@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -84,9 +87,13 @@ fun PinSetupScreen(
                 ),
             ),
     ) {
+        // MainActivity 開了 enableEdgeToEdge()。有 TopAppBar／Scaffold 的畫面會自動避開系統列，
+        // 這個畫面沒有，要自己吃 safeDrawing（狀態列、導覽列、瀏海），否則左上角返回鍵會被畫在
+        // 狀態列底下而點不到（同 LoginScreen 29bb12f）。背景漸層仍鋪滿到螢幕邊緣（在外層 Box）。
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
