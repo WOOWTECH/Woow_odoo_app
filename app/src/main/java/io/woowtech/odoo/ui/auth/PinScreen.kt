@@ -75,6 +75,10 @@ fun PinScreen(
     // Hidden when PIN is the sole unlock gate (nowhere to go back to); shown when reached from the
     // biometric screen's "Use PIN" so the user can return to the face prompt.
     showBack: Boolean = true,
+    subtitle: String = stringResource(R.string.pin_code_subtitle),
+    // Verification of each keypad digit. The unlock gate authenticates the session; Settings reuses
+    // this keypad to confirm turning App Lock off (same check, counter and lockout).
+    enterPinDigit: suspend (digit: String, currentPin: String) -> Pair<String, PinEntryResult> = viewModel::enterPinDigit,
 ) {
     WoowFixedBrandTheme {
     val context = LocalContext.current
@@ -191,7 +195,7 @@ fun PinScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = stringResource(R.string.pin_code_subtitle),
+                text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -258,7 +262,7 @@ fun PinScreen(
                                 // digits 1–5 (which return NeedMoreDigits instantly) don't
                                 // flash the indicator unnecessarily.
                                 isVerifying = true
-                                val (nextPin, result) = viewModel.enterPinDigit(number, pin)
+                                val (nextPin, result) = enterPinDigit(number, pin)
                                 isVerifying = false
                                 pin = nextPin
                                 when (result) {

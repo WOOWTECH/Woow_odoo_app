@@ -17,7 +17,10 @@ import io.woowtech.odoo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import io.woowtech.odoo.ui.auth.PinEntryResult
+import io.woowtech.odoo.ui.auth.checkPinDigit
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -53,8 +56,28 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.updateReduceMotion(enabled)
     }
 
+    /**
+     * Turns App Lock on. Turning it off while a PIN is set requires the current PIN and goes through
+     * [enterPinToDisableAppLock] instead (LIVE-0927 r2, iOS 32462a3 parity): a phone handed over
+     * unlocked must not let anyone remove the lock. Only the legacy PIN-less state may switch off here.
+     */
     fun updateAppLock(enabled: Boolean) {
+        if (!enabled && settings.value.pinEnabled) {
+            Timber.w("App Lock can only be turned off after verifying the current PIN")
+            return
+        }
         settingsRepository.updateAppLock(enabled)
+    }
+
+    /**
+     * One keypad digit of the "turn App Lock off" confirmation. Uses the unlock gate's own check
+     * ([checkPinDigit] → [SettingsRepository.verifyPin]): same failure counter, same lockout — a
+     * locked-out PIN is refused even when correct. App Lock is turned off only on [PinEntryResult.Success].
+     */
+    suspend fun enterPinToDisableAppLock(digit: String, currentPin: String): Pair<String, PinEntryResult> {
+        val entry = settingsRepository.checkPinDigit(digit, currentPin)
+        if (entry.second == PinEntryResult.Success) settingsRepository.updateAppLock(false)
+        return entry
     }
 
     /**

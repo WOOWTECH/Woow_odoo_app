@@ -75,6 +75,7 @@
     <string name="pin_code_subtitle">Set up PIN code for backup unlock</string>
     <string name="set_pin">Set PIN</string>
     <string name="change_pin">Change PIN</string>
+    <string name="app_lock_disable_pin_subtitle">Enter your current PIN to turn off App Lock</string>
 
     <string name="language_region">Language &amp; Region</string>
     <string name="language">Language</string>

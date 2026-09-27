@@ -9,7 +9,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.LocaleList
+import androidx.activity.compose.BackHandler
 import androidx.biometric.BiometricManager
+import io.woowtech.odoo.ui.auth.PinScreen
 import io.woowtech.odoo.ui.auth.PinSetupScreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -109,6 +111,8 @@ fun SettingsScreen(
     // When App Lock is toggled on without a PIN, route through PIN setup first and remember to
     // enable App Lock once the PIN is created (PIN-as-floor invariant).
     var pendingEnableAppLock by remember { mutableStateOf(false) }
+    // Turning App Lock off asks for the current PIN first (LIVE-0927 r2, iOS 32462a3 parity).
+    var confirmDisableAppLock by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
 
     val biometricManager = remember { BiometricManager.from(context) }
@@ -136,6 +140,18 @@ fun SettingsScreen(
                 pendingEnableAppLock = false
             },
         )
+        return
+    }
+
+    if (confirmDisableAppLock) {
+        PinScreen(
+            onPinVerified = { confirmDisableAppLock = false },
+            onBackClick = { confirmDisableAppLock = false },
+            showBack = true,
+            subtitle = stringResource(R.string.app_lock_disable_pin_subtitle),
+            enterPinDigit = viewModel::enterPinToDisableAppLock,
+        )
+        BackHandler { confirmDisableAppLock = false }
         return
     }
 
@@ -237,6 +253,9 @@ fun SettingsScreen(
                             // App Lock requires a PIN floor — create one first, then enable.
                             pendingEnableAppLock = true
                             showPinSetup = true
+                        } else if (!enable && settings.pinEnabled) {
+                            // Only someone who knows the PIN may remove the lock.
+                            confirmDisableAppLock = true
                         } else {
                             viewModel.updateAppLock(enable)
                         }

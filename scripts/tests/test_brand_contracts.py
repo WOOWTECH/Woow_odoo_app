@@ -97,6 +97,10 @@ SERVER_HTTP_STATUS_WOOW_API = (
 )
 SERVER_HTTP_STATUS_STRINGS = {'error_server_http'}
 
+# LIVE-0927 Android r2 (owner-requested 2026-09-27, iOS 32462a3 parity): new three-locale keys.
+# Same additive contract as above — every baseline key keeps its exact value.
+LIVE_0927_R2_STRINGS = {'app_lock_disable_pin_subtitle'}
+
 
 def reverse_apply(test, text, deltas):
     for current, original in deltas:
@@ -302,7 +306,8 @@ class BrandIdentityContracts(unittest.TestCase):
                                'push_registration_retry', 'push_registration_sign_in',
                                'push_registration_unregistered', 'push_registration_disclaimer',
                                'login_server_url_required', 'login_database_required',
-                               'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS
+                               'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS \
+                              | LIVE_0927_R2_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):
