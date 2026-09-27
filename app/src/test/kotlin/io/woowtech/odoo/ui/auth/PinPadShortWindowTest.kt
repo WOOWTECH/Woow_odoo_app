@@ -157,9 +157,9 @@ class PinPadShortWindowTest {
         }
         println(
             "PIN_PAD_TEXT fontScale=$fontScale titleDp=${textHeightDp(R.string.enter_pin)} " +
-                "subtitleDp=${textHeightDp(R.string.pin_code_subtitle)}",
+                "subtitleDp=${textHeightDp(R.string.enter_pin_subtitle)}",
         )
-        assertFontScaleApplied(fontScale, R.string.pin_code_subtitle)
+        assertFontScaleApplied(fontScale, R.string.enter_pin_subtitle)
 
         logKey(zeroKey(), "0")
         logKey(deleteKey(), "Delete")

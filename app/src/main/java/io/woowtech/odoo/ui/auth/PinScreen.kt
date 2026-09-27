@@ -75,7 +75,8 @@ fun PinScreen(
     // Hidden when PIN is the sole unlock gate (nowhere to go back to); shown when reached from the
     // biometric screen's "Use PIN" so the user can return to the face prompt.
     showBack: Boolean = true,
-    subtitle: String = stringResource(R.string.pin_code_subtitle),
+    // Unlock wording by default; pin_code_subtitle is the Settings row's "set up" description.
+    subtitle: String = stringResource(R.string.enter_pin_subtitle),
     // Verification of each keypad digit. The unlock gate authenticates the session; Settings reuses
     // this keypad to confirm turning App Lock off (same check, counter and lockout).
     enterPinDigit: suspend (digit: String, currentPin: String) -> Pair<String, PinEntryResult> = viewModel::enterPinDigit,

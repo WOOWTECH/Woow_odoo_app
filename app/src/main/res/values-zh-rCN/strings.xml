@@ -132,6 +132,7 @@
 
     <!-- PIN Screen -->
     <string name="enter_pin">输入 PIN 码</string>
+    <string name="enter_pin_subtitle">输入 PIN 码解锁</string>
     <string name="create_pin">创建 PIN 码</string>
     <string name="confirm_pin">确认 PIN 码</string>
     <string name="pin_mismatch">PIN 码不匹配</string>

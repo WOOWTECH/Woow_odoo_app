@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -46,15 +48,30 @@ class AuthViewModel @Inject constructor(
         .map { it != null }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private val _isAuthenticated = MutableStateFlow(false)
+
+    /** Last observed `appLockEnabled`; null until the first emission (cold start). */
+    private var lastAppLockEnabled: Boolean? = null
+
     /**
      * Whether the auth gate should be enforced. Emits the persisted `appLockEnabled`
      * setting.
+     *
+     * Turning App Lock on inside a running session (Settings, right after creating the PIN) keeps
+     * the session unlocked: the user is present and just proved the PIN. Without this the gate saw
+     * `requiresAuth && !isAuthenticated` at once and replaced the whole back stack with the lock
+     * screen (LIVE-0927 r2 evidence 45). [isAuthenticated] is set before [requiresAuth] turns true,
+     * so no frame sees the locked combination; the next background/cold start locks as usual.
      */
     val requiresAuth: StateFlow<Boolean> = settingsRepository.settings
         .map { it.appLockEnabled }
+        .distinctUntilChanged()
+        .onEach { enabled ->
+            if (enabled && lastAppLockEnabled == false) _isAuthenticated.value = true
+            lastAppLockEnabled = enabled
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    private val _isAuthenticated = MutableStateFlow(false)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
 
     val settings = settingsRepository.settings

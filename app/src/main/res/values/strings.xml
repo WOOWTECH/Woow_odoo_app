@@ -132,6 +132,7 @@
 
     <!-- PIN Screen -->
     <string name="enter_pin">Enter PIN</string>
+    <string name="enter_pin_subtitle">Enter your PIN to unlock</string>
     <string name="create_pin">Create PIN</string>
     <string name="confirm_pin">Confirm PIN</string>
     <string name="pin_mismatch">PINs do not match</string>
