@@ -113,6 +113,9 @@ fun SettingsScreen(
     var pendingEnableAppLock by remember { mutableStateOf(false) }
     // Turning App Lock off asks for the current PIN first (LIVE-0927 r2, iOS 32462a3 parity).
     var confirmDisableAppLock by remember { mutableStateOf(false) }
+    // Changing an existing PIN asks for the current PIN first (LIVE-0927 r3): otherwise a new PIN
+    // could be set and then used to pass the "turn App Lock off" check above.
+    var confirmChangePin by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
 
     val biometricManager = remember { BiometricManager.from(context) }
@@ -138,6 +141,7 @@ fun SettingsScreen(
             onCancel = {
                 showPinSetup = false
                 pendingEnableAppLock = false
+                viewModel.cancelPinChange()
             },
         )
         return
@@ -152,6 +156,21 @@ fun SettingsScreen(
             enterPinDigit = viewModel::enterPinToDisableAppLock,
         )
         BackHandler { confirmDisableAppLock = false }
+        return
+    }
+
+    if (confirmChangePin) {
+        PinScreen(
+            onPinVerified = {
+                confirmChangePin = false
+                showPinSetup = true
+            },
+            onBackClick = { confirmChangePin = false },
+            showBack = true,
+            subtitle = stringResource(R.string.change_pin_verify_subtitle),
+            enterPinDigit = viewModel::enterPinToChangePin,
+        )
+        BackHandler { confirmChangePin = false }
         return
     }
 
@@ -281,7 +300,10 @@ fun SettingsScreen(
                     icon = Icons.Default.Pin,
                     title = stringResource(R.string.pin_code),
                     subtitle = stringResource(R.string.pin_code_subtitle),
-                    onClick = { showPinSetup = true },
+                    onClick = {
+                        // Replacing an existing PIN requires the current one; first-time setup does not.
+                        if (settings.pinEnabled) confirmChangePin = true else showPinSetup = true
+                    },
                     enabled = settings.appLockEnabled,
                     trailing = {
                         Text(

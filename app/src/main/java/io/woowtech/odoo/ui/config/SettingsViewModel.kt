@@ -71,13 +71,56 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * One keypad digit of the "turn App Lock off" confirmation. Uses the unlock gate's own check
-     * ([checkPinDigit] → [SettingsRepository.verifyPin]): same failure counter, same lockout — a
-     * locked-out PIN is refused even when correct. App Lock is turned off only on [PinEntryResult.Success].
+     * ([verifyCurrentPinDigit]): same failure counter, same lockout — a locked-out PIN is refused
+     * even when correct. App Lock is turned off only on [PinEntryResult.Success].
      */
-    suspend fun enterPinToDisableAppLock(digit: String, currentPin: String): Pair<String, PinEntryResult> {
+    suspend fun enterPinToDisableAppLock(digit: String, currentPin: String): Pair<String, PinEntryResult> =
+        verifyCurrentPinDigit(digit, currentPin) { settingsRepository.updateAppLock(false) }
+
+    /**
+     * One keypad digit of the "change PIN" confirmation (LIVE-0927 r3, evidence 26→28→38: Change PIN
+     * used to open PIN setup directly, so anyone holding the unlocked phone could replace the PIN and
+     * then pass the "turn App Lock off" check with it). Same check, counter and lockout as
+     * [enterPinToDisableAppLock]; on [PinEntryResult.Success] exactly one following [setPin] is allowed.
+     */
+    suspend fun enterPinToChangePin(digit: String, currentPin: String): Pair<String, PinEntryResult> =
+        verifyCurrentPinDigit(digit, currentPin) { pinChangeAuthorized = true }
+
+    /** The user left PIN setup without saving: a verified-but-unused change must not linger. */
+    fun cancelPinChange() {
+        pinChangeAuthorized = false
+    }
+
+    /**
+     * Set by a successful [enterPinToChangePin], consumed by the next [setPin] /
+     * [setPinThenEnableAppLock]. Only read and written on the main thread (ViewModel calls from Compose).
+     */
+    private var pinChangeAuthorized = false
+
+    /**
+     * The shared "verify the current PIN" flow behind every PIN-gated Settings action: the unlock
+     * gate's per-digit check ([checkPinDigit] → [SettingsRepository.verifyPin]) with its persisted
+     * failure counter and exponential lockout. [onVerified] runs only on [PinEntryResult.Success].
+     */
+    private suspend fun verifyCurrentPinDigit(
+        digit: String,
+        currentPin: String,
+        onVerified: () -> Unit,
+    ): Pair<String, PinEntryResult> {
         val entry = settingsRepository.checkPinDigit(digit, currentPin)
-        if (entry.second == PinEntryResult.Success) settingsRepository.updateAppLock(false)
+        if (entry.second == PinEntryResult.Success) onVerified()
         return entry
+    }
+
+    /**
+     * Replacing an existing PIN needs a prior successful [enterPinToChangePin]; first-time setup
+     * (no PIN yet) does not. The authorization is single-use. Returns false when refused.
+     */
+    private fun consumePinWriteAuthorization(): Boolean {
+        val authorized = !settings.value.pinEnabled || pinChangeAuthorized
+        pinChangeAuthorized = false
+        if (!authorized) Timber.w("PIN change refused: the current PIN was not verified")
+        return authorized
     }
 
     /**
@@ -99,8 +142,12 @@ class SettingsViewModel @Inject constructor(
      * Because [SettingsRepository.setPin] is now `suspend`, the return value
      * is no longer surfaced synchronously; callers in the UI layer should observe
      * the [settings] flow for the updated [pinEnabled] flag instead.
+     *
+     * When a PIN already exists this is refused unless [enterPinToChangePin] just verified the
+     * current PIN (LIVE-0927 r3).
      */
     fun setPin(pin: String) {
+        if (!consumePinWriteAuthorization()) return
         viewModelScope.launch {
             settingsRepository.setPin(pin)
         }
@@ -113,6 +160,7 @@ class SettingsViewModel @Inject constructor(
      * floor). If PIN storage fails (e.g. invalid length) App Lock is left off.
      */
     fun setPinThenEnableAppLock(pin: String) {
+        if (!consumePinWriteAuthorization()) return
         viewModelScope.launch {
             val stored = settingsRepository.setPin(pin)
             if (stored) {

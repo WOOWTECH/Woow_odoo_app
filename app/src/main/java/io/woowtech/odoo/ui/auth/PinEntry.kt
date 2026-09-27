@@ -4,7 +4,7 @@ import io.woowtech.odoo.data.repository.SettingsRepository
 
 /**
  * One keypad digit of a PIN check, shared by the unlock gate ([AuthViewModel.enterPinDigit]) and the
- * Settings "turn App Lock off" confirmation, so both use the very same verification, persisted
+ * Settings "turn App Lock off" / "change PIN" confirmations, so all use the very same verification, persisted
  * failure counter and exponential lockout ([SettingsRepository.verifyPin]).
  *
  * Returns the new accumulated PIN and the [PinEntryResult]; on `WrongPin`/`LockedOut` the PIN is

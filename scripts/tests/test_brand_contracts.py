@@ -100,6 +100,9 @@ SERVER_HTTP_STATUS_STRINGS = {'error_server_http'}
 # LIVE-0927 Android r2 (owner-requested 2026-09-27, iOS 32462a3 parity): new three-locale keys.
 # Same additive contract as above — every baseline key keeps its exact value.
 LIVE_0927_R2_STRINGS = {'app_lock_disable_pin_subtitle', 'language_system', 'enter_pin_subtitle'}
+# LIVE-0927 Android r3 (owner-requested 2026-09-27): changing an existing PIN first asks for the
+# current one. Same additive contract.
+LIVE_0927_R3_STRINGS = {'change_pin_verify_subtitle'}
 # LIVE-0927 Android r2 (iOS 32462a3 parity): the zh panel title no longer repeats its "Settings"
 # option. Only these baseline values may change, and only from exactly this text to exactly that.
 LIVE_0927_R2_RETITLED = {('values-zh-rTW', 'configuration'): ('設定', '帳號與設定'),
@@ -311,7 +314,7 @@ class BrandIdentityContracts(unittest.TestCase):
                                'push_registration_unregistered', 'push_registration_disclaimer',
                                'login_server_url_required', 'login_database_required',
                                'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS \
-                              | LIVE_0927_R2_STRINGS
+                              | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):
