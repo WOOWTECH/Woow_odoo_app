@@ -42,6 +42,25 @@ class LoginViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LoginUiState())
     val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
 
+    /**
+     * Re-login for the active account whose session expired and cannot be restored silently (no
+     * stored password): prefill its server, database and username and ask only for the password
+     * (iOS parity: a failed self-heal lands on the prefilled login). No-op without an active account.
+     */
+    fun prefillFromActiveAccount() {
+        viewModelScope.launch {
+            val account = accountRepository.getActiveAccountOnce() ?: return@launch
+            _uiState.value = _uiState.value.copy(
+                step = LoginStep.CREDENTIALS,
+                serverUrl = ServerUrlInput.displayValue(account.fullServerUrl),
+                database = account.database,
+                username = account.username,
+                password = "",
+                error = null, errorType = null, httpStatus = null,
+            )
+        }
+    }
+
     fun updateServerUrl(url: String) {
         _uiState.value = _uiState.value.copy(
             serverUrl = url,

@@ -57,6 +57,7 @@ class MainViewModelSelfHealTest {
             reloginSignal = reloginSignal,
             locationPermissionGate = locationPermissionGate,
             sessionReauthenticator = sessionReauthenticator,
+            cookieOwnerStore = mockk(relaxed = true),
         )
     }
 

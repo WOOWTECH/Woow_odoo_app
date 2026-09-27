@@ -33,6 +33,8 @@ sealed class Screen(val route: String) {
     object Auth : Screen("auth")
     object Pin : Screen("pin")
     object Login : Screen("login")
+    /** Sign-in again for the active account whose session expired (prefilled; LIVE-0927 r2). */
+    object Relogin : Screen("relogin")
     object Main : Screen("main")
     object Config : Screen("config")
     object Settings : Screen("settings")
@@ -56,6 +58,8 @@ internal fun authStartDestination(action: AuthAction): Screen = when (action) {
  * @param loginScreen content of the [Screen.Login] destination. Production always uses the default
  *   (Hilt-provided [LoginScreen]); JVM routing tests pass a Hilt-free LoginScreen so the real
  *   graph/back-stack behaviour can be exercised without a Hilt test component.
+ * @param mainScreen content of [Screen.Main]; same test seam (the real one needs Hilt and a WebView).
+ * @param reloginScreen content of [Screen.Relogin]; same test seam.
  */
 @Composable
 fun WoowOdooNavHost(
@@ -63,6 +67,13 @@ fun WoowOdooNavHost(
     authViewModel: AuthViewModel = hiltViewModel(),
     loginScreen: @Composable (onLoginSuccess: () -> Unit) -> Unit = { onLoginSuccess ->
         LoginScreen(onLoginSuccess = onLoginSuccess)
+    },
+    mainScreen: @Composable (onMenuClick: () -> Unit, onReloginRequired: () -> Unit) -> Unit =
+        { onMenuClick, onReloginRequired ->
+            MainScreen(onMenuClick = onMenuClick, onReloginRequired = onReloginRequired)
+        },
+    reloginScreen: @Composable (onLoginSuccess: () -> Unit) -> Unit = { onLoginSuccess ->
+        LoginScreen(onLoginSuccess = onLoginSuccess, prefillActiveAccount = true)
     },
 ) {
     val context = LocalContext.current
@@ -169,11 +180,26 @@ fun WoowOdooNavHost(
         }
 
         composable(Screen.Main.route) {
-            MainScreen(
-                onMenuClick = {
-                    navController.navigate(Screen.Config.route)
-                }
+            mainScreen(
+                { navController.navigate(Screen.Config.route) },
+                {
+                    // The session cannot be restored silently (e.g. "Remember me" was off). Sign-in
+                    // becomes the only entry: going back must not re-create Main, which would just
+                    // expire again (the old Main⇄Config trap). System back on it leaves the app.
+                    navController.navigate(Screen.Relogin.route) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
             )
+        }
+
+        composable(Screen.Relogin.route) {
+            reloginScreen {
+                navController.navigate(Screen.Main.route) {
+                    popUpTo(Screen.Relogin.route) { inclusive = true }
+                }
+            }
         }
 
         composable(Screen.Config.route) {

@@ -52,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,10 +88,16 @@ private val FORM_MAX_WIDTH = 500.dp
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
-    onLoginSuccess: () -> Unit
+    onLoginSuccess: () -> Unit,
+    // Re-login after an unrecoverable session expiry: start on the password step of the active account.
+    prefillActiveAccount: Boolean = false,
 ) {
     WoowFixedBrandTheme {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    if (prefillActiveAccount) {
+        LaunchedEffect(viewModel) { viewModel.prefillFromActiveAccount() }
+    }
 
     // 系統返回（手勢／KEYCODE_BACK）在帳密步驟＝左上角返回鍵：回伺服器步驟並保留網址與 DB。
     // 伺服器步驟不攔截，交還給 NavHost／Activity（離開）。

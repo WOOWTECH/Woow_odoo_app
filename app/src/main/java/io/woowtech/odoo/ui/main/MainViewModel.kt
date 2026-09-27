@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.woowtech.odoo.data.api.SessionReauthenticator
 import io.woowtech.odoo.data.local.EncryptedPrefs
+import io.woowtech.odoo.data.local.WebViewCookieOwnerStore
 import io.woowtech.odoo.data.location.LocationPermissionGate
 import io.woowtech.odoo.data.push.DeepLinkManager
 import io.woowtech.odoo.data.push.PendingDeepLink
@@ -36,6 +37,7 @@ class MainViewModel @Inject constructor(
     private val reloginSignal: ReloginSignal,
     val locationPermissionGate: LocationPermissionGate,
     private val sessionReauthenticator: SessionReauthenticator,
+    private val cookieOwnerStore: WebViewCookieOwnerStore,
 ) : ViewModel() {
 
     val activeAccount: Flow<OdooAccount?> = accountRepository.activeAccount
@@ -106,6 +108,29 @@ class MainViewModel @Inject constructor(
 
     fun getSessionId(serverUrl: String): String? {
         return accountRepository.getSessionId(serverUrl)
+    }
+
+    /**
+     * Decides what the WebView cookies must be before [accountId]'s page at [serverUrl] loads
+     * (see [WebViewCookiePlanner]). [webViewHasSessionCookie] is read by the caller from the
+     * WebView `CookieManager`, which only exists on a device.
+     */
+    fun planWebViewCookies(accountId: String, serverUrl: String, webViewHasSessionCookie: Boolean): WebViewCookiePlan =
+        WebViewCookiePlanner.plan(
+            accountId = accountId,
+            cookieOwnerAccountId = cookieOwnerStore.ownerAccountId(),
+            webViewHasSessionCookie = webViewHasSessionCookie,
+            nativeSessionId = getSessionId(serverUrl),
+            lastInjectedSessionId = cookieOwnerStore.lastInjectedSessionId,
+        )
+
+    /** Records the outcome of [planWebViewCookies] (or a self-heal install) once applied to the WebView. */
+    fun onWebViewCookiesApplied(accountId: String, plan: WebViewCookiePlan) {
+        when (plan) {
+            WebViewCookiePlan.KeepExisting -> Unit
+            is WebViewCookiePlan.Replace -> cookieOwnerStore.recordInstalled(accountId, plan.sessionId)
+            WebViewCookiePlan.Clear -> cookieOwnerStore.recordCleared()
+        }
     }
 
     /**

@@ -107,7 +107,7 @@ class ApporoManualSessionTest {
             val repo = AccountRepository(dao, prefs, api, AppBrand.forCode("apporo"))
             val signal = ReloginSignal()
             val reauth = SessionReauthenticator(dao, prefs, api, signal)
-            val viewModel = MainViewModel(repo, prefs, mockk(relaxed = true), signal, mockk(relaxed = true), reauth)
+            val viewModel = MainViewModel(repo, prefs, mockk(relaxed = true), signal, mockk(relaxed = true), reauth, mockk(relaxed = true))
             api.publishApporoSession(account.serverUrl, "expired-fixture")
             assertEquals("expired-fixture", viewModel.getSessionId(account.serverUrl))
             server.enqueue(MockResponse().setBody("""{"result":{"uid":11,"name":"A"}}""")

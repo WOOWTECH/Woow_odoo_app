@@ -77,6 +77,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
 import io.woowtech.odoo.brand.AppBrand
 import io.woowtech.odoo.data.location.LocationPermissionGate
+import io.woowtech.odoo.data.repository.ReloginRequest
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -93,7 +94,10 @@ private data class PendingGeolocationRequest(
 @Composable
 fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
-    onMenuClick: () -> Unit
+    onMenuClick: () -> Unit,
+    // The active account's session is gone and cannot be restored silently: open the prefilled
+    // sign-in (LIVE-0927 r2). Opening the account menu here stranded the user in a Main⇄Config loop.
+    onReloginRequired: () -> Unit,
 ) {
     val account by viewModel.activeAccount.collectAsStateWithLifecycle(initialValue = null)
     val pendingDeepLink by viewModel.pendingDeepLink.collectAsStateWithLifecycle(initialValue = null)
@@ -105,10 +109,13 @@ fun MainScreen(
     var isLoading by remember { mutableStateOf(true) }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
-    LaunchedEffect(reloginRequest) {
-        if (reloginRequest != null) {
-            viewModel.clearReloginRequest()
-            onMenuClick()
+    LaunchedEffect(reloginRequest, account?.id) {
+        val request = reloginRequest ?: return@LaunchedEffect
+        val activeAccountId = account?.id ?: return@LaunchedEffect
+        viewModel.clearReloginRequest()
+        when (reloginRouteFor(request, activeAccountId)) {
+            ReloginRoute.SignIn -> onReloginRequired()
+            ReloginRoute.AccountMenu -> onMenuClick()
         }
     }
 
@@ -204,9 +211,6 @@ fun MainScreen(
         },
     ) {
         account?.let { acc ->
-            // Get session ID and sync to WebView's CookieManager
-            val sessionId = viewModel.getSessionId(acc.fullServerUrl)
-
             // Only surface the pending deep link to the WebView when it belongs to the
             // currently active account. It is NOT consumed here (that would be a state-set
             // apply) — the WebView consumes it once, after the target page finishes loading.
@@ -215,9 +219,11 @@ fun MainScreen(
                 ?.url
 
             OdooWebView(
+                accountId = acc.id,
                 serverUrl = acc.fullServerUrl,
                 database = acc.database,
-                sessionId = sessionId,
+                planCookies = { id, url, hasSessionCookie -> viewModel.planWebViewCookies(id, url, hasSessionCookie) },
+                onCookiesApplied = { id, plan -> viewModel.onWebViewCookiesApplied(id, plan) },
                 deepLinkUrl = deepLinkUrl,
                 onDeepLinkConsumed = { viewModel.consumePendingDeepLink(acc.id) },
                 locationPermissionGate = viewModel.locationPermissionGate,
@@ -226,7 +232,7 @@ fun MainScreen(
                 onLoadingChanged = { isLoading = it },
                 onSelfHeal = { host -> viewModel.selfHealActiveAccount(host) },
                 getFreshSessionId = { url -> viewModel.getSessionId(url) },
-                onReloginRequired = onMenuClick,
+                onReloginRequired = onReloginRequired,
             )
         }
 
@@ -240,6 +246,16 @@ fun MainScreen(
         }
     }
 }
+
+/** Where a pending re-login request sends the user. */
+internal enum class ReloginRoute { SignIn, AccountMenu }
+
+/**
+ * The active account's re-login opens its prefilled sign-in; a background re-auth failure for another
+ * account opens the account menu instead, so its sign-in is never applied to the active account.
+ */
+internal fun reloginRouteFor(request: ReloginRequest, activeAccountId: String): ReloginRoute =
+    if (request.accountId == activeAccountId) ReloginRoute.SignIn else ReloginRoute.AccountMenu
 
 /**
  * Chrome of [MainScreen]: brand top bar, optional [banner], then the WebView area ([content]).
@@ -345,9 +361,11 @@ private fun NotificationPermissionBanner(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun OdooWebView(
+    accountId: String,
     serverUrl: String,
     database: String,
-    sessionId: String?,
+    planCookies: (accountId: String, serverUrl: String, webViewHasSessionCookie: Boolean) -> WebViewCookiePlan,
+    onCookiesApplied: (accountId: String, plan: WebViewCookiePlan) -> Unit,
     deepLinkUrl: String? = null,
     onDeepLinkConsumed: () -> Unit = {},
     locationPermissionGate: LocationPermissionGate? = null,
@@ -381,6 +399,35 @@ fun OdooWebView(
     val currentOnSelfHeal by rememberUpdatedState(onSelfHeal)
     val currentGetFreshSessionId by rememberUpdatedState(getFreshSessionId)
     val currentOnReloginRequired by rememberUpdatedState(onReloginRequired)
+    val currentAccountId by rememberUpdatedState(accountId)
+    val currentPlanCookies by rememberUpdatedState(planCookies)
+    val currentOnCookiesApplied by rememberUpdatedState(onCookiesApplied)
+
+    // Prepares the process-global CookieManager for [targetAccountId]'s page: keeps the account's own
+    // still-valid Odoo session (it survives process death), otherwise isolates to the native session
+    // or to nothing. Replaces the unconditional clear that threw the session away on every cold start.
+    fun prepareCookies(targetAccountId: String, targetServerUrl: String) {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        val hasSessionCookie = WebViewCookiePlanner.hasSessionCookie(cookieManager.getCookie(targetServerUrl))
+        val plan = currentPlanCookies(targetAccountId, targetServerUrl, hasSessionCookie)
+        when (plan) {
+            WebViewCookiePlan.KeepExisting -> Timber.d("WebView keeps its own session for account %s", targetAccountId)
+            is WebViewCookiePlan.Replace -> isolateCookiesForAccount(targetServerUrl, plan.sessionId)
+            WebViewCookiePlan.Clear -> isolateCookiesForAccount(targetServerUrl, null)
+        }
+        currentOnCookiesApplied(targetAccountId, plan)
+    }
+
+    // Persist the WebView cookie store when the app leaves the foreground, so a session Odoo rotated
+    // while the user worked is what the next process finds (Chromium otherwise flushes lazily).
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) CookieManager.getInstance().flush()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Scope for the async self-heal launched from shouldOverrideUrlLoading. Compose scopes run on
     // the main dispatcher, so the WebView reload after re-auth happens on the main thread; the
@@ -551,9 +598,10 @@ fun OdooWebView(
                 cookieManager.setAcceptThirdPartyCookies(this, false)
 
                 // Per-account cookie isolation: the CookieManager is process-global, so before the
-                // first load we clear every cookie and set ONLY the active account's session
-                // cookie. This guarantees account A's cookies can never load under account B.
-                isolateCookiesForAccount(serverUrl = serverUrl, sessionId = sessionId)
+                // first load we keep ONLY this account's session — its own surviving WebView cookie,
+                // or a fresh native one — and clear everything else. Account A's cookies can never
+                // load under account B (WebViewCookiePlanner).
+                prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl)
 
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -572,6 +620,11 @@ fun OdooWebView(
                         // would let the bounce loop resume.
                         if (url != null && !url.contains("/web/login")) {
                             selfHealAttempted.set(false)
+                            // A real page of this account loaded: make its (possibly rotated)
+                            // session durable now rather than only when Chromium gets to it.
+                            if (DeepLinkWebPlanner.hostMatches(loadedUrl = url, targetServerUrl = currentServerUrl)) {
+                                CookieManager.getInstance().flush()
+                            }
                         }
                         // v1.0.14: Force layout recalculation for OWL framework
                         view?.evaluateJavascript(
@@ -663,6 +716,7 @@ fun OdooWebView(
                                 onLoadingChanged(true)
                                 val targetServerUrl = currentServerUrl
                                 val targetDatabase = currentDatabase
+                                val targetAccountId = currentAccountId
                                 selfHealScope.launch {
                                     val host = runCatching { java.net.URI(targetServerUrl).host }
                                         .getOrNull()
@@ -674,6 +728,10 @@ fun OdooWebView(
                                         isolateCookiesForAccount(
                                             serverUrl = targetServerUrl,
                                             sessionId = freshSessionId,
+                                        )
+                                        currentOnCookiesApplied(
+                                            targetAccountId,
+                                            freshSessionId?.let { WebViewCookiePlan.Replace(it) } ?: WebViewCookiePlan.Clear,
                                         )
                                         view?.loadUrl("$targetServerUrl/web?db=$targetDatabase")
                                         // Guard stays set until onPageFinished lands a real page —
@@ -927,7 +985,7 @@ fun OdooWebView(
                 Timber.d("Account switched — reloading WebView for new server")
                 appliedDeepLinkUrl = null
                 currentPageLoaded = false
-                isolateCookiesForAccount(serverUrl = serverUrl, sessionId = sessionId)
+                prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl)
                 lastLoadedServerUrl = serverUrl
                 webView.loadUrl("$serverUrl/web?db=$database")
             } else {
@@ -976,7 +1034,12 @@ private fun isolateCookiesForAccount(serverUrl: String, sessionId: String?) {
     // Clear ALL cookies — this is the isolation crux for the same-and-different-host cases.
     cookieManager.removeAllCookies(null)
     if (sessionId != null) {
-        cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure")
+        // Max-Age (Odoo's default 7-day session lifetime) makes the cookie persistent, so a cold start
+        // still finds it; the server stays the judge of whether the session is valid.
+        cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure; Max-Age=$WEBVIEW_SESSION_COOKIE_MAX_AGE_SECONDS")
     }
     cookieManager.flush()
 }
+
+/** Odoo's default session lifetime (`SESSION_LIFETIME`, 7 days). */
+private const val WEBVIEW_SESSION_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
