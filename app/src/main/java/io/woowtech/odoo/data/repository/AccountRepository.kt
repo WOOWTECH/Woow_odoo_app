@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionReauthenticator
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
@@ -23,10 +24,20 @@ class AccountRepository(
     private val encryptedPrefs: EncryptedPrefs,
     private val odooClient: OdooJsonRpcClient,
     private val brand: AppBrand,
+    /**
+     * Shared auto re-auth engine. Every successful manual sign-in / switch below re-closes its
+     * per-account circuit breaker ([SessionReauthenticator.onManualReloginSucceeded]); otherwise a
+     * breaker opened earlier in this process stays open until restart. Null only in unit tests.
+     */
+    private val sessionReauthenticator: SessionReauthenticator? = null,
 ) {
     @Inject
-    constructor(accountDao: AccountDao, encryptedPrefs: EncryptedPrefs, odooClient: OdooJsonRpcClient) :
-        this(accountDao, encryptedPrefs, odooClient, AppBrand.current)
+    constructor(
+        accountDao: AccountDao,
+        encryptedPrefs: EncryptedPrefs,
+        odooClient: OdooJsonRpcClient,
+        sessionReauthenticator: SessionReauthenticator,
+    ) : this(accountDao, encryptedPrefs, odooClient, AppBrand.current, sessionReauthenticator)
 
     // Apporo-only: an old response cannot commit over a newer explicit login/switch intent.
     private val selectionMutex = Mutex()
@@ -106,6 +117,7 @@ class AccountRepository(
             if (rememberPassword) encryptedPrefs.savePassword(account.id, password)
             else encryptedPrefs.removePassword(account.id)
             fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
+            sessionReauthenticator?.onManualReloginSucceeded(account.id)
 
             // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
             // token is upserted for EACH logged-in account (not only this one). This starts push
@@ -189,6 +201,7 @@ class AccountRepository(
             accountDao.activateAccount(accountId)
             accountDao.updateLastLogin(accountId)
             fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
+            sessionReauthenticator?.onManualReloginSucceeded(accountId)
             // Same reason as authenticate(): the FCM token may have been
             // saved before this account became active. Replay it.
             registerSavedFcmToken(accountId)
@@ -352,6 +365,7 @@ class AccountRepository(
                 accountDao.insertAccount(account)
             }
             fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
+            sessionReauthenticator?.onManualReloginSucceeded(account.id)
             true
         }
         if (!committed) return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
@@ -383,6 +397,7 @@ class AccountRepository(
                 accountDao.updateLastLogin(accountId)
             }
             fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
+            sessionReauthenticator?.onManualReloginSucceeded(accountId)
             true
         }
         if (committed) registerSavedFcmToken(accountId)

@@ -69,8 +69,10 @@ object AppModule {
         encryptedPrefs: EncryptedPrefs,
         odooClient: OdooJsonRpcClient,
         fcmTokenRepository: dagger.Lazy<FcmTokenRepository>,
+        sessionReauthenticator: SessionReauthenticator,
     ): AccountRepository {
-        return AccountRepository(accountDao, encryptedPrefs, odooClient).also { repo ->
+        // A successful manual sign-in re-closes the account's auto re-auth circuit breaker.
+        return AccountRepository(accountDao, encryptedPrefs, odooClient, sessionReauthenticator).also { repo ->
             // C3: Wire the FCM token repository lazily to avoid a circular dependency
             // (AccountRepository ← FcmTokenRepository → AccountDao ← AccountRepository).
             // Using dagger.Lazy defers instantiation until the first access, breaking the cycle.

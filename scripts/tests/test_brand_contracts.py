@@ -103,6 +103,16 @@ LIVE_0927_R2_STRINGS = {'app_lock_disable_pin_subtitle', 'language_system', 'ent
 # LIVE-0927 Android r3 (owner-requested 2026-09-27): changing an existing PIN first asks for the
 # current one. Same additive contract.
 LIVE_0927_R3_STRINGS = {'change_pin_verify_subtitle'}
+# LIVE-0927 Android r3 approved seam: AccountRepository gets the shared SessionReauthenticator so a
+# successful manual sign-in re-closes that account's auto re-auth circuit breaker.
+LIVE_0927_R3_APP_MODULE = (
+    ('        sessionReauthenticator: SessionReauthenticator,\n'
+     '    ): AccountRepository {\n'
+     '        // A successful manual sign-in re-closes the account\'s auto re-auth circuit breaker.\n'
+     '        return AccountRepository(accountDao, encryptedPrefs, odooClient, sessionReauthenticator).also { repo ->',
+     '    ): AccountRepository {\n'
+     '        return AccountRepository(accountDao, encryptedPrefs, odooClient).also { repo ->'),
+)
 # LIVE-0927 Android r2 (iOS 32462a3 parity): the zh panel title no longer repeats its "Settings"
 # option. Only these baseline values may change, and only from exactly this text to exactly that.
 LIVE_0927_R2_RETITLED = {('values-zh-rTW', 'configuration'): ('設定', '帳號與設定'),
@@ -219,6 +229,7 @@ class BrandIdentityContracts(unittest.TestCase):
             '    private val encryptedPrefs: EncryptedPrefs,\n'
             '    private val odooClient: OdooJsonRpcClient\n) {\n') + account[end:]
         for line in ('import io.woowtech.odoo.brand.AppBrand\n',
+                     'import io.woowtech.odoo.data.api.SessionReauthenticator\n',
                      'import kotlinx.coroutines.sync.Mutex\n', 'import kotlinx.coroutines.sync.withLock\n',
                      'import kotlinx.coroutines.NonCancellable\n', 'import kotlinx.coroutines.currentCoroutineContext\n',
                      'import kotlinx.coroutines.ensureActive\n', 'import kotlinx.coroutines.withContext\n',
@@ -228,6 +239,9 @@ class BrandIdentityContracts(unittest.TestCase):
             account = account.replace(line, '')
         for line in ('            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)\n',
                      '            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)\n',
+                     # LIVE-0927 r3 approved seam: manual sign-in re-closes the auto re-auth breaker.
+                     '            sessionReauthenticator?.onManualReloginSucceeded(account.id)\n',
+                     '            sessionReauthenticator?.onManualReloginSucceeded(accountId)\n',
                      '        fcmTokenRepository?.forgetAccount(id)\n',
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
@@ -271,6 +285,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '            apporoTransport = apporoPushTransport,\n'):
             self.assertEqual(1, module.count(line))
             module = module.replace(line, '')
+        module = reverse_apply(self, module, LIVE_0927_R3_APP_MODULE)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/di/AppModule.kt').decode(), module)
         interface = (K / 'data/repository/FcmTokenRepository.kt').read_text()
         added = interface.split('interface FcmTokenRepository {\n', 1)[1].split('    /**\n     * Registers', 1)[0]
