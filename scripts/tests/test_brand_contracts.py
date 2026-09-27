@@ -100,6 +100,10 @@ SERVER_HTTP_STATUS_STRINGS = {'error_server_http'}
 # LIVE-0927 Android r2 (owner-requested 2026-09-27, iOS 32462a3 parity): new three-locale keys.
 # Same additive contract as above — every baseline key keeps its exact value.
 LIVE_0927_R2_STRINGS = {'app_lock_disable_pin_subtitle'}
+# LIVE-0927 Android r2 (iOS 32462a3 parity): the zh panel title no longer repeats its "Settings"
+# option. Only these baseline values may change, and only from exactly this text to exactly that.
+LIVE_0927_R2_RETITLED = {('values-zh-rTW', 'configuration'): ('設定', '帳號與設定'),
+                         ('values-zh-rCN', 'configuration'): ('设置', '账号与设置')}
 
 
 def reverse_apply(test, text, deltas):
@@ -314,6 +318,12 @@ class BrandIdentityContracts(unittest.TestCase):
                         return (node.tag, sorted(node.attrib.items()), node.text,
                                 [(semantic(child), child.tail) for child in node])
                     for key, node in old.items():
+                        retitled = LIVE_0927_R2_RETITLED.get((name.split('/')[-2], key))
+                        if retitled:
+                            self.assertEqual((node.tag, dict(node.attrib), retitled[0]), (node.tag, dict(node.attrib), node.text))
+                            self.assertEqual((node.tag, dict(node.attrib), retitled[1]),
+                                             (new[key].tag, dict(new[key].attrib), new[key].text), key)
+                            continue
                         self.assertEqual(semantic(node), semantic(new[key]), key)
                     english = strings('main', 'values')
                     for key in allowed:

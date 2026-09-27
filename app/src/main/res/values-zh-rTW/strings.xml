@@ -29,7 +29,7 @@
     <string name="retry">重試</string>
 
     <!-- Configuration Screen -->
-    <string name="configuration">設定</string>
+    <string name="configuration">帳號與設定</string>
     <string name="settings">設定</string>
     <string name="settings_subtitle">應用程式偏好設定和選項</string>
     <string name="switch_accounts">切換帳號</string>
