@@ -184,6 +184,8 @@ fun MainScreen(
 
     MainScreenLayout(
         onMenuClick = onMenuClick,
+        // Keyboard finished appearing: make sure the focused Odoo field is not left behind it.
+        onImeShown = { webView?.let(::scrollFocusedEditableIntoView) },
         banner = {
             // WI-1: Denial affordance. Shown only while notifications are blocked at the app level
             // and the user has not dismissed it this session. Its action deep-links to the system
@@ -250,6 +252,7 @@ fun MainScreen(
 internal fun MainScreenLayout(
     onMenuClick: () -> Unit,
     banner: @Composable () -> Unit,
+    onImeShown: () -> Unit = {},
     content: @Composable BoxScope.() -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -280,8 +283,15 @@ internal fun MainScreenLayout(
         // system bars and adjustResize no longer shrinks the content. TopAppBar only handles the
         // top/horizontal status-bar area, so everything below it must avoid the navigation bar
         // (bottom in portrait, side in landscape), display cutouts and the keyboard itself —
-        // otherwise Odoo's bottom UI sits under the 3-button nav bar and focused inputs are hidden
-        // behind the IME (the WebView never shrinks, so Chromium never scrolls them into view).
+        // otherwise Odoo's bottom UI sits under the 3-button nav bar and the IME covers the page.
+        // The padding sits on this Column, but the WebView fills the Box below, so the WebView view
+        // itself is resized (MainScreenImeFocusScrollTest pins that).
+        //
+        // Resizing alone does NOT reveal the focused field: Chromium scrolls it into view only once,
+        // on the first viewport shrink after the IME reports shown, and Compose animates the IME
+        // inset frame by frame, so that one-shot scroll misses (see ImeFocusScrollTrigger). Hence
+        // onImeShown, fired once when the keyboard has finished appearing.
+        ImeShownEffect(onImeShown)
         Column(
             modifier = Modifier
                 .fillMaxSize()
