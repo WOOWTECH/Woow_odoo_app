@@ -317,7 +317,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Language,
                     title = stringResource(R.string.language),
-                    subtitle = settings.language.displayName,
+                    subtitle = appLanguageLabel(LocalContext.current, settings.language),
                     onClick = { showLanguagePicker = true }
                 )
             }
@@ -799,7 +799,7 @@ private fun LanguagePickerDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = language.displayName,
+                            text = appLanguageLabel(LocalContext.current, language),
                             style = MaterialTheme.typography.bodyLarge,
                             color = if (language == currentLanguage) {
                                 MaterialTheme.colorScheme.primary

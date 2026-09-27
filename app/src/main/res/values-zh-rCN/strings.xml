@@ -79,6 +79,7 @@
 
     <string name="language_region">语言与地区</string>
     <string name="language">语言</string>
+    <string name="language_system">跟随系统</string>
     <string name="language_english">English</string>
     <string name="language_chinese">繁体中文</string>
     <string name="timezone">时区</string>

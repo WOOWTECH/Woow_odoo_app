@@ -79,6 +79,7 @@
 
     <string name="language_region">Language &amp; Region</string>
     <string name="language">Language</string>
+    <string name="language_system">System Default</string>
     <string name="language_english">English</string>
     <string name="language_chinese">繁體中文</string>
     <string name="timezone">Timezone</string>
