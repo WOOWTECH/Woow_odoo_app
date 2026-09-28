@@ -503,7 +503,7 @@ private fun DeleteKey(reduceMotion: Boolean, onClick: () -> Unit) {
     ) {
         Icon(
             imageVector = Icons.AutoMirrored.Filled.Backspace,
-            contentDescription = "Delete",
+            contentDescription = stringResource(R.string.pin_delete),
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(28.dp)
         )

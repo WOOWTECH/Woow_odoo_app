@@ -80,6 +80,8 @@
     <string name="remove_pin">移除 PIN 碼</string>
     <string name="remove_pin_subtitle">同時關閉應用程式鎖定</string>
     <string name="remove_pin_verify_subtitle">輸入目前的 PIN 碼以移除</string>
+    <!-- PIN keypad delete key (screen reader label; iOS delete.backward parity) -->
+    <string name="pin_delete">刪除</string>
 
     <string name="language_region">語言與地區</string>
     <string name="language">語言</string>

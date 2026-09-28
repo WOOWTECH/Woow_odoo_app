@@ -80,6 +80,8 @@
     <string name="remove_pin">Remove PIN</string>
     <string name="remove_pin_subtitle">Also turns off App Lock</string>
     <string name="remove_pin_verify_subtitle">Enter your current PIN to remove it</string>
+    <!-- PIN keypad delete key (screen reader label; iOS delete.backward parity) -->
+    <string name="pin_delete">Delete</string>
 
     <string name="language_region">Language &amp; Region</string>
     <string name="language">Language</string>
