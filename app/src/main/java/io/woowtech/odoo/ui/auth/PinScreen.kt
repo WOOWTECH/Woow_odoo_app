@@ -54,6 +54,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -62,9 +64,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.currentStateAsState
 import io.woowtech.odoo.R
+import io.woowtech.odoo.data.repository.SettingsRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
+
+/** Dots in the PIN row — one per digit of the fixed-length PIN. */
+private const val PIN_DOT_COUNT = SettingsRepository.PIN_LENGTH
 
 /** Horizontal amplitude (dp) of the wrong-PIN shake displacement. */
 private const val SHAKE_AMPLITUDE_DP = 10
@@ -271,12 +277,14 @@ fun PinScreen(
                         if (isVerifying) return@NumberPad
                         if (pin.length < 6) {
                             error = null
+                            val previousPin = pin
+                            // Show the digit at once: the 6th dot must be filled while that entry
+                            // is verified (PBKDF2 takes seconds on device), not only afterwards.
+                            pin = previousPin + number
+                            // Set before launching so a second tap in the same frame is ignored.
+                            isVerifying = true
                             scope.launch {
-                                // Show the spinner only after a 200ms debounce so that
-                                // digits 1–5 (which return NeedMoreDigits instantly) don't
-                                // flash the indicator unnecessarily.
-                                isVerifying = true
-                                val (nextPin, result) = enterPinDigit(number, pin)
+                                val (nextPin, result) = enterPinDigit(number, previousPin)
                                 isVerifying = false
                                 pin = nextPin
                                 when (result) {
@@ -300,7 +308,8 @@ fun PinScreen(
                         }
                     },
                     onDeleteClick = {
-                        if (pin.isNotEmpty()) {
+                        // Same guard as digits: the entry being verified stays as typed.
+                        if (!isVerifying && pin.isNotEmpty()) {
                             pin = pin.dropLast(1)
                         }
                     }
@@ -342,8 +351,10 @@ internal fun PinDotsRow(
             // needs a signed displacement. offset also avoids re-measuring or reflowing siblings.
             // reduceMotion users get no lateral movement at all.
             .offset(x = if (reduceMotion) 0.dp else (shakeOffset * SHAKE_AMPLITUDE_DP).dp)
+            // "n/6" for accessibility services (iOS accessibilityValue parity) and tests.
+            .semantics { stateDescription = "$filledCount/$PIN_DOT_COUNT" }
     ) {
-        repeat(6) { index ->
+        repeat(PIN_DOT_COUNT) { index ->
             val isFilled = index < filledCount
             Box(
                 modifier = Modifier
@@ -360,7 +371,7 @@ internal fun PinDotsRow(
                         shape = CircleShape
                     )
             )
-            if (index < 5) Spacer(modifier = Modifier.width(16.dp))
+            if (index < PIN_DOT_COUNT - 1) Spacer(modifier = Modifier.width(16.dp))
         }
         // Show a small spinner next to the dots while PBKDF2 is running. A 200ms debounce is
         // applied via isVerifying so quick digit taps that don't reach the verify threshold
