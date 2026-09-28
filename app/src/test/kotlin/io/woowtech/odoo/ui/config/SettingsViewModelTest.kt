@@ -267,10 +267,13 @@ class SettingsViewModelTest {
         }
 
         @Test
-        fun `Given PIN exists when removePin then delegates to repository`() {
+        fun `Given PIN exists when the current PIN is verified for removal then delegates to repository`() = runTest {
+            // Removal is only reachable through the current-PIN check (RemovePinRequiresCurrentPinTest).
+            coEvery { settingsRepository.verifyPin("123456") } returns true
             viewModel = createViewModel()
 
-            viewModel.removePin()
+            var current = ""
+            for (digit in "123456") current = viewModel.enterPinToRemovePin(digit.toString(), current).first
 
             verify { settingsRepository.removePin() }
         }
