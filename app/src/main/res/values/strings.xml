@@ -77,6 +77,9 @@
     <string name="change_pin">Change PIN</string>
     <string name="app_lock_disable_pin_subtitle">Enter your current PIN to turn off App Lock</string>
     <string name="change_pin_verify_subtitle">Enter your current PIN to change it</string>
+    <string name="remove_pin">Remove PIN</string>
+    <string name="remove_pin_subtitle">Also turns off App Lock</string>
+    <string name="remove_pin_verify_subtitle">Enter your current PIN to remove it</string>
 
     <string name="language_region">Language &amp; Region</string>
     <string name="language">Language</string>

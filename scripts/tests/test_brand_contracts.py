@@ -107,6 +107,9 @@ LIVE_0927_R3_STRINGS = {'change_pin_verify_subtitle'}
 # every second (iOS `lockout_timer_%lld` parity) and brings the keypad back when it ends. Additive
 # three-locale <plurals>; zh has only the `other` quantity.
 PIN_LOCKOUT_STRINGS = {'pin_lockout_countdown'}
+# Remove PIN (2026-09-28, iOS "Remove PIN" parity): the Settings item, its note that App Lock is turned
+# off too, and the current-PIN prompt subtitle. Same additive three-locale contract.
+REMOVE_PIN_STRINGS = {'remove_pin', 'remove_pin_subtitle', 'remove_pin_verify_subtitle'}
 # Same round: "1 attempts remaining" — these baseline <string>s become <plurals> of the same name.
 # The baseline text survives verbatim as the `other` quantity; English adds `one`, zh has only `other`.
 PIN_PLURALS_RETYPED = {'wrong_pin_attempts_remaining'}
@@ -336,7 +339,8 @@ class BrandIdentityContracts(unittest.TestCase):
                                'push_registration_unregistered', 'push_registration_disclaimer',
                                'login_server_url_required', 'login_database_required',
                                'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS \
-                              | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS | PIN_LOCKOUT_STRINGS
+                              | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS | PIN_LOCKOUT_STRINGS \
+                              | REMOVE_PIN_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):

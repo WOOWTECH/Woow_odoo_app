@@ -116,6 +116,8 @@ fun SettingsScreen(
     // Changing an existing PIN asks for the current PIN first (LIVE-0927 r3): otherwise a new PIN
     // could be set and then used to pass the "turn App Lock off" check above.
     var confirmChangePin by remember { mutableStateOf(false) }
+    // Removing the PIN asks for the current PIN first (iOS "Remove PIN" parity); it also turns App Lock off.
+    var confirmRemovePin by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
 
     val biometricManager = remember { BiometricManager.from(context) }
@@ -171,6 +173,18 @@ fun SettingsScreen(
             enterPinDigit = viewModel::enterPinToChangePin,
         )
         BackHandler { confirmChangePin = false }
+        return
+    }
+
+    if (confirmRemovePin) {
+        PinScreen(
+            onPinVerified = { confirmRemovePin = false },
+            onBackClick = { confirmRemovePin = false },
+            showBack = true,
+            subtitle = stringResource(R.string.remove_pin_verify_subtitle),
+            enterPinDigit = viewModel::enterPinToRemovePin,
+        )
+        BackHandler { confirmRemovePin = false }
         return
     }
 
@@ -317,6 +331,19 @@ fun SettingsScreen(
                         )
                     }
                 )
+
+                // Shown only while a PIN exists. Verified with the current PIN before anything changes;
+                // clickable even with App Lock off so a leftover PIN can still be cleared.
+                if (settings.pinEnabled) {
+                    HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+
+                    SettingsItem(
+                        icon = Icons.Default.Delete,
+                        title = stringResource(R.string.remove_pin),
+                        subtitle = stringResource(R.string.remove_pin_subtitle),
+                        onClick = { confirmRemovePin = true },
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

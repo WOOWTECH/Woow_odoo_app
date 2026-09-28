@@ -86,6 +86,18 @@ class SettingsViewModel @Inject constructor(
     suspend fun enterPinToChangePin(digit: String, currentPin: String): Pair<String, PinEntryResult> =
         verifyCurrentPinDigit(digit, currentPin) { pinChangeAuthorized = true }
 
+    /**
+     * One keypad digit of the "remove PIN" confirmation (iOS LIVE-0927-4 `removePin(verifyingCurrentPin:)`
+     * parity). Same check, counter and lockout as [enterPinToDisableAppLock]: a wrong PIN counts toward the
+     * unlock lockout and a locked-out PIN is refused even when correct. Only on [PinEntryResult.Success] is
+     * the PIN removed, via [SettingsRepository.removePin], which co-disables App Lock in the same write —
+     * on Android the PIN is App Lock's mandatory unlock floor (`appLockEnabled ⇒ pinEnabled`), unlike iOS
+     * where the device passcode is the floor and App Lock stays on.
+     * There is deliberately no unverified removal entry point on this ViewModel.
+     */
+    suspend fun enterPinToRemovePin(digit: String, currentPin: String): Pair<String, PinEntryResult> =
+        verifyCurrentPinDigit(digit, currentPin) { settingsRepository.removePin() }
+
     /** The user left PIN setup without saving: a verified-but-unused change must not linger. */
     fun cancelPinChange() {
         pinChangeAuthorized = false
@@ -167,10 +179,6 @@ class SettingsViewModel @Inject constructor(
                 settingsRepository.updateAppLock(true)
             }
         }
-    }
-
-    fun removePin() {
-        settingsRepository.removePin()
     }
 
     fun updateLanguage(language: AppLanguage) {
