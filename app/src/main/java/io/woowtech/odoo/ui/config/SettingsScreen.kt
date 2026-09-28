@@ -146,6 +146,12 @@ fun SettingsScreen(
                 viewModel.cancelPinChange()
             },
         )
+        // System back = the on-screen back arrow: cancel setup and stay on Settings (App Lock unchanged).
+        BackHandler {
+            showPinSetup = false
+            pendingEnableAppLock = false
+            viewModel.cancelPinChange()
+        }
         return
     }
 
