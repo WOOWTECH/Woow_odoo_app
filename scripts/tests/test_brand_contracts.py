@@ -107,6 +107,9 @@ LIVE_0927_R3_STRINGS = {'change_pin_verify_subtitle'}
 # every second (iOS `lockout_timer_%lld` parity) and brings the keypad back when it ends. Additive
 # three-locale <plurals>; zh has only the `other` quantity.
 PIN_LOCKOUT_STRINGS = {'pin_lockout_countdown'}
+# Same round: "1 attempts remaining" — these baseline <string>s become <plurals> of the same name.
+# The baseline text survives verbatim as the `other` quantity; English adds `one`, zh has only `other`.
+PIN_PLURALS_RETYPED = {'wrong_pin_attempts_remaining'}
 # LIVE-0927 Android r3 approved seam: AccountRepository gets the shared SessionReauthenticator so a
 # successful manual sign-in re-closes that account's auto re-auth circuit breaker.
 LIVE_0927_R3_APP_MODULE = (
@@ -340,6 +343,14 @@ class BrandIdentityContracts(unittest.TestCase):
                         return (node.tag, sorted(node.attrib.items()), node.text,
                                 [(semantic(child), child.tail) for child in node])
                     for key, node in old.items():
+                        if key in PIN_PLURALS_RETYPED:
+                            self.assertEqual(('string', {'name': key}), (node.tag, dict(node.attrib)))
+                            self.assertEqual(('plurals', {'name': key}), (new[key].tag, dict(new[key].attrib)))
+                            items = {item.attrib['quantity']: item.text for item in new[key]}
+                            self.assertEqual({'one', 'other'} if '/values/' in name else {'other'}, set(items), key)
+                            self.assertEqual(node.text, items['other'], key)
+                            self.assertTrue(all('%d' in text for text in items.values()), key)
+                            continue
                         retitled = LIVE_0927_R2_RETITLED.get((name.split('/')[-2], key))
                         if retitled:
                             self.assertEqual((node.tag, dict(node.attrib), retitled[0]), (node.tag, dict(node.attrib), node.text))

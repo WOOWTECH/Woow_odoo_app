@@ -293,8 +293,9 @@ fun PinScreen(
                                     }
                                     is PinEntryResult.Success -> onPinVerified()
                                     is PinEntryResult.WrongPin -> {
-                                        error = context.getString(
-                                            R.string.wrong_pin_attempts_remaining,
+                                        error = context.resources.getQuantityString(
+                                            R.plurals.wrong_pin_attempts_remaining,
+                                            result.remainingAttempts,
                                             result.remainingAttempts
                                         )
                                         isShaking = true
