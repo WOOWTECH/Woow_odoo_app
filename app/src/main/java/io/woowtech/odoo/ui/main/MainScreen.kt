@@ -22,6 +22,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.view.ViewGroup
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -450,6 +451,31 @@ fun OdooWebView(
     // full reload is never fired at a page that is still loading (cold start / mid switch).
     var currentPageLoaded by remember { mutableStateOf(false) }
 
+    // D1: system back steps back through Odoo's own page history (WebViewBackPolicy) instead of
+    // closing the app. canNavigateBack is refreshed whenever the WebView history changes; with no
+    // eligible previous page the BackHandler is disabled and back goes to NavHost/Activity as before.
+    var attachedWebView by remember { mutableStateOf<WebView?>(null) }
+    var canNavigateBack by remember { mutableStateOf(false) }
+    // Set on an account switch; the next finished page of the new host clears the WebView history so
+    // back can never return to the previous account's pages.
+    val clearHistoryOnNextPage = remember { AtomicBoolean(false) }
+
+    fun refreshBackState(view: WebView?) {
+        canNavigateBack = view != null && WebViewBackPolicy.canNavigateBack(
+            canGoBack = view.canGoBack(),
+            previousUrl = view.previousHistoryUrl(),
+            serverUrl = currentServerUrl,
+        )
+    }
+
+    BackHandler(enabled = canNavigateBack) {
+        val view = attachedWebView
+        if (view != null && WebViewBackPolicy.canNavigateBack(view.canGoBack(), view.previousHistoryUrl(), currentServerUrl)) {
+            view.goBack()
+        }
+        refreshBackState(view)
+    }
+
     // v1.0.15: File upload support - state for file chooser callback
     var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
@@ -556,6 +582,7 @@ fun OdooWebView(
                 )
 
                 onWebViewCreated(this)
+                attachedWebView = this
 
                 settings.apply {
                     javaScriptEnabled = true
@@ -692,7 +719,24 @@ fun OdooWebView(
                             Timber.d("Applied pending deep link after page load")
                         }
 
+                        // D1: after an account switch, drop the previous account's pages from the
+                        // history once the new account's own page has landed, then re-evaluate back.
+                        if (view != null &&
+                            DeepLinkWebPlanner.hostMatches(loadedUrl = url, targetServerUrl = currentServerUrl) &&
+                            clearHistoryOnNextPage.compareAndSet(true, false)
+                        ) {
+                            view.clearHistory()
+                        }
+                        refreshBackState(view)
+
                         onLoadingChanged(false)
+                    }
+
+                    // D1: Odoo navigates client-side (history.pushState); each history change
+                    // re-evaluates whether system back belongs to the WebView.
+                    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                        super.doUpdateVisitedHistory(view, url, isReload)
+                        refreshBackState(view)
                     }
 
                     override fun shouldOverrideUrlLoading(
@@ -985,6 +1029,8 @@ fun OdooWebView(
                 Timber.d("Account switched — reloading WebView for new server")
                 appliedDeepLinkUrl = null
                 currentPageLoaded = false
+                clearHistoryOnNextPage.set(true)
+                canNavigateBack = false
                 prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl)
                 lastLoadedServerUrl = serverUrl
                 webView.loadUrl("$serverUrl/web?db=$database")
