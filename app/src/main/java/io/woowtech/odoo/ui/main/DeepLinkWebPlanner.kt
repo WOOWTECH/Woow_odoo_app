@@ -66,8 +66,12 @@ object DeepLinkWebPlanner {
      * parses+migrates the legacy `#action=…&active_id=discuss.channel_<id>` hash to the correct path
      * route at boot. [serverUrl] is the account's own validated server and [deepLink] has already
      * passed `DeepLinkValidator` (begins with `/web`), so the concatenation is safe.
+     *
+     * A validated same-host absolute `https` link is loaded as-is (iOS `resolveDeepLinkURL` parity,
+     * 2026-09-29 external `?url=` links); it used to be glued onto [serverUrl] as `https://hosthttps://…`.
      */
     fun fullLoadUrl(serverUrl: String, deepLink: String): String {
+        if (!deepLink.startsWith("/")) return deepLink
         return serverUrl.trimEnd('/') + deepLink
     }
 
@@ -95,6 +99,10 @@ object DeepLinkWebPlanner {
         // account's own serverUrl so only same-host (or safe relative /web) links are accepted.
         val serverHost = hostOf(serverUrl) ?: return null
         if (!DeepLinkValidator.isValid(url = deepLink, serverHost = serverHost)) {
+            return null
+        }
+        // iOS only accepts absolute links with the https scheme; never load http/ftp/… here.
+        if (!deepLink.startsWith("/") && !deepLink.trim().lowercase().startsWith("https://")) {
             return null
         }
         return NavPlan.FullLoad(fullLoadUrl(serverUrl, deepLink))

@@ -55,6 +55,33 @@ W1_10_MAIN_ACTIVITY = (
     ('isLoggedIn = { accountRepository.canRouteDeepLink(it, activeAccountId) },',
      'isLoggedIn = { accountRepository.isLoggedIn(it) },'),
 )
+# External links (owner-approved 2026-09-29, RELEASE-MASTER-PLAN「擁有者決定（2026-09-29）」: Android supports
+# `<brand scheme>://open?url=<encoded>` like iOS `odooApp.handleIncomingURL`, shared by both brands). The only
+# approved MainActivity seam: a VIEW intent without a notification payload is handed to ExternalLinkIntake.
+# Each pair is (current text, baseline text) and must occur exactly once; the push path and every other
+# byte of MainActivity keep the baseline gate below.
+EXTERNAL_LINK_MAIN_ACTIVITY = (
+    ('import io.woowtech.odoo.data.push.DeepLinkValidator\n'
+     'import io.woowtech.odoo.data.push.ExternalLinkIntake\n',
+     'import io.woowtech.odoo.data.push.DeepLinkValidator\n'),
+    ('    @Inject lateinit var settingsRepository: SettingsRepository\n'
+     '    @Inject lateinit var externalLinkIntake: ExternalLinkIntake\n',
+     '    @Inject lateinit var settingsRepository: SettingsRepository\n'),
+    ('val actionUrl = intent?.getStringExtra(NotificationHelper.EXTRA_ACTION_URL) ?: return handleExternalLink(intent)\n',
+     'val actionUrl = intent?.getStringExtra(NotificationHelper.EXTRA_ACTION_URL) ?: return\n'),
+    ('    /**\n'
+     '     * Owner-approved 2026-09-29 (iOS `handleIncomingURL` parity): a VIEW intent\n'
+     '     * `<brand scheme>://open?url=<encoded>` without a notification payload. [ExternalLinkIntake]\n'
+     '     * validates it against the active account and queues it for the existing load-gated WebView\n'
+     '     * apply flow. Cold start (onCreate) and warm start (onNewIntent, singleTask) both reach here\n'
+     '     * through [handleDeepLinkIntent].\n'
+     '     */\n'
+     '    private fun handleExternalLink(intent: Intent?) {\n'
+     '        if (intent?.action != Intent.ACTION_VIEW) return\n'
+     '        activityScope.launch(Dispatchers.IO) { externalLinkIntake.accept(intent) }\n'
+     '    }\n'
+     '\n', ''),
+)
 W1_10_ACCOUNT_WOOW = (
     ('    /**\n'
      '     * Deep-link routing predicate. The ACTIVE account is usable through its live session even when\n'
@@ -163,6 +190,23 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertNotIn('android:scheme="woowodoo"', manifest)
         self.assertIn('variant.manifestPlaceholders.put("brandScheme", "apporoodoo-dev")', GRADLE)
         self.assertIn('${applicationId}.fileprovider', manifest)
+        # Owner-approved 2026-09-29 exception (see EXTERNAL_LINK_MAIN_ACTIVITY): the ONLY external
+        # router is ExternalLinkIntake — brand scheme from AppBrand, host `open`, shared validator, and
+        # bound to the active account. No other class may read VIEW intent data.
+        intake = (K / 'data/push/ExternalLinkIntake.kt').read_text()
+        self.assertIn('linkUrl(intent.dataString, AppBrand.current.scheme)', intake)
+        self.assertIn('private const val HOST = "open"', intake)
+        self.assertIn('DeepLinkValidator.isValid(url = trimmed, serverHost = serverHost)', intake)
+        self.assertIn('deepLinkManager.setPending(url = url, accountId = active.id)', intake)
+        self.assertIn('if (intent.hasExtra(NotificationHelper.EXTRA_ACTION_URL)) return false', intake)
+        for literal in ('woowodoo', 'apporoodoo'):
+            self.assertNotIn(literal, intake)
+        readers = sorted(str(p.relative_to(K)) for p in K.rglob('*.kt') if '.dataString' in p.read_text())
+        self.assertEqual(['data/push/ExternalLinkIntake.kt'], readers)
+        activity = (K / 'ui/MainActivity.kt').read_text()
+        self.assertIsNone(re.search(r'intent\??\.(data\b|dataString)', activity))
+        self.assertEqual(2, activity.count('        handleDeepLinkIntent(intent)\n'))  # onCreate + onNewIntent
+        self.assertEqual(1, activity.count('externalLinkIntake.accept(intent)'))
 
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)
@@ -215,7 +259,8 @@ class BrandIdentityContracts(unittest.TestCase):
                 path = f'app/src/main/java/io/woowtech/odoo/{name}'
                 current = (ROOT / path).read_bytes()
                 if name == 'ui/MainActivity.kt':
-                    current = reverse_apply(self, current.decode(), W1_10_MAIN_ACTIVITY).encode()
+                    current = reverse_apply(self, current.decode(), W1_10_MAIN_ACTIVITY)
+                    current = reverse_apply(self, current, EXTERNAL_LINK_MAIN_ACTIVITY).encode()
                 self.assertEqual(baseline(path), current)
         account = (K / 'data/repository/AccountRepository.kt').read_text()
         apporo_account = account.split('    // Apporo selection/session commit boundary.', 1)[1].split('    fun getSessionId(', 1)[0]

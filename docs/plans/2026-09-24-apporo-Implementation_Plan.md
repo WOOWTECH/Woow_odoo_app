@@ -14,7 +14,8 @@
 現 Theme.kt 沒有衍生演算法，2026-09-24 主代理核准：只對 Apporo 以 RGB deterministic 黑/白混色推導色階；WOOW 所有角色保持原值。primary 白字、container/secondary 有文字配對 WCAG >=4.5。比例/hex/前景記錄於 provider 與契約測試。
 
 ## 不做
-不改 FCM register/unregister/capabilities、AccountRepository、外部 intent.data 導頁、登入正規化、plugin/central/aiot。APP_BRAND 只作本機品牌識別，Apporo 推播品牌協定尚未實作，不能拿此候選登入真環境宣稱可用。
+不改 FCM register/unregister/capabilities、AccountRepository、外部 intent.data 導頁、登入正規化、plugin/central/aiot。
+> 2026-09-29 註：其中「外部 intent.data 導頁」已由擁有者 2026-09-29 核准改為支援（`<scheme>://open?url=…`，對齊 iOS、兩品牌共用；見 RELEASE-MASTER-PLAN「擁有者決定（2026-09-29）」）。實作為 `data/push/ExternalLinkIntake.kt`＋MainActivity 核准 seam，品牌契約以 `EXTERNAL_LINK_MAIN_ACTIVITY` 列舉差異、不刪既有斷言；本段其餘「不做」項目不變。APP_BRAND 只作本機品牌識別，Apporo 推播品牌協定尚未實作，不能拿此候選登入真環境宣稱可用。
 主代理因磁碟僅約 5.4GiB 暫緩 Gradle 重型建置，並非擁有者明文禁止所有 build；本輪仍不跑 Gradle。禁止裝置/adb/網路、不下載、不部署、不 push、不操作網站商店、不產生金鑰。Firebase client 配置只選既有路徑，無 Apporo 真配置時必須阻擋出包。
 
 ## 2026-09-24 P1 修正輪

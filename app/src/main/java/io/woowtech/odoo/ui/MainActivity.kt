@@ -18,6 +18,7 @@ import io.woowtech.odoo.data.push.DeepLinkManager
 import io.woowtech.odoo.data.push.DeepLinkRoute
 import io.woowtech.odoo.data.push.DeepLinkRouter
 import io.woowtech.odoo.data.push.DeepLinkValidator
+import io.woowtech.odoo.data.push.ExternalLinkIntake
 import io.woowtech.odoo.data.push.NotificationHelper
 import io.woowtech.odoo.data.push.RoutableAccount
 import io.woowtech.odoo.data.repository.AccountRepository
@@ -56,6 +57,7 @@ class MainActivity : FragmentActivity() {
     @Inject lateinit var deepLinkManager: DeepLinkManager
     @Inject lateinit var accountRepository: AccountRepository
     @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var externalLinkIntake: ExternalLinkIntake
 
     private val authViewModel: AuthViewModel by viewModels()
 
@@ -133,7 +135,7 @@ class MainActivity : FragmentActivity() {
      * before the coroutine completes.
      */
     private fun handleDeepLinkIntent(intent: Intent?) {
-        val actionUrl = intent?.getStringExtra(NotificationHelper.EXTRA_ACTION_URL) ?: return
+        val actionUrl = intent?.getStringExtra(NotificationHelper.EXTRA_ACTION_URL) ?: return handleExternalLink(intent)
         val tenantId = intent.getStringExtra(NotificationHelper.EXTRA_TENANT_ID)
 
         activityScope.launch(Dispatchers.IO) {
@@ -163,6 +165,18 @@ class MainActivity : FragmentActivity() {
                     Timber.w("Dropping notification deep link: %s", route.reason)
             }
         }
+    }
+
+    /**
+     * Owner-approved 2026-09-29 (iOS `handleIncomingURL` parity): a VIEW intent
+     * `<brand scheme>://open?url=<encoded>` without a notification payload. [ExternalLinkIntake]
+     * validates it against the active account and queues it for the existing load-gated WebView
+     * apply flow. Cold start (onCreate) and warm start (onNewIntent, singleTask) both reach here
+     * through [handleDeepLinkIntent].
+     */
+    private fun handleExternalLink(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        activityScope.launch(Dispatchers.IO) { externalLinkIntake.accept(intent) }
     }
 
     /**

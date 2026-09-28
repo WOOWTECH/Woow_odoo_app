@@ -166,6 +166,28 @@ class DeepLinkWebPlannerTest {
         )
     }
 
+    /**
+     * 2026-09-29 外部連結導頁（擁有者核准，對齊 iOS `OdooWebView.resolveDeepLinkURL`）：通過驗證的同源
+     * 絕對網址要原樣載入。舊行為把它接在 serverUrl 後面，變成 `https://hosthttps://host/...` 的壞網址。
+     */
+    @Test
+    fun `Given same-host absolute link when plan then FullLoad loads that exact URL`() {
+        val plan = DeepLinkWebPlanner.plan(
+            currentUrl = "https://b-odoo.woowtech.io/odoo",
+            serverUrl = serverB,
+            deepLink = "https://b-odoo.woowtech.io/odoo/contacts",
+        )
+        assertEquals(DeepLinkWebPlanner.NavPlan.FullLoad("https://b-odoo.woowtech.io/odoo/contacts"), plan)
+    }
+
+    /** iOS `DeepLinkValidator` only accepts absolute links with the `https` scheme; do not be looser. */
+    @Test
+    fun `Given same-host absolute link without https when plan then null (rejected, no load)`() {
+        for (link in listOf("http://b-odoo.woowtech.io/odoo/contacts", "ftp://b-odoo.woowtech.io/web")) {
+            assertNull(DeepLinkWebPlanner.plan(currentUrl = null, serverUrl = serverB, deepLink = link), link)
+        }
+    }
+
     @Test
     fun `Given path traversal link when plan then null (rejected, no load)`() {
         assertNull(

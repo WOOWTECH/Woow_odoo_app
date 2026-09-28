@@ -1,5 +1,11 @@
 # AI Instructions — Woow Odoo Android App
 
+## 2026-09-29 外部連結導頁（擁有者核准，本機 commit）
+
+- `<brand scheme>://open?url=<encoded>`（woowodoo／apporoodoo／apporoodoo-dev）對齊 iOS `handleIncomingURL`：`data/push/ExternalLinkIntake` 取 `url`，以目前帳號伺服器跑共用 `DeepLinkValidator`＋iOS 同級加嚴（絕對網址須 https、控制字元與 `%2e%2e` 拒絕），綁目前帳號放進 `DeepLinkManager`，由既有載入後導頁流程套用（App Lock 解鎖後才載入；TTL 5 分）。未登入（無 active 帳號）直接忽略——比 iOS 嚴（iOS 會暫存相對路徑，5 分內登入後仍導頁）。
+- MainActivity 只多一個核准 seam：無推播 payload 的 VIEW intent → `handleExternalLink`；冷啟動 onCreate、暖啟動 onNewIntent（singleTask）同路徑。品牌契約 `EXTERNAL_LINK_MAIN_ACTIVITY` 列舉差異，其餘位元組凍結不變。
+- `DeepLinkWebPlanner`：同源 https 絕對網址原樣載入（原本被接在 serverUrl 後面變壞網址）；非 https 絕對網址拒絕。
+
 ## 2026-09-26 W1 程式修正（本機 commit，未 push）
 
 - W1-3：engineering `b1b052f`（繁中「渥屋平台」）已合併；名稱只放 `app/src/woowtech/res/values-zh-rTW/strings.xml`，`main/` 與 apporo 三語名稱不變。
