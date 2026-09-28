@@ -142,6 +142,10 @@
     <string name="wrong_pin_attempts_remaining">Wrong PIN. %d attempts remaining.</string>
     <string name="attempts_remaining">%d attempts remaining</string>
     <string name="try_again_later">Too many attempts. Try again later.</string>
+    <plurals name="pin_lockout_countdown">
+        <item quantity="one">Too many attempts. Try again in %d second.</item>
+        <item quantity="other">Too many attempts. Try again in %d seconds.</item>
+    </plurals>
 
     <!-- Biometric -->
     <string name="biometric_title">Biometric Login</string>

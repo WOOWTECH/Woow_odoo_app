@@ -103,6 +103,10 @@ LIVE_0927_R2_STRINGS = {'app_lock_disable_pin_subtitle', 'language_system', 'ent
 # LIVE-0927 Android r3 (owner-requested 2026-09-27): changing an existing PIN first asks for the
 # current one. Same additive contract.
 LIVE_0927_R3_STRINGS = {'change_pin_verify_subtitle'}
+# PIN lockout (2026-09-28, verify-20260928 Android defect): the PIN screen counts the lockout down
+# every second (iOS `lockout_timer_%lld` parity) and brings the keypad back when it ends. Additive
+# three-locale <plurals>; zh has only the `other` quantity.
+PIN_LOCKOUT_STRINGS = {'pin_lockout_countdown'}
 # LIVE-0927 Android r3 approved seam: AccountRepository gets the shared SessionReauthenticator so a
 # successful manual sign-in re-closes that account's auto re-auth circuit breaker.
 LIVE_0927_R3_APP_MODULE = (
@@ -329,7 +333,7 @@ class BrandIdentityContracts(unittest.TestCase):
                                'push_registration_unregistered', 'push_registration_disclaimer',
                                'login_server_url_required', 'login_database_required',
                                'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS \
-                              | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS
+                              | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS | PIN_LOCKOUT_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):
@@ -343,13 +347,23 @@ class BrandIdentityContracts(unittest.TestCase):
                                              (new[key].tag, dict(new[key].attrib), new[key].text), key)
                             continue
                         self.assertEqual(semantic(node), semantic(new[key]), key)
-                    english = strings('main', 'values')
+                    english = {node.attrib['name']: node
+                               for node in ET.parse(ROOT / 'app/src/main/res/values/strings.xml').getroot()}
+                    def text(node):
+                        # A <plurals> is judged by its items' text; a <string> by its own text.
+                        if node.tag == 'plurals':
+                            return '|'.join(item.text or '' for item in node)
+                        return node.text
                     for key in allowed:
                         self.assertEqual({'name': key}, new[key].attrib)
-                        self.assertTrue(new[key].text)
+                        self.assertTrue(text(new[key]))
+                        if new[key].tag == 'plurals':
+                            quantities = [item.attrib['quantity'] for item in new[key]]
+                            self.assertEqual(['one', 'other'] if '/values/' in name else ['other'], quantities, key)
+                            self.assertTrue(all(item.text and '%d' in item.text for item in new[key]), key)
                         if '/values/' not in name:
-                            self.assertNotEqual(english[key], new[key].text)
-                            self.assertRegex(new[key].text, r'[\u4e00-\u9fff]')
+                            self.assertNotEqual(text(english[key]), text(new[key]))
+                            self.assertRegex(text(new[key]), r'[\u4e00-\u9fff]')
                 else:
                     self.assertEqual(hashlib.sha256(baseline(name)).digest(),
                                      hashlib.sha256((ROOT / name).read_bytes()).digest())

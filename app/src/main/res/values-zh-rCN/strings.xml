@@ -142,6 +142,9 @@
     <string name="wrong_pin_attempts_remaining">PIN 码错误，剩余 %d 次尝试机会。</string>
     <string name="attempts_remaining">剩余 %d 次尝试机会</string>
     <string name="try_again_later">尝试次数过多，请稍后再试</string>
+    <plurals name="pin_lockout_countdown">
+        <item quantity="other">尝试次数过多，请于 %d 秒后再试</item>
+    </plurals>
 
 
     <!-- Biometric -->

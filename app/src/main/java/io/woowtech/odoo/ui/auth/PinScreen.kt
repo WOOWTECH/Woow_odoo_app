@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import io.woowtech.odoo.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -66,6 +68,14 @@ import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
 
 /** Horizontal amplitude (dp) of the wrong-PIN shake displacement. */
 private const val SHAKE_AMPLITUDE_DP = 10
+
+/** Whole seconds shown for [remainingMs] of lockout, rounded up so "1" stays until the lockout ends. */
+internal fun lockoutSecondsLeft(remainingMs: Long): Int =
+    if (remainingMs <= 0) 0 else ((remainingMs + 999) / 1000).toInt()
+
+/** Delay until the shown second changes (0 < result <= 1000 while locked out). */
+internal fun msUntilLockoutSecondChanges(remainingMs: Long): Long =
+    remainingMs - (lockoutSecondsLeft(remainingMs) - 1) * 1000L
 
 @Composable
 fun PinScreen(
@@ -90,14 +100,14 @@ fun PinScreen(
     val reduceMotion = settings.reduceMotion
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    // L7: Start false and let the LaunchedEffect determine the real value on the first tick.
-    // Previously `viewModel.isLockedOut()` was called at composition time, which could race
-    // with the lockout countdown coroutine resuming after a bg→fg transition — the persisted
-    // lockout could expire in the gap between the `isLockedOut()` call and the first
-    // `getLockoutRemainingMs()` check inside the effect, leaving the screen incorrectly
-    // locked for up to one 500ms tick. Initialising false and letting the effect correct
-    // it immediately removes this race.
-    var isLockedOut by remember { mutableStateOf(false) }
+    // Seconds left on the PIN lockout; > 0 hides the keypad and shows the countdown.
+    // L7: Start at 0 and let the LaunchedEffect determine the real value on the first tick, so a
+    // lockout that expires between composition and the first check can't keep the screen locked.
+    var lockoutSeconds by remember { mutableIntStateOf(0) }
+    val isLockedOut = lockoutSeconds > 0
+    // Bumped on every LockedOut result so a lockout started on this screen always (re)starts the
+    // countdown, even when the settings emission carrying the new expiry lands a frame later.
+    var lockoutEpoch by remember { mutableIntStateOf(0) }
     var isShaking by remember { mutableStateOf(false) }
     // ANR fix: verifyPin runs PBKDF2 (600K iterations) off the main thread via
     // Dispatchers.Default. isVerifying gates rapid taps so only one verify is in
@@ -107,24 +117,24 @@ fun PinScreen(
     @Suppress("DEPRECATION")
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Lockout countdown — keyed on lifecycleOwner so the coroutine is automatically
-    // cancelled when the Composable leaves composition (screen navigated away) or when the
-    // lifecycle owner changes. Evaluates the initial lockout state on the first tick,
-    // then polls every 500 ms while locked out. 500 ms gives sub-second visual accuracy
-    // without burning CPU. (L7 + C3 fix)
-    LaunchedEffect(lifecycleOwner) {
-        // Re-evaluate every time the lifecycle restarts — covers bg/fg transitions and
-        // the initial composition. Reading getLockoutRemainingMs() on the first tick ensures
-        // isLockedOut is set from persisted state before the first frame is rendered.
-        val initialRemaining = viewModel.getLockoutRemainingMs()
-        isLockedOut = initialRemaining > 0
-        while (isLockedOut && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
+    val isStarted = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+    val lockoutUntil = settings.pinLockoutUntil
+
+    // Lockout countdown, driven by the observable lockout expiry: it (re)starts whenever the
+    // persisted expiry changes, whenever this screen gets a LockedOut result ([lockoutEpoch]) and on
+    // every return to the foreground, and ticks once per shown second until the lockout ends — then
+    // the keypad comes back by itself. Previously this effect was keyed on the lifecycle owner only,
+    // so a lockout started while the screen was open (the 5th wrong PIN) never cleared: the unlock
+    // gate, which has no back button, stayed without a keypad (verify-20260928 attempt2-31..34).
+    // Paused while stopped; cancelled when the screen leaves composition.
+    LaunchedEffect(lockoutUntil, lockoutEpoch, isStarted) {
+        if (!isStarted) return@LaunchedEffect
+        while (true) {
             val remainingMs = viewModel.getLockoutRemainingMs()
-            if (remainingMs <= 0) {
-                isLockedOut = false
-                break
-            }
-            delay(500)
+            lockoutSeconds = lockoutSecondsLeft(remainingMs)
+            if (lockoutSeconds == 0) break
+            delay(msUntilLockoutSecondChanges(remainingMs))
         }
     }
 
@@ -238,7 +248,10 @@ fun PinScreen(
                     modifier = Modifier.fillMaxWidth(0.9f)
                 ) {
                     Text(
-                        text = stringResource(R.string.try_again_later),
+                        // iOS `lockout_timer_%lld` parity: the remaining seconds, updated every second.
+                        text = context.resources.getQuantityString(
+                            R.plurals.pin_lockout_countdown, lockoutSeconds, lockoutSeconds
+                        ),
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
@@ -279,7 +292,8 @@ fun PinScreen(
                                         isShaking = true
                                     }
                                     is PinEntryResult.LockedOut -> {
-                                        isLockedOut = true
+                                        // The effect above reads the new expiry and counts it down.
+                                        lockoutEpoch++
                                     }
                                 }
                             }
