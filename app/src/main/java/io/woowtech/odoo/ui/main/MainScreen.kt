@@ -464,13 +464,14 @@ fun OdooWebView(
         canNavigateBack = view != null && WebViewBackPolicy.canNavigateBack(
             canGoBack = view.canGoBack(),
             previousUrl = view.previousHistoryUrl(),
+            previousIndex = view.previousHistoryIndex(),
             serverUrl = currentServerUrl,
         )
     }
 
     BackHandler(enabled = canNavigateBack) {
         val view = attachedWebView
-        if (view != null && WebViewBackPolicy.canNavigateBack(view.canGoBack(), view.previousHistoryUrl(), currentServerUrl)) {
+        if (view != null && WebViewBackPolicy.canNavigateBack(view.canGoBack(), view.previousHistoryUrl(), view.previousHistoryIndex(), currentServerUrl)) {
             view.goBack()
         }
         refreshBackState(view)

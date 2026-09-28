@@ -120,6 +120,39 @@ class OdooWebViewSystemBackTest {
         assertFalse("no Odoo history: system back belongs to NavHost/Activity", backIsIntercepted())
     }
 
+    /**
+     * D-R2-2（2026-09-29 第二輪 A06-13..A06-15）：真實的第一頁在歷史裡是兩格——`/web?db=` 被伺服器轉址成
+     * `/odoo?db=…`（第一格），Odoo 路由再 push Discuss（第二格）。舊版把第一格當成可返回的上一頁，
+     * Inbox 連續出現兩次、要多按一次返回才離開 App。
+     */
+    private fun loadFirstOdooPageAsTheRealWebViewRecordsIt(server: String = SERVER_A) {
+        composeRule.runOnUiThread { webView.clearHistory() }
+        odooNavigatesTo("$server/odoo?db=demo_db")
+        pageFinished("$server/odoo?db=demo_db")
+        odooNavigatesTo("$server/odoo/discuss")
+    }
+
+    @Test
+    fun `Given the start URL entry sits behind Discuss when system back is pressed on Discuss then OdooWebView leaves it to the app (exit)`() {
+        render()
+        loadFirstOdooPageAsTheRealWebViewRecordsIt()
+
+        assertFalse("the start URL entry only replays Inbox: back must exit", backIsIntercepted())
+    }
+
+    @Test
+    fun `Given Odoo navigated from Discuss to Contacts when system back returns to Discuss then the next back exits`() {
+        render()
+        loadFirstOdooPageAsTheRealWebViewRecordsIt()
+        odooNavigatesTo("$SERVER_A/odoo/contacts")
+
+        assertTrue("Contacts -> Discuss is a real back step", backIsIntercepted())
+        pressSystemBack()
+        assertEquals(1, shadowOf(webView).goBackInvocations)
+
+        assertFalse("back on Discuss (start URL behind it) must exit", backIsIntercepted())
+    }
+
     @Test
     fun `Given the previous history entry is the Odoo login page when system back is pressed then it is not intercepted`() {
         render()
