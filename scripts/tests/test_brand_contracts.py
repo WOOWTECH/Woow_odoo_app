@@ -300,6 +300,19 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('if (target != lastLoadedTarget) {', screen)
         self.assertNotIn('lastLoadedServerUrl', screen)
 
+    def test_account_switch_load_is_generation_gated_and_waits_for_cookies(self):
+        # pi 0929 recheck P1: a late page event of the previous account (same host included) must not
+        # open the new account's load gate, and no page loads before the cookie removal completed.
+        screen = (K / 'ui/main/MainScreen.kt').read_text()
+        switch = (K / 'ui/main/WebViewAccountSwitch.kt').read_text()
+        self.assertIn('val targetPageLoaded = loadGate.acceptFinished(', screen)
+        self.assertIn('targetPageLoaded &&\n                            clearHistoryOnNextPage.compareAndSet(true, false)', screen)
+        self.assertIn('loadGate.onPageStarted()', screen)
+        self.assertIn('if (loadGate.isCurrent(switchGeneration)) {', screen)
+        self.assertNotIn('removeAllCookies(null)', screen)
+        self.assertIn('store.removeAllCookies {', switch)
+        self.assertIn('if (!loadIssued || !started || !onTargetHost) return false', switch)
+
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)
         self.assertNotIn('import android.', BRAND)

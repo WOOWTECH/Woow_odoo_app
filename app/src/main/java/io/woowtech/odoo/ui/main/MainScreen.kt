@@ -376,6 +376,7 @@ fun OdooWebView(
     onSelfHeal: suspend (host: String) -> Boolean,
     getFreshSessionId: (serverUrl: String) -> String?,
     onReloginRequired: () -> Unit,
+    cookieStore: WebViewCookieStore = AndroidWebViewCookieStore,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -407,17 +408,25 @@ fun OdooWebView(
     // Prepares the process-global CookieManager for [targetAccountId]'s page: keeps the account's own
     // still-valid Odoo session (it survives process death), otherwise isolates to the native session
     // or to nothing. Replaces the unconditional clear that threw the session away on every cold start.
-    fun prepareCookies(targetAccountId: String, targetServerUrl: String) {
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-        val hasSessionCookie = WebViewCookiePlanner.hasSessionCookie(cookieManager.getCookie(targetServerUrl))
+    // [then] (the account's page load) runs only once the cookies are in place: Chromium removes
+    // cookies asynchronously, so loading earlier could still present the previous account's cookies
+    // (pi 0929 recheck).
+    fun prepareCookies(targetAccountId: String, targetServerUrl: String, then: () -> Unit) {
+        CookieManager.getInstance().setAcceptCookie(true)
+        val hasSessionCookie = WebViewCookiePlanner.hasSessionCookie(cookieStore.getCookie(targetServerUrl))
         val plan = currentPlanCookies(targetAccountId, targetServerUrl, hasSessionCookie)
-        when (plan) {
-            WebViewCookiePlan.KeepExisting -> Timber.d("WebView keeps its own session for account %s", targetAccountId)
-            is WebViewCookiePlan.Replace -> isolateCookiesForAccount(targetServerUrl, plan.sessionId)
-            WebViewCookiePlan.Clear -> isolateCookiesForAccount(targetServerUrl, null)
+        val applied = {
+            currentOnCookiesApplied(targetAccountId, plan)
+            then()
         }
-        currentOnCookiesApplied(targetAccountId, plan)
+        when (plan) {
+            WebViewCookiePlan.KeepExisting -> {
+                Timber.d("WebView keeps its own session for account %s", targetAccountId)
+                applied()
+            }
+            is WebViewCookiePlan.Replace -> isolateCookiesForAccount(cookieStore, targetServerUrl, plan.sessionId, applied)
+            WebViewCookiePlan.Clear -> isolateCookiesForAccount(cookieStore, targetServerUrl, null, applied)
+        }
     }
 
     // Persist the WebView cookie store when the app leaves the foreground, so a session Odoo rotated
@@ -445,6 +454,9 @@ fun OdooWebView(
     // can detect ANY account switch and drive a full reload — including two accounts on the same
     // server URL (pi review P1, 2026-09-29), which a serverUrl-only check missed. Seeded in the factory.
     var lastLoadedTarget by remember { mutableStateOf(WebViewLoadTarget(accountId, serverUrl, database)) }
+    // Binds page events to the account switch that caused them, so a late event of the previous
+    // account's page (same host included) can never count as the new account's page (pi 0929 recheck).
+    val loadGate = remember { WebViewSwitchLoadGate() }
     // The deep link already applied to the current page, so it is applied exactly once whether
     // it arrives via onPageFinished (cold / switch) or via the warm full-reload path.
     var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
@@ -626,18 +638,13 @@ fun OdooWebView(
                 // B0.6: Disable third-party cookies for security
                 cookieManager.setAcceptThirdPartyCookies(this, false)
 
-                // Per-account cookie isolation: the CookieManager is process-global, so before the
-                // first load we keep ONLY this account's session — its own surviving WebView cookie,
-                // or a fresh native one — and clear everything else. Account A's cookies can never
-                // load under account B (WebViewCookiePlanner).
-                prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl)
-
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
                         // A fresh document load begins — the warm deep-link apply must wait until
                         // it finishes before it may trigger another full reload.
                         currentPageLoaded = false
+                        loadGate.onPageStarted()
                         onLoadingChanged(true)
                     }
 
@@ -704,10 +711,15 @@ fun OdooWebView(
                         // page from the TARGET account's own host has finished loading. This is
                         // the point that guarantees a link is never applied while the WebView is
                         // still showing the previous account's host.
-                        currentPageLoaded = DeepLinkWebPlanner.hostMatches(
-                            loadedUrl = url,
-                            targetServerUrl = currentServerUrl,
+                        // After an account switch only the switch load's own page counts; a late
+                        // event of the previous account's page (same host included) is ignored.
+                        val targetPageLoaded = loadGate.acceptFinished(
+                            onTargetHost = DeepLinkWebPlanner.hostMatches(
+                                loadedUrl = url,
+                                targetServerUrl = currentServerUrl,
+                            ),
                         )
+                        currentPageLoaded = targetPageLoaded
 
                         val pending = currentDeepLinkUrl
                         if (view != null &&
@@ -724,7 +736,7 @@ fun OdooWebView(
                         // D1: after an account switch, drop the previous account's pages from the
                         // history once the new account's own page has landed, then re-evaluate back.
                         if (view != null &&
-                            DeepLinkWebPlanner.hostMatches(loadedUrl = url, targetServerUrl = currentServerUrl) &&
+                            targetPageLoaded &&
                             clearHistoryOnNextPage.compareAndSet(true, false)
                         ) {
                             view.clearHistory()
@@ -771,15 +783,14 @@ fun OdooWebView(
                                         // Re-inject the refreshed session cookie (host-scoped, same
                                         // proven path as the initial load) and reload the Odoo page.
                                         val freshSessionId = currentGetFreshSessionId(targetServerUrl)
-                                        isolateCookiesForAccount(
-                                            serverUrl = targetServerUrl,
-                                            sessionId = freshSessionId,
-                                        )
-                                        currentOnCookiesApplied(
-                                            targetAccountId,
-                                            freshSessionId?.let { WebViewCookiePlan.Replace(it) } ?: WebViewCookiePlan.Clear,
-                                        )
-                                        view?.loadUrl("$targetServerUrl/web?db=$targetDatabase")
+                                        // The reload waits until the cookie store holds only the fresh session.
+                                        isolateCookiesForAccount(cookieStore, targetServerUrl, freshSessionId) {
+                                            currentOnCookiesApplied(
+                                                targetAccountId,
+                                                freshSessionId?.let { WebViewCookiePlan.Replace(it) } ?: WebViewCookiePlan.Clear,
+                                            )
+                                            view?.loadUrl("$targetServerUrl/web?db=$targetDatabase")
+                                        }
                                         // Guard stays set until onPageFinished lands a real page —
                                         // if the reload itself hits /web/login again we must not loop.
                                     } else {
@@ -1019,7 +1030,13 @@ fun OdooWebView(
                 // keeps the "apply only after load" invariant identical across cold start and
                 // account switch.
                 lastLoadedTarget = WebViewLoadTarget(accountId, serverUrl, database)
-                loadUrl("$serverUrl/web?db=$database")
+                // Per-account cookie isolation: the CookieManager is process-global, so before the
+                // first load we keep ONLY this account's session — its own surviving WebView cookie,
+                // or a fresh native one — and clear everything else. Account A's cookies can never
+                // load under account B (WebViewCookiePlanner). The load waits for the cookies.
+                prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl) {
+                    loadUrl("$serverUrl/web?db=$database")
+                }
             }
         },
         modifier = Modifier.fillMaxSize(),
@@ -1034,9 +1051,21 @@ fun OdooWebView(
                 currentPageLoaded = false
                 clearHistoryOnNextPage.set(true)
                 canNavigateBack = false
-                prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl)
                 lastLoadedTarget = target
-                webView.loadUrl("$serverUrl/web?db=$database")
+                // Stop the previous account's page so it produces no further load events. Events it
+                // already queued are delivered before the load posted below, and the gate rejects
+                // any finished page that is not this switch's own load (pi 0929 recheck).
+                webView.stopLoading()
+                val switchGeneration = loadGate.beginSwitch()
+                prepareCookies(targetAccountId = target.accountId, targetServerUrl = target.serverUrl) {
+                    webView.post {
+                        // A newer switch superseded this one while the cookies were being prepared.
+                        if (loadGate.isCurrent(switchGeneration)) {
+                            loadGate.onLoadIssued(switchGeneration)
+                            webView.loadUrl("${target.serverUrl}/web?db=${target.database}")
+                        }
+                    }
+                }
             } else {
                 // Warm case: already loaded on the target host (no reload happens) and a new deep
                 // link is pending for it. Every warm same-account pending link — with OR without a
@@ -1074,24 +1103,3 @@ private fun applyDeepLink(view: WebView, serverUrl: String, deepLinkUrl: String)
         null -> Timber.d("Ignored invalid pending deep link at apply layer")
     }
 }
-
-/**
- * Enforces per-account cookie isolation on the process-global [CookieManager]: clears every cookie
- * and then sets only [serverUrl]'s session cookie. Called before each account's first load and on
- * every account switch so one account's cookies can never be presented to another account's server.
- */
-private fun isolateCookiesForAccount(serverUrl: String, sessionId: String?) {
-    val cookieManager = CookieManager.getInstance()
-    cookieManager.setAcceptCookie(true)
-    // Clear ALL cookies — this is the isolation crux for the same-and-different-host cases.
-    cookieManager.removeAllCookies(null)
-    if (sessionId != null) {
-        // Max-Age (Odoo's default 7-day session lifetime) makes the cookie persistent, so a cold start
-        // still finds it; the server stays the judge of whether the session is valid.
-        cookieManager.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure; Max-Age=$WEBVIEW_SESSION_COOKIE_MAX_AGE_SECONDS")
-    }
-    cookieManager.flush()
-}
-
-/** Odoo's default session lifetime (`SESSION_LIFETIME`, 7 days). */
-private const val WEBVIEW_SESSION_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60

@@ -177,6 +177,8 @@ class OdooWebViewSystemBackTest {
         // in the WebView history, so without clearing it back would step through them.
         odooNavigatesTo("$SERVER_B/web?db=demo_db")
         odooNavigatesTo("$SERVER_B/odoo/discuss")
+        // Chromium reports the switch load's start (on commit) before its finish (pi 0929 recheck gate).
+        composeRule.runOnUiThread { shadowOf(webView).webViewClient.onPageStarted(webView, "$SERVER_B/odoo/discuss", null) }
         pageFinished("$SERVER_B/odoo/discuss")
 
         assertFalse("previous account's pages must not be reachable via back", backIsIntercepted())

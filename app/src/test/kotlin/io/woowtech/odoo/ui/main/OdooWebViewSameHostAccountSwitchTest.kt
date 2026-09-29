@@ -9,6 +9,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,13 +47,18 @@ class OdooWebViewSameHostAccountSwitchTest {
     /** Every account the WebView prepared cookies for, in order. */
     private val cookiePlansFor = mutableListOf<String>()
 
+    /** Cookie plan per account id; unlisted accounts get [WebViewCookiePlan.Clear]. */
+    private val cookiePlans = mutableMapOf<String, WebViewCookiePlan>()
+
+    private val cookieStore = RecordingCookieStore()
+
     private fun render() {
         composeRule.setContent {
             OdooWebView(
                 accountId = account.id,
                 serverUrl = SERVER,
                 database = account.database,
-                planCookies = { id, _, _ -> cookiePlansFor += id; WebViewCookiePlan.Clear },
+                planCookies = { id, _, _ -> cookiePlansFor += id; cookiePlans[id] ?: WebViewCookiePlan.Clear },
                 onCookiesApplied = { _, _ -> },
                 deepLinkUrl = deepLink,
                 onDeepLinkConsumed = { deepLink = null },
@@ -59,6 +67,7 @@ class OdooWebViewSameHostAccountSwitchTest {
                 onSelfHeal = { false },
                 getFreshSessionId = { null },
                 onReloginRequired = {},
+                cookieStore = cookieStore,
             )
         }
         composeRule.waitForIdle()
@@ -70,7 +79,23 @@ class OdooWebViewSameHostAccountSwitchTest {
         return url
     }
 
-    /** Simulates Chromium finishing a document load of [url]. */
+    /**
+     * Simulates Chromium committing and finishing a new document load of [url] — the real sequence for
+     * a `loadUrl`: `onPageStarted` (on commit) and then `onPageFinished`.
+     */
+    private fun pageLoads(url: String) {
+        composeRule.runOnUiThread { shadowOf(webView).webViewClient.onPageStarted(webView, url, null) }
+        composeRule.waitForIdle()
+        pageFinished(url)
+    }
+
+    private fun historySize(): Int {
+        var size = 0
+        composeRule.runOnUiThread { size = webView.copyBackForwardList().size }
+        return size
+    }
+
+    /** Simulates Chromium finishing a document load of [url] (alone: a late event of an older page). */
     private fun pageFinished(url: String) {
         composeRule.runOnUiThread { shadowOf(webView).webViewClient.onPageFinished(webView, url) }
         composeRule.waitForIdle()
@@ -114,7 +139,7 @@ class OdooWebViewSameHostAccountSwitchTest {
         showAccountAHome()
 
         switchTo(ACCOUNT_B)
-        pageFinished("$SERVER/odoo/discuss")
+        pageLoads("$SERVER/odoo/discuss")
         switchTo(ACCOUNT_A)
 
         assertEquals(listOf(ACCOUNT_A.id, ACCOUNT_B.id, ACCOUNT_A.id), cookiePlansFor)
@@ -129,7 +154,7 @@ class OdooWebViewSameHostAccountSwitchTest {
         switchTo(ACCOUNT_B, pendingLink = "/web#action=calendar.action_calendar_event")
 
         assertEquals("the switch loads B's home first", "$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
-        pageFinished("$SERVER/odoo/discuss")
+        pageLoads("$SERVER/odoo/discuss")
         assertEquals("$SERVER/web#action=calendar.action_calendar_event", lastLoadedUrl())
     }
 
@@ -140,7 +165,7 @@ class OdooWebViewSameHostAccountSwitchTest {
         odooNavigatesTo("$SERVER/odoo/contacts/7")
 
         switchTo(ACCOUNT_B)
-        pageFinished("$SERVER/odoo/discuss")
+        pageLoads("$SERVER/odoo/discuss")
 
         var intercepted = true
         composeRule.runOnUiThread {
@@ -149,11 +174,160 @@ class OdooWebViewSameHostAccountSwitchTest {
         assertFalse("B's first page must not step back into A's history", intercepted)
     }
 
+    // --- pi 0929 recheck P1: a late onPageFinished of A's page must not satisfy B's load gate ---------
+
+    @Test
+    fun `Given a same-server switch to B when A's late page-finished arrives before B's page then B's link waits and A's history is kept`() {
+        showAccountAHome()
+        odooNavigatesTo("$SERVER/odoo/contacts")
+        odooNavigatesTo("$SERVER/odoo/contacts/7")
+
+        switchTo(ACCOUNT_B, pendingLink = LINK)
+        assertEquals("$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
+        val historyBeforeStaleEvent = historySize()
+
+        // A's page (same host) reports finished after the switch — no new navigation started for it.
+        pageFinished("$SERVER/odoo/contacts/7")
+
+        assertEquals("A's late event must not apply B's link", "$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
+        assertNotNull("B's link is still pending", deepLink)
+        assertEquals("A's late event must not clear the history early", historyBeforeStaleEvent, historySize())
+
+        pageLoads("$SERVER/odoo/discuss")
+
+        assertEquals("$SERVER$LINK", lastLoadedUrl())
+        assertNull(deepLink)
+    }
+
+    @Test
+    fun `Given A's late page-finished after a same-server switch when a warm recomposition happens then the page is still not considered loaded`() {
+        showAccountAHome()
+
+        switchTo(ACCOUNT_B)
+        pageFinished("$SERVER/odoo/discuss") // A's late event
+        // A deep link arrives for B while B's page has not loaded yet: the warm path must not fire.
+        composeRule.runOnUiThread { deepLink = LINK }
+        composeRule.waitForIdle()
+
+        assertEquals("$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
+        assertNotNull(deepLink)
+
+        pageLoads("$SERVER/odoo/discuss")
+        assertEquals("$SERVER$LINK", lastLoadedUrl())
+    }
+
+    @Test
+    fun `Given A to B to A on the same server when each previous account's late event arrives then only the target's own page opens the gate`() {
+        showAccountAHome()
+
+        switchTo(ACCOUNT_B)
+        pageFinished("$SERVER/odoo/discuss") // A's late event
+        pageLoads("$SERVER/odoo/discuss") // B's own page
+        switchTo(ACCOUNT_A, pendingLink = LINK)
+        pageFinished("$SERVER/odoo/discuss") // B's late event
+
+        assertEquals("$SERVER/web?db=${ACCOUNT_A.database}", lastLoadedUrl())
+        assertNotNull(deepLink)
+
+        pageLoads("$SERVER/odoo/discuss")
+        assertEquals("$SERVER$LINK", lastLoadedUrl())
+        assertEquals(listOf(ACCOUNT_A.id, ACCOUNT_B.id, ACCOUNT_A.id), cookiePlansFor)
+    }
+
+    // --- pi 0929 recheck: cookie ordering — load only after removal completed and B's cookie is set ---
+
+    @Test
+    fun `Given B has a native session when switching then B's page loads only after cookie removal completed and B's cookie was set`() {
+        showAccountAHome()
+        cookiePlans[ACCOUNT_B.id] = WebViewCookiePlan.Replace("sid-b")
+        cookieStore.deferRemoval = true
+        cookieStore.events.clear()
+
+        switchTo(ACCOUNT_B)
+
+        assertEquals(listOf("removeAll"), cookieStore.events)
+        assertEquals("no load before Chromium finished removing cookies", "$SERVER/web?db=${ACCOUNT_A.database}", lastLoadedUrl())
+
+        composeRule.runOnUiThread { cookieStore.completeRemovals() }
+        composeRule.waitForIdle()
+
+        assertEquals(
+            listOf("removeAll", "set session_id=sid-b (loaded: $SERVER/web?db=${ACCOUNT_A.database})", "flush"),
+            cookieStore.events,
+        )
+        assertEquals("$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
+    }
+
+    @Test
+    fun `Given the cookie removal is still running when A's late page-finished arrives then B's link is not applied`() {
+        showAccountAHome()
+        cookieStore.deferRemoval = true
+
+        switchTo(ACCOUNT_B, pendingLink = LINK)
+        pageFinished("$SERVER/odoo/discuss") // A's late event while B's load is not issued yet
+
+        assertEquals("$SERVER/web?db=${ACCOUNT_A.database}", lastLoadedUrl())
+        assertNotNull(deepLink)
+
+        composeRule.runOnUiThread { cookieStore.completeRemovals() }
+        composeRule.waitForIdle()
+        assertEquals("$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
+
+        pageLoads("$SERVER/odoo/discuss")
+        assertEquals("$SERVER$LINK", lastLoadedUrl())
+    }
+
+    @Test
+    fun `Given B still owns its WebView session when switching then its cookie is kept and B's link waits for B's own page`() {
+        showAccountAHome()
+        cookiePlans[ACCOUNT_B.id] = WebViewCookiePlan.KeepExisting
+        cookieStore.events.clear()
+
+        switchTo(ACCOUNT_B, pendingLink = LINK)
+        pageFinished("$SERVER/odoo/discuss") // A's late event
+
+        assertTrue("a kept session is not removed", cookieStore.events.isEmpty())
+        assertEquals("$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
+        assertNotNull(deepLink)
+
+        pageLoads("$SERVER/odoo/discuss")
+        assertEquals("$SERVER$LINK", lastLoadedUrl())
+    }
+
+    /** Records cookie operations; removal can be held until [completeRemovals] (Chromium is async). */
+    private inner class RecordingCookieStore : WebViewCookieStore {
+        val events = mutableListOf<String>()
+        var deferRemoval = false
+        private val pendingRemovals = mutableListOf<() -> Unit>()
+
+        override fun getCookie(url: String): String? = null
+
+        override fun removeAllCookies(onDone: () -> Unit) {
+            events += "removeAll"
+            if (deferRemoval) pendingRemovals += onDone else onDone()
+        }
+
+        override fun setCookie(url: String, value: String) {
+            events += "set ${value.substringBefore(';')} (loaded: ${shadowOf(webView).lastLoadedUrl})"
+        }
+
+        override fun flush() {
+            events += "flush"
+        }
+
+        fun completeRemovals() {
+            val done = pendingRemovals.toList()
+            pendingRemovals.clear()
+            done.forEach { it() }
+        }
+    }
+
     private data class TestAccount(val id: String, val database: String)
 
     private companion object {
         const val SERVER = "https://odoo.example.com"
         val ACCOUNT_A = TestAccount(id = "account-a", database = "db_a")
         val ACCOUNT_B = TestAccount(id = "account-b", database = "db_b")
+        const val LINK = "/web#action=calendar.action_calendar_event"
     }
 }
