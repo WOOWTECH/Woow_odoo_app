@@ -1,5 +1,11 @@
 # AI Instructions — Woow Odoo Android App
 
+## 2026-09-29 推播點擊連結驗證加嚴到與 iOS 一致（擁有者核准，本機 commit）
+
+- 依 `OWNER-APPROVAL-PUSH-LINK-20260929.md`：共用 `data/push/DeepLinkValidator` 對齊 iOS `DeepLinkValidator.isValid`——相對只收 `^/web([/?#]|$)`；絕對網址須 https 且與目前帳號伺服器同 host（原本任何 scheme 同 host 都放行，含 http、intent:、`//host`）；拒控制／格式字元（Cc＋Cf，iOS `controlCharacters` 同範圍）與 `..`／`%2e%2e`（大小寫、半編碼 `.%2e`／`%2e.`）。比 iOS 嚴的一點：前後空白直接拒絕、不先 trim。
+- 推播點擊（`DeepLinkRouter`＋MainActivity 舊 payload 路徑）、外部連結（`ExternalLinkIntake`，原本自帶的重複檢查已移除，行為沒有變寬）、WebView 套用層（`DeepLinkWebPlanner`）共用同一套。未登入不導頁、App Lock 解鎖後才載入，維持原行為。
+- 品牌契約：位元組凍結的 `DeepLinkValidator.kt` 以 `PUSH_LINK_VALIDATOR` 逐字列舉核准差異（現在 vs 基準），既有斷言一條未刪；其他鎖不動。
+
 ## 2026-09-29 外部連結導頁（擁有者核准，本機 commit）
 
 - `<brand scheme>://open?url=<encoded>`（woowodoo／apporoodoo／apporoodoo-dev）對齊 iOS `handleIncomingURL`：`data/push/ExternalLinkIntake` 取 `url`，以目前帳號伺服器跑共用 `DeepLinkValidator`＋iOS 同級加嚴（絕對網址須 https、控制字元與 `%2e%2e` 拒絕），綁目前帳號放進 `DeepLinkManager`，由既有載入後導頁流程套用（App Lock 解鎖後才載入；TTL 5 分）。未登入（無 active 帳號）直接忽略——比 iOS 嚴（iOS 會暫存相對路徑，5 分內登入後仍導頁）。

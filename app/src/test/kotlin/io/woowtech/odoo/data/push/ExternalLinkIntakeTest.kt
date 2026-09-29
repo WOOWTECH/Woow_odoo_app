@@ -101,6 +101,23 @@ class ExternalLinkIntakeTest {
     }
 
     @Test
+    fun `Given signed in when a VIEW link needs the shared push-tap rules then it is rejected like a push tap`() = runTest {
+        // 2026-09-29 push-link approval: the intake's own checks moved into DeepLinkValidator; these
+        // cover what the shared validator now rejects for both push taps and external links.
+        val rejected = listOf(
+            "%2F%2Fwww.apporo.ai%2Fweb", // scheme-relative, no https
+            "%2Fweb%2F%252E%252E%2Fweb", // upper-case encoded traversal (decodes to /web/%2E%2E/web)
+            "%2Fweb%2F.%252e%2Fweb", // half-encoded traversal (decodes to /web/.%2e/web)
+            "%2Fweb%23id%3D1%E2%80%AE", // right-to-left override (format character)
+            "intent%3A%2F%2Fwww.apporo.ai%2Fweb%23Intent%3Bend",
+        )
+        for (target in rejected) {
+            assertFalse(target, intake().accept(openLink(target)))
+            assertNull(target, deepLinkManager.pending.value)
+        }
+    }
+
+    @Test
     fun `Given signed in when a VIEW link has no url parameter then the app only opens`() = runTest {
         assertFalse(intake().accept(viewIntent("$scheme://open")))
         assertFalse(intake().accept(viewIntent("$scheme://open?next=%2Fweb")))

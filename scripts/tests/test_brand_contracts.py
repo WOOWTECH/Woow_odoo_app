@@ -82,6 +82,38 @@ EXTERNAL_LINK_MAIN_ACTIVITY = (
      '    }\n'
      '\n', ''),
 )
+# Push-tap link validation (owner-approved 2026-09-29, coordination/.../OWNER-APPROVAL-PUSH-LINK-20260929.md and
+# RELEASE-MASTER-PLAN「擁有者決定（2026-09-29）」): the shared DeepLinkValidator is tightened to iOS
+# `DeepLinkValidator.isValid` (absolute URLs https + same host; control/format characters and `..` / `%2e%2e`
+# in any case or half-encoded rejected). Only for the push-tap/external-link validation path; each pair is
+# (current text, baseline text) and must occur exactly once, every other byte keeps the baseline gate below.
+PUSH_LINK_VALIDATOR = (
+    (' *\n'
+     ' * Owner-approved 2026-09-29 (OWNER-APPROVAL-PUSH-LINK-20260929, iOS `DeepLinkValidator.isValid`\n'
+     ' * parity): shared by notification taps and external `?url=` links. Absolute URLs must be `https`\n'
+     ' * on the active server\'s host; control/format characters and `..` / `%2e%2e` (any case, also\n'
+     ' * half-encoded) are rejected. Never looser than iOS; whitespace is rejected rather than trimmed.\n', ''),
+    ('    /** `..` raw, percent-encoded or half-encoded (WHATWG treats all of these as a parent segment). */\n'
+     '    private val TRAVERSAL = Regex("""(\\.|%2e)(\\.|%2e)""", RegexOption.IGNORE_CASE)\n'
+     '\n', ''),
+    ('        // iOS parity: encoded traversal, control (Cc) / format (Cf) characters and padding.\n'
+     '        if (TRAVERSAL.containsMatchIn(url) || hasControlOrFormat(url) || url != url.trim()) {\n'
+     '            return false\n'
+     '        }\n'
+     '\n', ''),
+    ('            if (serverHost.isBlank() || !parsed.scheme.equals("https", ignoreCase = true)) return false\n', ''),
+    ('\n'
+     '    private fun hasControlOrFormat(url: String): Boolean {\n'
+     '        var i = 0\n'
+     '        while (i < url.length) {\n'
+     '            val cp = url.codePointAt(i)\n'
+     '            val type = Character.getType(cp)\n'
+     '            if (type == Character.CONTROL.toInt() || type == Character.FORMAT.toInt()) return true\n'
+     '            i += Character.charCount(cp)\n'
+     '        }\n'
+     '        return false\n'
+     '    }\n', ''),
+)
 W1_10_ACCOUNT_WOOW = (
     ('    /**\n'
      '     * Deep-link routing predicate. The ACTIVE account is usable through its live session even when\n'
@@ -202,6 +234,9 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('DeepLinkValidator.isValid(url = trimmed, serverHost = serverHost)', intake)
         self.assertIn('deepLinkManager.setPending(url = url, accountId = active.id)', intake)
         self.assertIn('if (intent.hasExtra(NotificationHelper.EXTRA_ACTION_URL)) return false', intake)
+        # Push-link approval 2026-09-29: the intake's own iOS-level checks moved into the shared validator.
+        for duplicate in ('isISOControl', 'contains("%2e%2e")', 'startsWith("https://")'):
+            self.assertNotIn(duplicate, intake)
         for literal in ('woowodoo', 'apporoodoo'):
             self.assertNotIn(literal, intake)
         readers = sorted(str(p.relative_to(K)) for p in K.rglob('*.kt') if '.dataString' in p.read_text())
@@ -210,6 +245,22 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIsNone(re.search(r'intent\??\.(data\b|dataString)', activity))
         self.assertEqual(2, activity.count('        handleDeepLinkIntent(intent)\n'))  # onCreate + onNewIntent
         self.assertEqual(1, activity.count('externalLinkIntake.accept(intent)'))
+
+    def test_push_tap_and_external_links_share_one_ios_strict_validator(self):
+        # Owner-approved 2026-09-29 (PUSH_LINK_VALIDATOR): push taps (router + old-payload path), external
+        # links and the WebView apply layer all go through the one shared DeepLinkValidator.
+        validator = (K / 'data/push/DeepLinkValidator.kt').read_text()
+        for rule in ('Regex("^/web([/?#].*)?$")', '!parsed.scheme.equals("https", ignoreCase = true)',
+                     'serverHost.isBlank()', 'TRAVERSAL.containsMatchIn(url)', 'hasControlOrFormat(url)',
+                     'Character.FORMAT', 'url != url.trim()'):
+            self.assertIn(rule, validator)
+        users = {'data/push/DeepLinkRouter.kt': 1, 'ui/MainActivity.kt': 1,
+                 'data/push/ExternalLinkIntake.kt': 1, 'ui/main/DeepLinkWebPlanner.kt': 1}
+        for name, count in users.items():
+            with self.subTest(file=name):
+                self.assertEqual(count, (K / name).read_text().count('DeepLinkValidator.isValid('))
+        callers = sorted(str(p.relative_to(K)) for p in K.rglob('*.kt') if 'DeepLinkValidator.isValid(' in p.read_text())
+        self.assertEqual(sorted(users), callers)
 
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)
@@ -254,6 +305,7 @@ class BrandIdentityContracts(unittest.TestCase):
 
     def test_stage_three_and_security_seams_are_byte_identical(self):
         # Phase 3 approved exception: only the five explicit push/session seams below may change.
+        # DeepLinkValidator: owner-approved 2026-09-29 push-link tightening, see PUSH_LINK_VALIDATOR.
         # All unrelated security/entry-point code retains its byte-level baseline gate.
         files = ['ui/MainActivity.kt', 'ui/login/ServerUrlInput.kt', 'data/push/DeepLinkValidator.kt',
                  'data/push/DeepLinkRouter.kt', 'WoowOdooApp.kt', 'data/push/WoowFcmService.kt']
@@ -264,6 +316,8 @@ class BrandIdentityContracts(unittest.TestCase):
                 if name == 'ui/MainActivity.kt':
                     current = reverse_apply(self, current.decode(), W1_10_MAIN_ACTIVITY)
                     current = reverse_apply(self, current, EXTERNAL_LINK_MAIN_ACTIVITY).encode()
+                if name == 'data/push/DeepLinkValidator.kt':
+                    current = reverse_apply(self, current.decode(), PUSH_LINK_VALIDATOR).encode()
                 self.assertEqual(baseline(path), current)
         account = (K / 'data/repository/AccountRepository.kt').read_text()
         apporo_account = account.split('    // Apporo selection/session commit boundary.', 1)[1].split('    fun getSessionId(', 1)[0]

@@ -51,12 +51,14 @@ class ExternalLinkIntake @Inject constructor(
         return true
     }
 
+    /**
+     * The iOS-level rules (https + same host, control characters, `%2e%2e`) live in the shared
+     * [DeepLinkValidator] since the 2026-09-29 push-link approval, so push taps and external links
+     * use exactly the same check. A missing active host still rejects even relative paths here.
+     */
     private fun isStrictlyValid(url: String, serverHost: String): Boolean {
         if (serverHost.isBlank()) return false
         val trimmed = url.trim()
-        if (trimmed.any { it.isISOControl() }) return false
-        if (trimmed.lowercase().contains("%2e%2e")) return false
-        if (!trimmed.startsWith("/") && !trimmed.lowercase().startsWith("https://")) return false
         return DeepLinkValidator.isValid(url = trimmed, serverHost = serverHost)
     }
 
