@@ -157,9 +157,19 @@ W1_10_ACCOUNT_WOOW = (
      '            encryptedPrefs.savePassword(account.id, password)\n'),
 )
 
-# Android F5 (2026-09-30, iOS demo111 D2 parity): an Odoo 18 AccessDenied is a wrong password and a
-# non-JSON 200 a localized server error. Same (current, baseline) contract as W1-10: exactly these
-# insertions/replacements, the rest of the file stays byte-level.
+# Android F5 (2026-09-30, iOS demo111 D1/D2 parity): logout / account removal wipes only that account's
+# WebView data and native session and revokes its sessions server-side; an Odoo 18 AccessDenied is a
+# wrong password and a non-JSON 200 a localized server error. Same (current, baseline) contract as
+# W1-10: exactly these insertions/replacements, the rest of each file stays byte-level.
+F5_ACCOUNT_WOOW = (
+    ('        // D1 (iOS parity): wipe only this account\'s WebView data and native session, then revoke it server-side.\n'
+     '        removeAccountSessions(account)\n',
+     '        // Clear cookies\n'
+     '        val host = account.fullServerUrl.removePrefix("https://").split("/").first()\n'
+     '        odooClient.clearCookies(host)\n'),
+    ('        // D1 (iOS parity): the removed account\'s sessions are wiped and revoked like on logout.\n'
+     '        accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }\n', ''),
+)
 F5_WOOW_API = (
     ('                    isAccessDenied(response.error.data?.name, errorMessage) ->\n'
      '                        AuthResult.Error(errorMessage, AuthResult.ErrorType.INVALID_CREDENTIALS)\n', ''),
@@ -173,6 +183,12 @@ F5_WOOW_API = (
      '        return gson.fromJson(responseBody, JsonRpcResponse::class.java)\n'),
     ('import com.google.gson.JsonParseException\n', ''),
 )
+F5_APP_MODULE = (
+    ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),
+    ('            // D1 (iOS parity): logout / removal wipes the account\'s WebView data.\n'
+     '            repo.webDataCleaner = accountWebDataCleaner\n', ''),
+)
+
 # Server-error status (owner-approved 2026-09-26, iOS b9ebd0d parity): a non-200 sign-in response on
 # the WOOW path keeps its HTTP status for the localized `error_server_http` login text instead of
 # being parsed as JSON. Same (current, baseline) contract as W1-10; the rest stays byte-level.
@@ -479,6 +495,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
+        account = reverse_apply(self, account, F5_ACCOUNT_WOOW)
         account = reverse_apply(self, account, W1_10_ACCOUNT_WOOW)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt').decode(), account)
         # Fifth approved seam: Apporo response-derived SID; byte-preserve the entire WOOW auth path.
@@ -519,6 +536,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '            apporoTransport = apporoPushTransport,\n'):
             self.assertEqual(1, module.count(line))
             module = module.replace(line, '')
+        module = reverse_apply(self, module, F5_APP_MODULE)
         module = reverse_apply(self, module, LIVE_0927_R3_APP_MODULE)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/di/AppModule.kt').decode(), module)
         interface = (K / 'data/repository/FcmTokenRepository.kt').read_text()

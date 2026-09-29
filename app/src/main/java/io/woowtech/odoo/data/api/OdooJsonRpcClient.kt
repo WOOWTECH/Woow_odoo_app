@@ -228,6 +228,54 @@ class OdooJsonRpcClient internal constructor(
         cookieStore[url.host] = mutableListOf(cookie)
     }
 
+    /**
+     * Whether [sessionId] is still a live Odoo session of [userId] on [database] (iOS D5 parity: an
+     * account switch reuses such a session instead of signing in again). Fails closed — any transport
+     * error, a non-200 answer, or a missing / different `uid` or `db` is `false` — so an unproven
+     * session is never handed to the WebView. Uses a cookie-less, non-redirecting client: nothing is
+     * published and no jar is touched.
+     */
+    internal suspend fun sessionBelongsTo(serverUrl: String, sessionId: String, userId: Int, database: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val result = postWithSession(serverUrl, "web/session/get_session_info", sessionId)
+                ?.get("result") as? JsonObject ?: return@withContext false
+            val uid = runCatching { result.get("uid")?.takeUnless { it.isJsonNull }?.asInt }.getOrNull()
+            val db = runCatching { result.get("db")?.takeUnless { it.isJsonNull }?.asString }.getOrNull()
+            uid == userId && !db.isNullOrEmpty() && db == database
+        }
+
+    /**
+     * Best-effort server-side logout of [sessionId] (`/web/session/destroy`, iOS D1 parity). Never
+     * throws; true only when the server answered with a JSON-RPC envelope. Same isolated client as
+     * [sessionBelongsTo].
+     */
+    internal suspend fun revokeSession(serverUrl: String, sessionId: String): Boolean = withContext(Dispatchers.IO) {
+        postWithSession(serverUrl, "web/session/destroy", sessionId) != null
+    }
+
+    private val sessionCallClient by lazy { isolatedAuthClient.newBuilder().callTimeout(10, TimeUnit.SECONDS).build() }
+
+    private fun postWithSession(serverUrl: String, path: String, sessionId: String): JsonObject? = try {
+        val url = serverUrl.toHttpUrlOrNull()
+        if (url == null || !url.isHttps || url.username.isNotEmpty() || url.password.isNotEmpty() ||
+            url.query != null || url.fragment != null ||
+            sessionId.isBlank() || sessionId.any { it <= ' ' || it == ';' || it >= '\u007f' }
+        ) {
+            null
+        } else {
+            val request = Request.Builder().url(url.newBuilder().addPathSegments(path).build())
+                .header("Cookie", "session_id=$sessionId")
+                .post(gson.toJson(JsonRpcRequest(method = "call", params = emptyMap(), id = 1))
+                    .toRequestBody("application/json".toMediaType()))
+                .build()
+            sessionCallClient.newCall(request).execute().use { response ->
+                if (response.code != 200) null else gson.fromJson(response.body?.string(), JsonObject::class.java)
+            }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     /** A 200 sign-in body that is not a JSON-RPC envelope (e.g. a proxy HTML page): localized server error. */
     private class InvalidSignInResponseException : Exception("Invalid sign-in response")
 

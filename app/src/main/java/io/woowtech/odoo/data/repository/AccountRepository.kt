@@ -30,6 +30,9 @@ class AccountRepository(
      * breaker opened earlier in this process stays open until restart. Null only in unit tests.
      */
     private val sessionReauthenticator: SessionReauthenticator? = null,
+    /** Runs best-effort server-side session revokes without blocking logout / switch (iOS D1/D5 parity). */
+    private val revokeScope: kotlinx.coroutines.CoroutineScope =
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
 ) {
     @Inject
     constructor(
@@ -43,6 +46,16 @@ class AccountRepository(
     private val selectionMutex = Mutex()
     private var selectionAttempt = 0L
     private suspend fun beginSelection(): Long = selectionMutex.withLock { ++selectionAttempt }
+
+    /** WebView side of logout / removal (iOS D1 parity); wired by DI, null in unit tests that don't need it. */
+    var webDataCleaner: AccountWebDataCleaner? = null
+
+    /**
+     * The Odoo session each account last had in THIS process (minted by sign-in / switch, or read back
+     * from the WebView when switching away). In memory only — never persisted. An account switch reuses
+     * it after proving it still belongs to that uid and db (iOS D5 parity), and logout revokes it.
+     */
+    private val knownSessions = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     val allAccounts: Flow<List<OdooAccount>> = accountDao.getAllAccounts()
     val activeAccount: Flow<OdooAccount?> = accountDao.getActiveAccount()
@@ -277,9 +290,8 @@ class AccountRepository(
                 }
         }
 
-        // Clear cookies
-        val host = account.fullServerUrl.removePrefix("https://").split("/").first()
-        odooClient.clearCookies(host)
+        // D1 (iOS parity): wipe only this account's WebView data and native session, then revoke it server-side.
+        removeAccountSessions(account)
 
         // Remove password
         encryptedPrefs.removePassword(id)
@@ -336,6 +348,8 @@ class AccountRepository(
                     )
                 }
         }
+        // D1 (iOS parity): the removed account's sessions are wiped and revoked like on logout.
+        accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }
         encryptedPrefs.removePassword(accountId)
         accountDao.deleteAccountById(accountId)
         fcmTokenRepository?.forgetAccount(accountId)
@@ -366,9 +380,16 @@ class AccountRepository(
             }
             fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
             sessionReauthenticator?.onManualReloginSucceeded(account.id)
+            // Replaced only now that the new session is committed (iOS D5 P1 lesson).
+            knownSessions.put(account.id, result.sessionId)
+                ?.takeIf { it != result.sessionId }?.let { revokeLater(fullUrl, it) }
             true
         }
-        if (!committed) return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
+        if (!committed) {
+            // Minted but never published: nothing on this device will ever use it.
+            revokeLater(fullUrl, result.sessionId)
+            return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
+        }
         fcmTokenRepository?.reconcileOnAccountAvailable()
             ?.onFailure { Timber.w("Push reconcile after Apporo login failed; see account registration status") }
         return result
@@ -379,29 +400,103 @@ class AccountRepository(
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
         val previous = accountDao.getActiveAccountOnce()?.id
+        // D5: keep the outgoing account's live WebView session so switching back can reuse it.
+        if (previous != null && previous != accountId) rememberWebViewSession(previous)
         // Preserve previous-account unregister BEFORE authentication, including same-host switches.
         if (previous != null && previous != accountId) {
             fcmTokenRepository?.unregisterToken(previous)
                 ?.onFailure { Timber.w("Push cleanup before Apporo switch failed") }
         }
-        val result = odooClient.authenticateApporoIsolated(account.fullServerUrl, account.database, account.username, password)
-        if (result !is AuthResult.Success || !validApporoSession(result.sessionId) || result.userId != account.userId) return false
+        // D5 (iOS parity): reuse the target's session when the server still proves it is this uid AND db;
+        // only otherwise sign in again. A reused session is not a new server session.
+        val stored = knownSessions[accountId]
+        val reused = stored?.takeIf { sessionStillBelongs(account, it) }
+        val sessionId = reused ?: run {
+            val result = odooClient.authenticateApporoIsolated(account.fullServerUrl, account.database, account.username, password)
+            if (result !is AuthResult.Success || !validApporoSession(result.sessionId) || result.userId != account.userId) return false
+            result.sessionId
+        }
         val committed = selectionMutex.withLock {
             val current = accountDao.getAccountById(accountId)
             if (attempt != selectionAttempt || current == null || current.serverUrl != account.serverUrl ||
                 current.database != account.database || current.username != account.username ||
                 current.userId != account.userId || encryptedPrefs.getPassword(accountId) != password
             ) return@withLock false
-            commitApporoSelection(current, current, null, result.sessionId) {
+            commitApporoSelection(current, current, null, sessionId) {
                 accountDao.activateAccount(accountId)
                 accountDao.updateLastLogin(accountId)
             }
-            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
+            fcmTokenRepository?.onManualLogin(accountId, sessionId)
             sessionReauthenticator?.onManualReloginSucceeded(accountId)
+            knownSessions[accountId] = sessionId
             true
         }
-        if (committed) registerSavedFcmToken(accountId)
+        if (committed) {
+            // The stale session is revoked only after the replacement committed (iOS D5 P1 lesson): a
+            // superseded switch must never revoke the target's only stored session.
+            if (reused == null && stored != null && stored != sessionId) revokeLater(account.fullServerUrl, stored)
+            registerSavedFcmToken(accountId)
+        } else if (reused == null) {
+            revokeLater(account.fullServerUrl, sessionId)
+        }
         return committed
+    }
+
+    /** Whether [sessionId] is still [account]'s live session on its server (uid AND db; fails closed). */
+    private suspend fun sessionStillBelongs(account: OdooAccount, sessionId: String): Boolean {
+        val userId = account.userId ?: return false
+        return validApporoSession(sessionId) &&
+            odooClient.sessionBelongsTo(account.fullServerUrl, sessionId, userId, account.database)
+    }
+
+    /** Records the WebView's session of [accountId] (when the WebView cookies are its) before a switch replaces it. */
+    private suspend fun rememberWebViewSession(accountId: String) {
+        val account = accountDao.getAccountById(accountId) ?: return
+        webDataCleaner?.webViewSessionIdOf(accountId, account.fullServerUrl)
+            ?.takeIf { validApporoSession(it) }
+            ?.let { knownSessions[accountId] = it }
+    }
+
+    private fun revokeLater(serverUrl: String, sessionId: String) {
+        launchDetached(revokeScope) { odooClient.revokeSession(serverUrl, sessionId) }
+    }
+
+    /**
+     * D1 (iOS parity, both brands): removes [account]'s sessions from this device and revokes them on the
+     * server. Runs BEFORE the account row is deleted so the WebView cleanup is ordered before the UI
+     * shows the next account.
+     *
+     * - WebView: cookies only when [account] is the displayed (active) one or none remains; site storage
+     *   of its origin only when no remaining account uses that origin (Android keeps it per origin).
+     * - Native jar (keyed by host): kept only when it provably holds a remaining same-host account's
+     *   session; otherwise cleared (never a sibling's proven session, never left with this account's).
+     * - Server: every session known to be this account's is revoked in the background; a session that
+     *   may be a sibling's is never revoked.
+     */
+    private suspend fun removeAccountSessions(account: OdooAccount) {
+        val url = account.fullServerUrl
+        val remaining = accountDao.getAllAccountsList().filter { it.id != account.id }
+        val host = sessionHostOf(url)
+        val sameHost = remaining.filter { sessionHostOf(it.fullServerUrl) == host }
+        val siblingSessions = sameHost.mapNotNull { knownSessions[it.id] }.toSet()
+        val webSession = webDataCleaner?.webViewSessionIdOf(account.id, url)
+        val known = knownSessions.remove(account.id)
+        val jarSession = host?.let { odooClient.getSessionId(it) }
+        if (host != null && (jarSession == null || jarSession !in siblingSessions)) odooClient.clearCookies(host)
+        webDataCleaner?.removeAccountData(
+            account.id, url,
+            WebDataRemoval(
+                cookies = remaining.isEmpty() || account.isActive,
+                originStorage = remaining.none { webOriginOf(it.fullServerUrl) == webOriginOf(url) },
+                everything = remaining.isEmpty(),
+            ),
+        )
+        val revoke = buildSet {
+            known?.let(::add)
+            webSession?.let(::add)
+            if (jarSession != null && (jarSession == known || sameHost.isEmpty())) add(jarSession)
+        } - siblingSessions
+        revoke.filter { validApporoSession(it) }.forEach { revokeLater(url, it) }
     }
 
     /** Only local writes are cancellation-protected. Push locks/network remain cancellable outside. */

@@ -3,6 +3,7 @@ package io.woowtech.odoo.data.push
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -94,6 +95,11 @@ class DeepLinkManager @Inject constructor() {
         if (current.accountId != activeAccountId) {
             _pending.value = null
         }
+    }
+
+    /** Drops the pending link bound to [accountId] (the account is being logged out / removed; iOS D1 parity). */
+    fun dropFor(accountId: String) {
+        _pending.update { current -> current?.takeUnless { it.accountId == accountId } }
     }
 
     /** Clears any pending link unconditionally. */

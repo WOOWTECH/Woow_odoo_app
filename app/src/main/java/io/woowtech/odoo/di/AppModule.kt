@@ -70,6 +70,7 @@ object AppModule {
         odooClient: OdooJsonRpcClient,
         fcmTokenRepository: dagger.Lazy<FcmTokenRepository>,
         sessionReauthenticator: SessionReauthenticator,
+        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,
     ): AccountRepository {
         // A successful manual sign-in re-closes the account's auto re-auth circuit breaker.
         return AccountRepository(accountDao, encryptedPrefs, odooClient, sessionReauthenticator).also { repo ->
@@ -77,6 +78,8 @@ object AppModule {
             // (AccountRepository ← FcmTokenRepository → AccountDao ← AccountRepository).
             // Using dagger.Lazy defers instantiation until the first access, breaking the cycle.
             repo.fcmTokenRepository = fcmTokenRepository.get()
+            // D1 (iOS parity): logout / removal wipes the account's WebView data.
+            repo.webDataCleaner = accountWebDataCleaner
         }
     }
 
