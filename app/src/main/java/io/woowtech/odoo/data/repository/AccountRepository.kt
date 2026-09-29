@@ -369,6 +369,8 @@ class AccountRepository(
         val result = odooClient.authenticateApporoIsolated(fullUrl, database, username, password)
         if (result !is AuthResult.Success) return result
         if (!validApporoSession(result.sessionId)) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
+        // D5: keep the displayed account's live WebView session (the new login replaces it) so switching back can reuse it.
+        accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
         val committed = selectionMutex.withLock {
             if (attempt != selectionAttempt) return@withLock false
             val existing = accountDao.findAccount(fullUrl, database, username)

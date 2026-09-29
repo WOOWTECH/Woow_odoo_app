@@ -146,6 +146,26 @@ class ApporoSessionReuseTest {
     }
 
     @Test
+    fun `Given A is displayed when B is added then A's WebView session is kept and switching back reuses it`() = runTest {
+        // Adding an account replaces the displayed account's WebView session; without remembering it,
+        // switching back signed A in again and orphaned that session (same class as D5).
+        signIn(a) // a-sid-1, A displayed
+        valid += "a-web-sid"
+        repo.webDataCleaner = object : AccountWebDataCleaner {
+            override suspend fun webViewSessionIdOf(accountId: String, serverUrl: String) =
+                if (accountId == "a") "a-web-sid" else null
+            override suspend fun removeAccountData(accountId: String, serverUrl: String, removal: WebDataRemoval) = Unit
+        }
+        signIn(b) // B added and displayed
+
+        assertTrue(repo.switchAccount("a"))
+
+        coVerify(exactly = 1) { api.authenticateApporoIsolated(a.serverUrl, a.database, a.username, any()) }
+        assertEquals("a-web-sid", jar)
+        assertTrue("a-web-sid" !in revoked)
+    }
+
+    @Test
     fun `Given a re-login of the same account then the replaced session is revoked after commit`() = runTest {
         signIn(a)
         signIn(a)
