@@ -157,6 +157,22 @@ W1_10_ACCOUNT_WOOW = (
      '            encryptedPrefs.savePassword(account.id, password)\n'),
 )
 
+# Android F5 (2026-09-30, iOS demo111 D2 parity): an Odoo 18 AccessDenied is a wrong password and a
+# non-JSON 200 a localized server error. Same (current, baseline) contract as W1-10: exactly these
+# insertions/replacements, the rest of the file stays byte-level.
+F5_WOOW_API = (
+    ('                    isAccessDenied(response.error.data?.name, errorMessage) ->\n'
+     '                        AuthResult.Error(errorMessage, AuthResult.ErrorType.INVALID_CREDENTIALS)\n', ''),
+    ('        } catch (e: InvalidSignInResponseException) {\n'
+     '            AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)\n', ''),
+    ('        return try {\n'
+     '            gson.fromJson(responseBody, JsonRpcResponse::class.java)\n'
+     '        } catch (e: JsonParseException) {\n'
+     '            null\n'
+     '        } ?: throw InvalidSignInResponseException()\n',
+     '        return gson.fromJson(responseBody, JsonRpcResponse::class.java)\n'),
+    ('import com.google.gson.JsonParseException\n', ''),
+)
 # Server-error status (owner-approved 2026-09-26, iOS b9ebd0d parity): a non-200 sign-in response on
 # the WOOW path keeps its HTTP status for the localized `error_server_http` login text instead of
 # being parsed as JSON. Same (current, baseline) contract as W1-10; the rest stays byte-level.
@@ -495,6 +511,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import io.woowtech.odoo.brand.AppBrand\n'):
             self.assertEqual(1, api.count(line))
             api = api.replace(line, '')
+        api = reverse_apply(self, api, F5_WOOW_API)
         api = reverse_apply(self, api, SERVER_HTTP_STATUS_WOOW_API)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt').decode(), api)
         module = (K / 'di/AppModule.kt').read_text()

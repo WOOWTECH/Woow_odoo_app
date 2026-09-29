@@ -2,6 +2,7 @@ package io.woowtech.odoo.data.api
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.JsonParseException
 import com.google.gson.annotations.SerializedName
 import io.woowtech.odoo.domain.model.AuthResult
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +122,8 @@ class OdooJsonRpcClient internal constructor(
                     ?: "Authentication failed"
 
                 return@withContext when {
+                    isAccessDenied(response.error.data?.name, errorMessage) ->
+                        AuthResult.Error(errorMessage, AuthResult.ErrorType.INVALID_CREDENTIALS)
                     errorMessage.contains("database", ignoreCase = true) ->
                         AuthResult.Error(errorMessage, AuthResult.ErrorType.DATABASE_NOT_FOUND)
                     errorMessage.contains("login", ignoreCase = true) ||
@@ -152,6 +155,8 @@ class OdooJsonRpcClient internal constructor(
             )
         } catch (e: SignInHttpStatusException) {
             signInHttpStatus(e.code)
+        } catch (e: InvalidSignInResponseException) {
+            AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)
         } catch (e: UnknownHostException) {
             AuthResult.Error("Unable to connect to server", AuthResult.ErrorType.NETWORK_ERROR)
         } catch (e: SocketTimeoutException) {
@@ -190,12 +195,14 @@ class OdooJsonRpcClient internal constructor(
             isolatedAuthClient.newCall(request).execute().use { response ->
                 if (response.code != 200) return signInHttpStatus(response.code)
                 val envelope = gson.fromJson(response.body?.string(), JsonObject::class.java)
-                val error = envelope?.getAsJsonObject("error")
+                    ?: return AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)
+                val error = envelope.getAsJsonObject("error")
                 if (error != null) {
-                    val denied = error.getAsJsonObject("data")?.get("name")?.asString == "odoo.exceptions.AccessDenied"
+                    val data = error.getAsJsonObject("data")
+                    val denied = isAccessDenied(data?.get("name")?.asString, data?.get("message")?.asString)
                     return AuthResult.Error("Sign-in request rejected", if (denied) AuthResult.ErrorType.INVALID_CREDENTIALS else AuthResult.ErrorType.SERVER_ERROR)
                 }
-                val result = envelope?.getAsJsonObject("result")
+                val result = envelope.getAsJsonObject("result")
                 val uid = runCatching { result?.get("uid")?.asInt }.getOrNull()
                 if (uid == null || uid <= 0) return AuthResult.Error("Invalid credentials", AuthResult.ErrorType.INVALID_CREDENTIALS)
                 val sid = Cookie.parseAll(request.url, response.headers)
@@ -221,6 +228,17 @@ class OdooJsonRpcClient internal constructor(
         cookieStore[url.host] = mutableListOf(cookie)
     }
 
+    /** A 200 sign-in body that is not a JSON-RPC envelope (e.g. a proxy HTML page): localized server error. */
+    private class InvalidSignInResponseException : Exception("Invalid sign-in response")
+
+    /** Odoo 18 answers a wrong password with `odoo.exceptions.AccessDenied` / "Access Denied" (iOS D2 parity). */
+    private fun isAccessDenied(name: String?, message: String?): Boolean =
+        name == ACCESS_DENIED || message.orEmpty().contains("Access Denied", ignoreCase = true)
+
+    private companion object {
+        const val ACCESS_DENIED = "odoo.exceptions.AccessDenied"
+    }
+
     private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {
         val jsonBody = gson.toJson(body)
         val request = Request.Builder()
@@ -236,7 +254,11 @@ class OdooJsonRpcClient internal constructor(
         }
         val responseBody = response.body?.string() ?: throw IOException("Empty response")
 
-        return gson.fromJson(responseBody, JsonRpcResponse::class.java)
+        return try {
+            gson.fromJson(responseBody, JsonRpcResponse::class.java)
+        } catch (e: JsonParseException) {
+            null
+        } ?: throw InvalidSignInResponseException()
     }
 
     /** Status only; LoginScreen renders the localized `error_server_http` text (iOS parity). */
