@@ -379,6 +379,7 @@ fun OdooWebView(
     getFreshSessionId: (serverUrl: String) -> String?,
     onReloginRequired: () -> Unit,
     cookieStore: WebViewCookieStore = AndroidWebViewCookieStore,
+    cookieCoordinator: WebViewCookieCoordinator = WebViewCookieCoordinator.Process,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -411,11 +412,13 @@ fun OdooWebView(
     // [then] (the account's page load) runs only once the cookies are in place: Chromium removes
     // cookies asynchronously, so loading earlier could still present the previous account's cookies
     // (pi 0929 recheck).
-    // The cookie store is process-global: jobs run one at a time ([cookieSequencer]) and every side
-    // effect — cookie write, owner record, page load — first checks [isCurrent], so a superseded
-    // account switch can no longer touch it (pi 0929 recheck-2). The plan is made when the job starts,
-    // after any earlier job settled, so it reads the cookie store as it really is.
-    val cookieSequencer = remember { WebViewCookieSequencer() }
+    // The cookie store is process-global: jobs run one at a time and every side effect — cookie write,
+    // owner record, page load — first checks [isCurrent], so a superseded account switch can no longer
+    // touch it (pi 0929 recheck-2). The queue is the process-wide [cookieCoordinator]'s, shared by every
+    // composition of this screen: a composition that was disposed (leave Main, switch, come back) can
+    // no longer interleave its late cookie work with the new one's (pi 0929 recheck-3). The plan is made
+    // when the job starts, after any earlier job settled, so it reads the cookie store as it really is.
+    val cookieSequencer = cookieCoordinator.sequencer
     fun prepareCookies(targetAccountId: String, targetServerUrl: String, isCurrent: () -> Boolean, then: () -> Unit) {
         cookieSequencer.enqueue(isCurrent) { done ->
             CookieManager.getInstance().setAcceptCookie(true)
@@ -456,8 +459,10 @@ fun OdooWebView(
     // blocking re-auth itself hops to Dispatchers.IO inside MainViewModel.selfHealActiveAccount.
     val selfHealScope = rememberCoroutineScope()
 
-    // Counts the account targets (id + server + database) this screen has shown; the newest one is the
-    // only one whose asynchronous work may still act (see key(target) below).
+    // Counts the account targets (id + server + database) this composition has shown: the first one is
+    // the cold start, every later one an account switch, and only the newest one's WebView stays.
+    // Whether asynchronous work may still act is decided process-wide by [cookieCoordinator] instead, so
+    // it also turns inert when this whole composition is disposed (pi 0929 recheck-3).
     val targetGenerations = remember { AtomicInteger(0) }
 
     // D1: system back steps back through Odoo's own page history (WebViewBackPolicy) instead of
@@ -588,8 +593,16 @@ fun OdooWebView(
     val target = WebViewLoadTarget(accountId, serverUrl, database)
     key(target) {
         val generation = remember { targetGenerations.incrementAndGet() }
-        // False once a later account target replaced this one: its asynchronous work must not act.
-        fun isCurrentTarget(): Boolean = targetGenerations.get() == generation
+        // This target's process-wide token. False once any later target — in this composition or in a
+        // later one after Main was left and re-entered — replaced it, or once this composition left:
+        // its asynchronous work must not act (pi 0929 recheck-3).
+        val targetToken = remember { cookieCoordinator.beginTarget() }
+        DisposableEffect(Unit) {
+            onDispose { cookieCoordinator.release(targetToken) }
+        }
+        fun isCurrentTarget(): Boolean = cookieCoordinator.isCurrent(targetToken)
+        // False once a later target of THIS composition replaced this one (its WebView is released).
+        fun isReplacedInComposition(): Boolean = targetGenerations.get() != generation
         // The first target is the cold start; every later one is an account switch.
         val isSwitch = generation > 1
         // Binds page events to this instance's own load (defence in depth next to the instance check).
@@ -1110,8 +1123,9 @@ fun OdooWebView(
             onRelease = { released ->
                 // A replaced account's WebView: stop it and cut its callbacks before destroying it, so
                 // nothing it still has queued reaches the app. When the whole screen leaves, the last
-                // instance is destroyed by its owner as before (MainScreen).
-                if (!isCurrentTarget()) {
+                // instance is destroyed by its owner as before (MainScreen); its pending work is already
+                // inert because the composition released its token.
+                if (isReplacedInComposition()) {
                     released.stopLoading()
                     released.webViewClient = WebViewClient()
                     released.webChromeClient = null

@@ -327,13 +327,31 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('if (!owns(view)) {\n                                // A replaced account', screen)
         self.assertIn('if (!owns(webView)) {\n                                callback?.onReceiveValue(null)', screen)
         self.assertIn('if (!owns(thisView)) {\n                                callback.invoke(origin, false, false)', screen)
-        self.assertIn('fun isCurrentTarget(): Boolean = targetGenerations.get() == generation', screen)
+        # recheck-3: whether async work may act is decided by the process-wide coordinator token (was the
+        # per-composition `targetGenerations.get() == generation`), so a disposed Main composition is inert too.
+        self.assertIn('fun isCurrentTarget(): Boolean = cookieCoordinator.isCurrent(targetToken)', screen)
         self.assertIn('if (!isCurrentTarget()) {\n                                            Timber.d("Self-heal finished after an account switch', screen)
         self.assertIn('cookieSequencer.enqueue(::isCurrentTarget) { done ->', screen)
         self.assertIn('cookieSequencer.enqueue(isCurrent) { done ->', screen)
         self.assertIn('released.destroy()', screen)
         self.assertIn('class WebViewCookieSequencer', switch)
         self.assertEqual(3, switch.count('if (!isCurrent()) return@removeAllCookies'))
+
+    def test_cookie_work_is_serialized_and_invalidated_process_wide(self):
+        # pi 0929 recheck-3 P1: the cookie queue and the "current target" decision are process-wide, not per
+        # OdooWebView composition; leaving the Main screen releases the composition's token so its pending
+        # cookie work cannot install the previous account's session after the next composition's.
+        screen = (K / 'ui/main/MainScreen.kt').read_text()
+        switch = (K / 'ui/main/WebViewAccountSwitch.kt').read_text()
+        self.assertIn('cookieCoordinator: WebViewCookieCoordinator = WebViewCookieCoordinator.Process,', screen)
+        self.assertIn('val cookieSequencer = cookieCoordinator.sequencer\n', screen)
+        self.assertNotIn('remember { WebViewCookieSequencer() }', screen)
+        self.assertIn('val targetToken = remember { cookieCoordinator.beginTarget() }', screen)
+        self.assertIn('onDispose { cookieCoordinator.release(targetToken) }', screen)
+        self.assertIn('if (isReplacedInComposition()) {', screen)
+        self.assertIn('class WebViewCookieCoordinator', switch)
+        self.assertIn('val Process = WebViewCookieCoordinator()', switch)
+        self.assertIn('current.compareAndSet(token, token + 1)', switch)
 
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)

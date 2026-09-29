@@ -101,12 +101,20 @@ class WebViewCookieSequencer {
             if (!job.isCurrent()) continue
             busy = true
             var settled = false
-            job.run {
+            val done = {
                 if (!settled) {
                     settled = true
                     busy = false
                     startNext()
                 }
+            }
+            try {
+                job.run(done)
+            } catch (e: Throwable) {
+                // The queue is process-wide (pi 0929 recheck-3): a job that fails before settling must
+                // not block every later account's cookie work for the rest of the process.
+                done()
+                throw e
             }
             return
         }
@@ -170,5 +178,38 @@ class WebViewSwitchLoadGate {
         if (!loadIssued || !started || !onTargetHost) return false
         awaitingGeneration = null
         return true
+    }
+}
+
+/**
+ * Process-wide owner of the WebView cookie store's account (pi 0929 recheck-3 P1).
+ *
+ * The CookieManager is process-global, but the Main screen — and with it every OdooWebView composition
+ * — can be disposed and composed again (leave Main, switch account, come back). A sequencer and a
+ * target counter kept per composition would let a disposed composition's still-pending cookie callback
+ * believe it is current and install the previous account's session after the new composition's. So both
+ * live here, once per process: every cookie job of every composition runs through one [sequencer], and a
+ * single target token decides which composition's asynchronous work may still act. A new target takes a
+ * new token (superseding all others); a composition that leaves [release]s its token, so its pending
+ * work turns inert even when no other target replaced it yet. Main thread only.
+ */
+class WebViewCookieCoordinator {
+    val sequencer = WebViewCookieSequencer()
+    private val current = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** A new account target is shown; returns its token and supersedes every earlier one. */
+    fun beginTarget(): Int = current.incrementAndGet()
+
+    /** Whether [token]'s target is still the one whose asynchronous work may act. */
+    fun isCurrent(token: Int): Boolean = current.get() == token
+
+    /** [token]'s composition left: its pending work may no longer act (no-op if already superseded). */
+    fun release(token: Int) {
+        current.compareAndSet(token, token + 1)
+    }
+
+    companion object {
+        /** The coordinator of the process-global [android.webkit.CookieManager]. */
+        val Process = WebViewCookieCoordinator()
     }
 }
