@@ -441,9 +441,10 @@ fun OdooWebView(
     // to the re-login surface instead of re-entering self-heal (prevents the Main⇄login bounce).
     val selfHealAttempted = remember { AtomicBoolean(false) }
 
-    // Tracks which server the single WebView last (re)loaded, so update{} can detect an
-    // account switch (serverUrl change) and drive a full reload. Seeded in the factory.
-    var lastLoadedServerUrl by remember { mutableStateOf(serverUrl) }
+    // Tracks which account (id + server + database) the single WebView last (re)loaded, so update{}
+    // can detect ANY account switch and drive a full reload — including two accounts on the same
+    // server URL (pi review P1, 2026-09-29), which a serverUrl-only check missed. Seeded in the factory.
+    var lastLoadedTarget by remember { mutableStateOf(WebViewLoadTarget(accountId, serverUrl, database)) }
     // The deep link already applied to the current page, so it is applied exactly once whether
     // it arrives via onPageFinished (cold / switch) or via the warm full-reload path.
     var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
@@ -1017,23 +1018,24 @@ fun OdooWebView(
                 // onPageFinished once this host has finished loading (load-gated apply). This
                 // keeps the "apply only after load" invariant identical across cold start and
                 // account switch.
-                lastLoadedServerUrl = serverUrl
+                lastLoadedTarget = WebViewLoadTarget(accountId, serverUrl, database)
                 loadUrl("$serverUrl/web?db=$database")
             }
         },
         modifier = Modifier.fillMaxSize(),
         update = { webView ->
-            if (serverUrl != lastLoadedServerUrl) {
-                // Single-view account switch: when the active account changes, serverUrl changes.
-                // Re-isolate cookies for the new account and reload its base page. The pending deep
-                // link is then applied in onPageFinished (host-gated).
+            val target = WebViewLoadTarget(accountId, serverUrl, database)
+            if (target != lastLoadedTarget) {
+                // Single-view account switch: the active account changed (another server, or another
+                // database/user on the same server). Re-isolate cookies for the new account and reload
+                // its base page. The pending deep link is then applied in onPageFinished (host-gated).
                 Timber.d("Account switched — reloading WebView for new server")
                 appliedDeepLinkUrl = null
                 currentPageLoaded = false
                 clearHistoryOnNextPage.set(true)
                 canNavigateBack = false
                 prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl)
-                lastLoadedServerUrl = serverUrl
+                lastLoadedTarget = target
                 webView.loadUrl("$serverUrl/web?db=$database")
             } else {
                 // Warm case: already loaded on the target host (no reload happens) and a new deep
@@ -1063,6 +1065,9 @@ fun OdooWebView(
  * [DeepLinkWebPlanner.plan], which re-validates the link against the account host; an invalid link
  * (e.g. `javascript:`, path traversal, foreign host) yields a null plan and is a safe no-op.
  */
+/** The account page the single WebView was last (re)loaded for; any change is an account switch. */
+private data class WebViewLoadTarget(val accountId: String, val serverUrl: String, val database: String)
+
 private fun applyDeepLink(view: WebView, serverUrl: String, deepLinkUrl: String) {
     when (val plan = DeepLinkWebPlanner.plan(currentUrl = view.url, serverUrl = serverUrl, deepLink = deepLinkUrl)) {
         is DeepLinkWebPlanner.NavPlan.FullLoad -> view.loadUrl(plan.url)

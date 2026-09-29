@@ -292,6 +292,14 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertNotIn('.split("/")', activity)
         self.assertIn('val serverHost = active.serverHost\n', (K / 'data/push/ExternalLinkIntake.kt').read_text())
 
+    def test_same_server_account_switch_reloads_the_webview(self):
+        # pi review P1 (2026-09-29): the WebView reload/cookie isolation keys on the whole account
+        # (id + server + database), not only the server URL; two accounts on one server must not share.
+        screen = (K / 'ui/main/MainScreen.kt').read_text()
+        self.assertIn('private data class WebViewLoadTarget(val accountId: String, val serverUrl: String, val database: String)', screen)
+        self.assertIn('if (target != lastLoadedTarget) {', screen)
+        self.assertNotIn('lastLoadedServerUrl', screen)
+
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)
         self.assertNotIn('import android.', BRAND)
