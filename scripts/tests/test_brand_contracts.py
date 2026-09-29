@@ -169,6 +169,8 @@ F5_ACCOUNT_WOOW = (
      '        odooClient.clearCookies(host)\n'),
     ('        // D1 (iOS parity): the removed account\'s sessions are wiped and revoked like on logout.\n'
      '        accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }\n', ''),
+    ('            // D5 (iOS parity): hand the promoted account its still-valid session before it is shown.\n'
+     '            publishKnownSession(remaining.first())\n', ''),
 )
 F5_WOOW_API = (
     ('                    isAccessDenied(response.error.data?.name, errorMessage) ->\n'

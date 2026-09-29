@@ -309,6 +309,8 @@ class AccountRepository(
             return false
         }
         if (wasActive || remaining.none { it.isActive }) {
+            // D5 (iOS parity): hand the promoted account its still-valid session before it is shown.
+            publishKnownSession(remaining.first())
             accountDao.deactivateAllAccounts()
             accountDao.activateAccount(remaining.first().id)
         }
@@ -455,6 +457,19 @@ class AccountRepository(
         webDataCleaner?.webViewSessionIdOf(accountId, account.fullServerUrl)
             ?.takeIf { validApporoSession(it) }
             ?.let { knownSessions[accountId] = it }
+    }
+
+    /**
+     * Before [account] is promoted after a logout (Apporo), publishes its known session when the server
+     * still proves it is that uid AND db, so its WebView shows it instead of signing in again and
+     * orphaning it (live finding 2026-09-30). Otherwise nothing is published and the existing self-heal
+     * sign-in takes over; the stale entry is forgotten.
+     */
+    private suspend fun publishKnownSession(account: OdooAccount) {
+        if (!brand.isApporo) return
+        val sessionId = knownSessions[account.id] ?: return
+        if (sessionStillBelongs(account, sessionId)) odooClient.publishApporoSession(account.fullServerUrl, sessionId)
+        else knownSessions.remove(account.id, sessionId)
     }
 
     private fun revokeLater(serverUrl: String, sessionId: String) {

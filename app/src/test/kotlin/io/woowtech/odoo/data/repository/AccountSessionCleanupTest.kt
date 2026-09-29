@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -108,6 +109,39 @@ class AccountSessionCleanupTest {
             api.clearCookies("fixture.test")
             dao.deleteAccountById("b")
         }
+        assertEquals("a", active)
+    }
+
+    @Test
+    fun `Given active B logs out and A's known session is still valid then A is promoted with it without a new sign-in`() = runTest {
+        // Live finding 2026-09-30 (verify-android-f5-0930 D1-03): the promoted account was signed in again
+        // (self-heal) although its own session was still valid, leaving that session orphaned on the server.
+        val repo = repo()
+        signInBoth(repo, last = b)
+        coEvery { api.sessionBelongsTo(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns true
+
+        repo.logout("b")
+
+        assertEquals("a-sid-fixture", jar)
+        coVerifyOrder {
+            api.clearCookies("fixture.test")
+            api.publishApporoSession(a.serverUrl, "a-sid-fixture")
+            dao.activateAccount("a")
+        }
+        coVerify(exactly = 1) { api.authenticateApporoIsolated(a.serverUrl, a.database, a.username, any()) }
+        assertFalse("a-sid-fixture" in revoked)
+    }
+
+    @Test
+    fun `Given active B logs out and A's known session is no longer valid then nothing is published for A`() = runTest {
+        val repo = repo()
+        signInBoth(repo, last = b)
+        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
+
+        repo.logout("b")
+
+        assertEquals(null, jar) // A's WebView falls back to the existing self-heal sign-in
+        verify(exactly = 1) { api.publishApporoSession(a.serverUrl, "a-sid-fixture") } // only A's original sign-in
         assertEquals("a", active)
     }
 
