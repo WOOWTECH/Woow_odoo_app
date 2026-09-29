@@ -166,6 +166,23 @@ class WebViewAccountSwitchTest {
         assertEquals(1, runs)
     }
 
+    // pi 0929 recheck-4 test gap: the async removal callback (not the synchronous job.run) throws.
+    @Test
+    fun `Given the continuation throws inside the async removal callback then the queue still runs the next job`() {
+        val sequencer = WebViewCookieSequencer()
+        val store = FakeStore()
+        var nextRan = false
+        sequencer.enqueue({ true }) { done ->
+            isolateCookiesForAccount(store, "https://a.example.com", "sid-a", onSettled = done) { throw IllegalStateException("load failed") }
+        }
+        sequencer.enqueue({ true }) { done -> nextRan = true; done() }
+        assertFalse(nextRan)
+
+        org.junit.jupiter.api.assertThrows<IllegalStateException> { store.completeRemoval() }
+
+        assertTrue(nextRan, "a failing callback must not block later accounts' cookie work")
+    }
+
     private class FakeStore : WebViewCookieStore {
         val events = mutableListOf<String>()
         private var pending: (() -> Unit)? = null

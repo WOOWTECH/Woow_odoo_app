@@ -592,19 +592,21 @@ fun OdooWebView(
     // deep link or clear its history (pi 0929 recheck-2). Unchanged target = same instance (warm path).
     val target = WebViewLoadTarget(accountId, serverUrl, database)
     key(target) {
+        // Local to this composition (never process-wide), so counting while composing is harmless.
         val generation = remember { targetGenerations.incrementAndGet() }
-        // This target's process-wide token. False once any later target — in this composition or in a
-        // later one after Main was left and re-entered — replaced it, or once this composition left:
-        // its asynchronous work must not act (pi 0929 recheck-3).
-        val targetToken = remember { cookieCoordinator.beginTarget() }
-        DisposableEffect(Unit) {
-            onDispose { cookieCoordinator.release(targetToken) }
-        }
-        fun isCurrentTarget(): Boolean = cookieCoordinator.isCurrent(targetToken)
+        // This target's process-wide token. False until this target's composition is committed, and false
+        // again once any later target — in this composition or in a later one after Main was left and
+        // re-entered — replaced it, or once this composition left: its asynchronous work must not act
+        // (pi 0929 recheck-3). It is taken only on commit, never while composing: a composition discarded
+        // before commit leaves the displayed target current (pi 0929 recheck-4).
+        val targetToken = rememberWebViewTargetToken(cookieCoordinator)
+        fun isCurrentTarget(): Boolean = targetToken.isCurrent()
         // False once a later target of THIS composition replaced this one (its WebView is released).
         fun isReplacedInComposition(): Boolean = targetGenerations.get() != generation
         // The first target is the cold start; every later one is an account switch.
         val isSwitch = generation > 1
+        // The WebView the factory created for this target; its first load starts once the target is committed.
+        val createdWebView = remember { arrayOfNulls<WebView>(1) }
         // Binds page events to this instance's own load (defence in depth next to the instance check).
         val loadGate = remember { WebViewSwitchLoadGate() }
         val switchGeneration = remember { if (isSwitch) loadGate.beginSwitch() else null }
@@ -633,6 +635,7 @@ fun OdooWebView(
                     )
 
                     onWebViewCreated(this)
+                    createdWebView[0] = this
                     attachedWebView = this
                     canNavigateBack = false
                     val thisView = this
@@ -1101,23 +1104,6 @@ fun OdooWebView(
                         }
                     }
 
-                    // Always load the account's base page; any pending deep link is applied in
-                    // onPageFinished once this host has finished loading (load-gated apply). This
-                    // keeps the "apply only after load" invariant identical across cold start and
-                    // account switch.
-                    // Per-account cookie isolation: the CookieManager is process-global, so before the
-                    // first load we keep ONLY this account's session — its own surviving WebView cookie,
-                    // or a fresh native one — and clear everything else. Account A's cookies can never
-                    // load under account B (WebViewCookiePlanner). The load waits for the cookies, and
-                    // is dropped if another account replaced this one meanwhile.
-                    prepareCookies(
-                        targetAccountId = target.accountId,
-                        targetServerUrl = target.serverUrl,
-                        isCurrent = ::isCurrentTarget,
-                    ) {
-                        switchGeneration?.let { loadGate.onLoadIssued(it) }
-                        loadUrl("${target.serverUrl}/web?db=${target.database}")
-                    }
                 }
             },
             onRelease = { released ->
@@ -1153,6 +1139,29 @@ fun OdooWebView(
                 }
             }
         )
+
+        // Always load the account's base page; any pending deep link is applied in onPageFinished once
+        // this host has finished loading (load-gated apply). This keeps the "apply only after load"
+        // invariant identical across cold start and account switch.
+        // Per-account cookie isolation: the CookieManager is process-global, so before the first load we
+        // keep ONLY this account's session — its own surviving WebView cookie, or a fresh native one — and
+        // clear everything else. Account A's cookies can never load under account B (WebViewCookiePlanner).
+        // The load waits for the cookies, and is dropped if another account replaced this one meanwhile.
+        // It starts here — after the target's token was taken on commit — not in the factory, which runs
+        // before the composition's remember observers (pi 0929 recheck-4).
+        DisposableEffect(Unit) {
+            createdWebView[0]?.let { view ->
+                prepareCookies(
+                    targetAccountId = target.accountId,
+                    targetServerUrl = target.serverUrl,
+                    isCurrent = ::isCurrentTarget,
+                ) {
+                    switchGeneration?.let { loadGate.onLoadIssued(it) }
+                    view.loadUrl("${target.serverUrl}/web?db=${target.database}")
+                }
+            }
+            onDispose { }
+        }
     }
 }
 

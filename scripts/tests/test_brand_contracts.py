@@ -312,7 +312,10 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('targetPageLoaded &&\n                                clearHistoryOnNextPage.compareAndSet(true, false)', screen)
         self.assertIn('loadGate.onPageStarted()', screen)
         # recheck-2: the switch load is gated on the target generation instead of loadGate.isCurrent().
-        self.assertIn('isCurrent = ::isCurrentTarget,\n                    ) {\n                        switchGeneration?.let { loadGate.onLoadIssued(it) }', screen)
+        # recheck-4: the first load moved from the factory into a DisposableEffect after the commit-time token
+        # (baseline: '...,\n                    ) {\n                        switchGeneration...' inside the factory).
+        self.assertIn('isCurrent = ::isCurrentTarget,\n                ) {\n                    switchGeneration?.let { loadGate.onLoadIssued(it) }\n                    view.loadUrl(', screen)
+        self.assertNotIn('isCurrent = ::isCurrentTarget,\n                    ) {\n                        switchGeneration?.let { loadGate.onLoadIssued(it) }', screen)
         self.assertNotIn('removeAllCookies(null)', screen)
         self.assertIn('store.removeAllCookies {', switch)
         self.assertIn('if (!loadIssued || !started || !onTargetHost) return false', switch)
@@ -329,7 +332,10 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('if (!owns(thisView)) {\n                                callback.invoke(origin, false, false)', screen)
         # recheck-3: whether async work may act is decided by the process-wide coordinator token (was the
         # per-composition `targetGenerations.get() == generation`), so a disposed Main composition is inert too.
-        self.assertIn('fun isCurrentTarget(): Boolean = cookieCoordinator.isCurrent(targetToken)', screen)
+        # recheck-4: current vs baseline — the token is the commit-time [WebViewTargetToken]
+        # (baseline: 'fun isCurrentTarget(): Boolean = cookieCoordinator.isCurrent(targetToken)').
+        self.assertIn('fun isCurrentTarget(): Boolean = targetToken.isCurrent()', screen)
+        self.assertNotIn('fun isCurrentTarget(): Boolean = cookieCoordinator.isCurrent(targetToken)', screen)
         self.assertIn('if (!isCurrentTarget()) {\n                                            Timber.d("Self-heal finished after an account switch', screen)
         self.assertIn('cookieSequencer.enqueue(::isCurrentTarget) { done ->', screen)
         self.assertIn('cookieSequencer.enqueue(isCurrent) { done ->', screen)
@@ -346,8 +352,15 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('cookieCoordinator: WebViewCookieCoordinator = WebViewCookieCoordinator.Process,', screen)
         self.assertIn('val cookieSequencer = cookieCoordinator.sequencer\n', screen)
         self.assertNotIn('remember { WebViewCookieSequencer() }', screen)
-        self.assertIn('val targetToken = remember { cookieCoordinator.beginTarget() }', screen)
-        self.assertIn('onDispose { cookieCoordinator.release(targetToken) }', screen)
+        # recheck-4 P2, current vs baseline: the token is taken on commit (RememberObserver.onRemembered) and
+        # released in onForgotten, never while composing (baseline: 'val targetToken = remember {
+        # cookieCoordinator.beginTarget() }' + 'onDispose { cookieCoordinator.release(targetToken) }').
+        self.assertIn('val targetToken = rememberWebViewTargetToken(cookieCoordinator)', screen)
+        self.assertNotIn('remember { cookieCoordinator.beginTarget() }', screen)
+        self.assertIn(') : androidx.compose.runtime.RememberObserver {', switch)
+        self.assertIn('override fun onAbandoned() = Unit', switch)
+        self.assertIn('token = coordinator.beginTarget()', switch)
+        self.assertIn('token?.let(coordinator::release)', switch)
         self.assertIn('if (isReplacedInComposition()) {', screen)
         self.assertIn('class WebViewCookieCoordinator', switch)
         self.assertIn('val Process = WebViewCookieCoordinator()', switch)

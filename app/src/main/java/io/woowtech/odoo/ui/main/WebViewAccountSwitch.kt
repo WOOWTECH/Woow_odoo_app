@@ -213,3 +213,38 @@ class WebViewCookieCoordinator {
         val Process = WebViewCookieCoordinator()
     }
 }
+
+/**
+ * An account target's process-wide token, taken only when the target's composition is COMMITTED
+ * (pi 0929 recheck-4 P2).
+ *
+ * Taking it while composing (`remember { coordinator.beginTarget() }`) mutated process-wide state from a
+ * composition that Compose may still discard: the displayed target's token was then already superseded
+ * while the discarded one never got an effect to release it, so the displayed WebView's callbacks and
+ * cookie work were rejected and its load / pending link stuck. As a [RememberObserver] the token is taken
+ * in [onRemembered] (commit), given back in [onForgotten] (the composition left or the target changed),
+ * and an abandoned composition ([onAbandoned]) never touches the process token. Main thread only.
+ */
+class WebViewTargetToken internal constructor(
+    private val coordinator: WebViewCookieCoordinator,
+) : androidx.compose.runtime.RememberObserver {
+    private var token: Int? = null
+
+    /** Whether this committed target's asynchronous work may still act; false before commit. */
+    fun isCurrent(): Boolean = token?.let(coordinator::isCurrent) ?: false
+
+    override fun onRemembered() {
+        if (token == null) token = coordinator.beginTarget()
+    }
+
+    override fun onForgotten() {
+        token?.let(coordinator::release)
+    }
+
+    override fun onAbandoned() = Unit
+}
+
+/** This target's [WebViewTargetToken], taken when the calling composition is committed. */
+@androidx.compose.runtime.Composable
+fun rememberWebViewTargetToken(coordinator: WebViewCookieCoordinator): WebViewTargetToken =
+    androidx.compose.runtime.remember { WebViewTargetToken(coordinator) }
