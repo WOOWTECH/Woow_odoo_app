@@ -58,6 +58,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,6 +66,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -391,7 +393,6 @@ fun OdooWebView(
     // The WebViewClient and update{} block are created once but must read the LATEST params on
     // every callback / recomposition, so wrap the deep-link inputs the same way.
     val currentServerUrl by rememberUpdatedState(serverUrl)
-    val currentDatabase by rememberUpdatedState(database)
     val currentDeepLinkUrl by rememberUpdatedState(deepLinkUrl)
     val currentOnDeepLinkConsumed by rememberUpdatedState(onDeepLinkConsumed)
 
@@ -401,7 +402,6 @@ fun OdooWebView(
     val currentOnSelfHeal by rememberUpdatedState(onSelfHeal)
     val currentGetFreshSessionId by rememberUpdatedState(getFreshSessionId)
     val currentOnReloginRequired by rememberUpdatedState(onReloginRequired)
-    val currentAccountId by rememberUpdatedState(accountId)
     val currentPlanCookies by rememberUpdatedState(planCookies)
     val currentOnCookiesApplied by rememberUpdatedState(onCookiesApplied)
 
@@ -411,21 +411,33 @@ fun OdooWebView(
     // [then] (the account's page load) runs only once the cookies are in place: Chromium removes
     // cookies asynchronously, so loading earlier could still present the previous account's cookies
     // (pi 0929 recheck).
-    fun prepareCookies(targetAccountId: String, targetServerUrl: String, then: () -> Unit) {
-        CookieManager.getInstance().setAcceptCookie(true)
-        val hasSessionCookie = WebViewCookiePlanner.hasSessionCookie(cookieStore.getCookie(targetServerUrl))
-        val plan = currentPlanCookies(targetAccountId, targetServerUrl, hasSessionCookie)
-        val applied = {
-            currentOnCookiesApplied(targetAccountId, plan)
-            then()
-        }
-        when (plan) {
-            WebViewCookiePlan.KeepExisting -> {
-                Timber.d("WebView keeps its own session for account %s", targetAccountId)
-                applied()
+    // The cookie store is process-global: jobs run one at a time ([cookieSequencer]) and every side
+    // effect — cookie write, owner record, page load — first checks [isCurrent], so a superseded
+    // account switch can no longer touch it (pi 0929 recheck-2). The plan is made when the job starts,
+    // after any earlier job settled, so it reads the cookie store as it really is.
+    val cookieSequencer = remember { WebViewCookieSequencer() }
+    fun prepareCookies(targetAccountId: String, targetServerUrl: String, isCurrent: () -> Boolean, then: () -> Unit) {
+        cookieSequencer.enqueue(isCurrent) { done ->
+            CookieManager.getInstance().setAcceptCookie(true)
+            val hasSessionCookie = WebViewCookiePlanner.hasSessionCookie(cookieStore.getCookie(targetServerUrl))
+            val plan = currentPlanCookies(targetAccountId, targetServerUrl, hasSessionCookie)
+            val applied = {
+                if (isCurrent()) {
+                    currentOnCookiesApplied(targetAccountId, plan)
+                    if (isCurrent()) then()
+                }
             }
-            is WebViewCookiePlan.Replace -> isolateCookiesForAccount(cookieStore, targetServerUrl, plan.sessionId, applied)
-            WebViewCookiePlan.Clear -> isolateCookiesForAccount(cookieStore, targetServerUrl, null, applied)
+            when (plan) {
+                WebViewCookiePlan.KeepExisting -> {
+                    Timber.d("WebView keeps its own session for account %s", targetAccountId)
+                    applied()
+                    done()
+                }
+                is WebViewCookiePlan.Replace ->
+                    isolateCookiesForAccount(cookieStore, targetServerUrl, plan.sessionId, isCurrent, onSettled = done, then = applied)
+                WebViewCookiePlan.Clear ->
+                    isolateCookiesForAccount(cookieStore, targetServerUrl, null, isCurrent, onSettled = done, then = applied)
+            }
         }
     }
 
@@ -444,34 +456,15 @@ fun OdooWebView(
     // blocking re-auth itself hops to Dispatchers.IO inside MainViewModel.selfHealActiveAccount.
     val selfHealScope = rememberCoroutineScope()
 
-    // Loop guard: at most one self-heal attempt per expiry cycle. Set true when a /web/login
-    // triggers self-heal; reset to false in onPageFinished once a real (non-login) page lands.
-    // A second /web/login while still true means self-heal did not recover the session — we route
-    // to the re-login surface instead of re-entering self-heal (prevents the Main⇄login bounce).
-    val selfHealAttempted = remember { AtomicBoolean(false) }
-
-    // Tracks which account (id + server + database) the single WebView last (re)loaded, so update{}
-    // can detect ANY account switch and drive a full reload — including two accounts on the same
-    // server URL (pi review P1, 2026-09-29), which a serverUrl-only check missed. Seeded in the factory.
-    var lastLoadedTarget by remember { mutableStateOf(WebViewLoadTarget(accountId, serverUrl, database)) }
-    // Binds page events to the account switch that caused them, so a late event of the previous
-    // account's page (same host included) can never count as the new account's page (pi 0929 recheck).
-    val loadGate = remember { WebViewSwitchLoadGate() }
-    // The deep link already applied to the current page, so it is applied exactly once whether
-    // it arrives via onPageFinished (cold / switch) or via the warm full-reload path.
-    var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
-    // True once the current server's page has finished loading. Gates the warm apply so a
-    // full reload is never fired at a page that is still loading (cold start / mid switch).
-    var currentPageLoaded by remember { mutableStateOf(false) }
+    // Counts the account targets (id + server + database) this screen has shown; the newest one is the
+    // only one whose asynchronous work may still act (see key(target) below).
+    val targetGenerations = remember { AtomicInteger(0) }
 
     // D1: system back steps back through Odoo's own page history (WebViewBackPolicy) instead of
     // closing the app. canNavigateBack is refreshed whenever the WebView history changes; with no
     // eligible previous page the BackHandler is disabled and back goes to NavHost/Activity as before.
     var attachedWebView by remember { mutableStateOf<WebView?>(null) }
     var canNavigateBack by remember { mutableStateOf(false) }
-    // Set on an account switch; the next finished page of the new host clears the WebView history so
-    // back can never return to the previous account's pages.
-    val clearHistoryOnNextPage = remember { AtomicBoolean(false) }
 
     fun refreshBackState(view: WebView?) {
         canNavigateBack = view != null && WebViewBackPolicy.canNavigateBack(
@@ -586,506 +579,567 @@ fun OdooWebView(
         cameraPhotoUri = null
     }
 
-    AndroidView(
-        factory = { context ->
-            WebView(context).apply {
-                // v1.0.14: Ensure WebView has proper layout params
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
+    // One WebView instance per account target (id + server + database). An account switch — another
+    // server, or another database/user on the same server (pi review P1) — composes a NEW instance and
+    // destroys the previous one, instead of reloading a single shared WebView. Events the previous
+    // account's page still has queued (onPageStarted and onPageFinished included) arrive at the old
+    // instance and are ignored there, so they can never open the new account's load gate, apply its
+    // deep link or clear its history (pi 0929 recheck-2). Unchanged target = same instance (warm path).
+    val target = WebViewLoadTarget(accountId, serverUrl, database)
+    key(target) {
+        val generation = remember { targetGenerations.incrementAndGet() }
+        // False once a later account target replaced this one: its asynchronous work must not act.
+        fun isCurrentTarget(): Boolean = targetGenerations.get() == generation
+        // The first target is the cold start; every later one is an account switch.
+        val isSwitch = generation > 1
+        // Binds page events to this instance's own load (defence in depth next to the instance check).
+        val loadGate = remember { WebViewSwitchLoadGate() }
+        val switchGeneration = remember { if (isSwitch) loadGate.beginSwitch() else null }
+        // The deep link already applied to the current page, so it is applied exactly once whether
+        // it arrives via onPageFinished (cold / switch) or via the warm full-reload path.
+        var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
+        // True once this account's page has finished loading. Gates the warm apply so a full reload
+        // is never fired at a page that is still loading (cold start / mid switch).
+        var currentPageLoaded by remember { mutableStateOf(false) }
+        // After a switch, the new account's first finished page clears the history (its boot URL) so
+        // back starts from the new account's own first page.
+        val clearHistoryOnNextPage = remember { AtomicBoolean(isSwitch) }
+        // Loop guard: at most one self-heal attempt per expiry cycle. Set true when a /web/login
+        // triggers self-heal; reset to false in onPageFinished once a real (non-login) page lands.
+        // A second /web/login while still true means self-heal did not recover the session — we route
+        // to the re-login surface instead of re-entering self-heal (prevents the Main⇄login bounce).
+        val selfHealAttempted = remember { AtomicBoolean(false) }
 
-                onWebViewCreated(this)
-                attachedWebView = this
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    // v1.0.14: Ensure WebView has proper layout params
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
 
-                settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                    databaseEnabled = true
-                    cacheMode = WebSettings.LOAD_DEFAULT
-                    setSupportZoom(true)
-                    builtInZoomControls = true
-                    displayZoomControls = false
-                    // Required for navigator.geolocation to fire
-                    // onGeolocationPermissionsShowPrompt in the WebChromeClient.
-                    setGeolocationEnabled(true)
+                    onWebViewCreated(this)
+                    attachedWebView = this
+                    canNavigateBack = false
+                    val thisView = this
 
-                    // v1.0.12: CRITICAL FIX - Disable wide viewport settings
-                    // These settings cause Odoo OWL to miscalculate layout dimensions
-                    // Playwright tests work WITHOUT these settings
-                    loadWithOverviewMode = false
-                    useWideViewPort = false
+                    // Every callback first checks that it comes from THIS instance and that this
+                    // instance's account is still the one on screen. A replaced account's WebView may
+                    // still deliver queued events; none of them may act (pi 0929 recheck-2).
+                    fun owns(view: WebView?): Boolean = view === thisView && isCurrentTarget()
 
-                    // B0.8: Disable file access for security
-                    allowFileAccess = false
-                    allowContentAccess = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                        cacheMode = WebSettings.LOAD_DEFAULT
+                        setSupportZoom(true)
+                        builtInZoomControls = true
+                        displayZoomControls = false
+                        // Required for navigator.geolocation to fire
+                        // onGeolocationPermissionsShowPrompt in the WebChromeClient.
+                        setGeolocationEnabled(true)
 
-                    // B0.7: Disable popup windows for security, but allow JS window calls
-                    // OWL framework requires javaScriptCanOpenWindowsAutomatically for proper rendering
-                    javaScriptCanOpenWindowsAutomatically = true
-                    mediaPlaybackRequiresUserGesture = false
-                    setSupportMultipleWindows(false)
+                        // v1.0.12: CRITICAL FIX - Disable wide viewport settings
+                        // These settings cause Odoo OWL to miscalculate layout dimensions
+                        // Playwright tests work WITHOUT these settings
+                        loadWithOverviewMode = false
+                        useWideViewPort = false
 
-                    // v1.0.12: Use standard Chrome Mobile User-Agent (no custom suffix)
-                    // Some sites check for exact UA match
-                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-                }
+                        // B0.8: Disable file access for security
+                        allowFileAccess = false
+                        allowContentAccess = true
+                        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
-                // Enable cookies for this WebView.
-                val cookieManager = CookieManager.getInstance()
-                cookieManager.setAcceptCookie(true)
-                // B0.6: Disable third-party cookies for security
-                cookieManager.setAcceptThirdPartyCookies(this, false)
+                        // B0.7: Disable popup windows for security, but allow JS window calls
+                        // OWL framework requires javaScriptCanOpenWindowsAutomatically for proper rendering
+                        javaScriptCanOpenWindowsAutomatically = true
+                        mediaPlaybackRequiresUserGesture = false
+                        setSupportMultipleWindows(false)
 
-                webViewClient = object : WebViewClient() {
-                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                        super.onPageStarted(view, url, favicon)
-                        // A fresh document load begins — the warm deep-link apply must wait until
-                        // it finishes before it may trigger another full reload.
-                        currentPageLoaded = false
-                        loadGate.onPageStarted()
-                        onLoadingChanged(true)
+                        // v1.0.12: Use standard Chrome Mobile User-Agent (no custom suffix)
+                        // Some sites check for exact UA match
+                        userAgentString = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
                     }
 
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        // Self-heal loop guard: a real (non-login) page landed, so re-arm self-heal
-                        // for any future, genuinely-new expiry. A /web/login landing must NOT clear
-                        // it — that case is handled in shouldOverrideUrlLoading and re-arming here
-                        // would let the bounce loop resume.
-                        if (url != null && !url.contains("/web/login")) {
-                            selfHealAttempted.set(false)
-                            // A real page of this account loaded: make its (possibly rotated)
-                            // session durable now rather than only when Chromium gets to it.
-                            if (DeepLinkWebPlanner.hostMatches(loadedUrl = url, targetServerUrl = currentServerUrl)) {
-                                CookieManager.getInstance().flush()
-                            }
+                    // Enable cookies for this WebView.
+                    val cookieManager = CookieManager.getInstance()
+                    cookieManager.setAcceptCookie(true)
+                    // B0.6: Disable third-party cookies for security
+                    cookieManager.setAcceptThirdPartyCookies(this, false)
+
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                            super.onPageStarted(view, url, favicon)
+                            if (!owns(view)) return
+                            // A fresh document load begins — the warm deep-link apply must wait until
+                            // it finishes before it may trigger another full reload.
+                            currentPageLoaded = false
+                            loadGate.onPageStarted()
+                            onLoadingChanged(true)
                         }
-                        // v1.0.14: Force layout recalculation for OWL framework
-                        view?.evaluateJavascript(
-                            """
-                            (function() {
-                                console.log('[${AppBrand.current.webLogTag}] Page loaded: ' + window.location.href);
-                                console.log('[${AppBrand.current.webLogTag}] Viewport: ' + window.innerWidth + 'x' + window.innerHeight);
 
-                                // Force body to have correct dimensions
-                                document.body.style.minHeight = '100vh';
-                                document.body.style.height = '100%';
-                                document.documentElement.style.height = '100%';
-
-                                // Force action_manager to have correct dimensions
-                                var am = document.querySelector('.o_action_manager');
-                                if (am) {
-                                    am.style.minHeight = 'calc(100vh - 46px)';
-                                    am.style.height = 'auto';
-                                    am.style.overflow = 'auto';
-                                    console.log('[${AppBrand.current.webLogTag}] ActionManager found, innerHTML: ' + am.innerHTML.length + ' chars');
-                                    console.log('[${AppBrand.current.webLogTag}] ActionManager size: ' + am.offsetWidth + 'x' + am.offsetHeight);
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            if (!owns(view)) return
+                            // Self-heal loop guard: a real (non-login) page landed, so re-arm self-heal
+                            // for any future, genuinely-new expiry. A /web/login landing must NOT clear
+                            // it — that case is handled in shouldOverrideUrlLoading and re-arming here
+                            // would let the bounce loop resume.
+                            if (url != null && !url.contains("/web/login")) {
+                                selfHealAttempted.set(false)
+                                // A real page of this account loaded: make its (possibly rotated)
+                                // session durable now rather than only when Chromium gets to it.
+                                if (DeepLinkWebPlanner.hostMatches(loadedUrl = url, targetServerUrl = target.serverUrl)) {
+                                    CookieManager.getInstance().flush()
                                 }
+                            }
+                            // v1.0.14: Force layout recalculation for OWL framework
+                            view?.evaluateJavascript(
+                                """
+                                (function() {
+                                    console.log('[${AppBrand.current.webLogTag}] Page loaded: ' + window.location.href);
+                                    console.log('[${AppBrand.current.webLogTag}] Viewport: ' + window.innerWidth + 'x' + window.innerHeight);
 
-                                // Trigger multiple resize events to wake up OWL
-                                window.dispatchEvent(new Event('resize'));
-                                setTimeout(function() {
-                                    window.dispatchEvent(new Event('resize'));
-                                    // Force reflow
-                                    document.body.offsetHeight;
-                                }, 100);
-                                setTimeout(function() {
-                                    window.dispatchEvent(new Event('resize'));
-                                }, 500);
-                                setTimeout(function() {
-                                    window.dispatchEvent(new Event('resize'));
-                                    var am2 = document.querySelector('.o_action_manager');
-                                    if (am2) {
-                                        console.log('[${AppBrand.current.webLogTag}] After 1s - ActionManager size: ' + am2.offsetWidth + 'x' + am2.offsetHeight);
-                                        console.log('[${AppBrand.current.webLogTag}] After 1s - innerHTML: ' + am2.innerHTML.length + ' chars');
+                                    // Force body to have correct dimensions
+                                    document.body.style.minHeight = '100vh';
+                                    document.body.style.height = '100%';
+                                    document.documentElement.style.height = '100%';
+
+                                    // Force action_manager to have correct dimensions
+                                    var am = document.querySelector('.o_action_manager');
+                                    if (am) {
+                                        am.style.minHeight = 'calc(100vh - 46px)';
+                                        am.style.height = 'auto';
+                                        am.style.overflow = 'auto';
+                                        console.log('[${AppBrand.current.webLogTag}] ActionManager found, innerHTML: ' + am.innerHTML.length + ' chars');
+                                        console.log('[${AppBrand.current.webLogTag}] ActionManager size: ' + am.offsetWidth + 'x' + am.offsetHeight);
                                     }
-                                }, 1000);
-                            })();
-                            """.trimIndent(),
-                            null
-                        )
 
-                        // Load-gated deep-link apply: only navigate to the pending link once a
-                        // page from the TARGET account's own host has finished loading. This is
-                        // the point that guarantees a link is never applied while the WebView is
-                        // still showing the previous account's host.
-                        // After an account switch only the switch load's own page counts; a late
-                        // event of the previous account's page (same host included) is ignored.
-                        val targetPageLoaded = loadGate.acceptFinished(
-                            onTargetHost = DeepLinkWebPlanner.hostMatches(
-                                loadedUrl = url,
-                                targetServerUrl = currentServerUrl,
-                            ),
-                        )
-                        currentPageLoaded = targetPageLoaded
-
-                        val pending = currentDeepLinkUrl
-                        if (view != null &&
-                            pending != null &&
-                            appliedDeepLinkUrl != pending &&
-                            currentPageLoaded
-                        ) {
-                            applyDeepLink(view, currentServerUrl, pending)
-                            appliedDeepLinkUrl = pending
-                            currentOnDeepLinkConsumed()
-                            Timber.d("Applied pending deep link after page load")
-                        }
-
-                        // D1: after an account switch, drop the previous account's pages from the
-                        // history once the new account's own page has landed, then re-evaluate back.
-                        if (view != null &&
-                            targetPageLoaded &&
-                            clearHistoryOnNextPage.compareAndSet(true, false)
-                        ) {
-                            view.clearHistory()
-                        }
-                        refreshBackState(view)
-
-                        onLoadingChanged(false)
-                    }
-
-                    // D1: Odoo navigates client-side (history.pushState); each history change
-                    // re-evaluates whether system back belongs to the WebView.
-                    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
-                        super.doUpdateVisitedHistory(view, url, isReload)
-                        refreshBackState(view)
-                    }
-
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView?,
-                        request: WebResourceRequest?
-                    ): Boolean {
-                        val url = request?.url?.toString() ?: return false
-                        Timber.d("shouldOverrideUrlLoading: $url")
-
-                        // Detect session expiry — Odoo redirects the expired WebView to /web/login.
-                        // Instead of bouncing to Config (the old behaviour, which trapped the user
-                        // in a Main⇄login loop), silently self-heal from the stored password and
-                        // stay on the Odoo page — parity with iOS attemptSelfHealOrLogin.
-                        if (url.contains("/web/login")) {
-                            if (selfHealAttempted.compareAndSet(false, true)) {
-                                // First expiry this cycle: cancel the login-page load, show the
-                                // spinner, and re-authenticate off-thread. All security guardrails
-                                // (https-only + exact stored host, one retry, bad-cred STOP,
-                                // single-flight, no credential logging) live in SessionReauthenticator.
-                                Timber.d("Session expired — attempting silent self-heal")
-                                onLoadingChanged(true)
-                                val targetServerUrl = currentServerUrl
-                                val targetDatabase = currentDatabase
-                                val targetAccountId = currentAccountId
-                                selfHealScope.launch {
-                                    val host = runCatching { java.net.URI(targetServerUrl).host }
-                                        .getOrNull()
-                                    val healed = host != null && currentOnSelfHeal(host)
-                                    if (healed) {
-                                        // Re-inject the refreshed session cookie (host-scoped, same
-                                        // proven path as the initial load) and reload the Odoo page.
-                                        val freshSessionId = currentGetFreshSessionId(targetServerUrl)
-                                        // The reload waits until the cookie store holds only the fresh session.
-                                        isolateCookiesForAccount(cookieStore, targetServerUrl, freshSessionId) {
-                                            currentOnCookiesApplied(
-                                                targetAccountId,
-                                                freshSessionId?.let { WebViewCookiePlan.Replace(it) } ?: WebViewCookiePlan.Clear,
-                                            )
-                                            view?.loadUrl("$targetServerUrl/web?db=$targetDatabase")
+                                    // Trigger multiple resize events to wake up OWL
+                                    window.dispatchEvent(new Event('resize'));
+                                    setTimeout(function() {
+                                        window.dispatchEvent(new Event('resize'));
+                                        // Force reflow
+                                        document.body.offsetHeight;
+                                    }, 100);
+                                    setTimeout(function() {
+                                        window.dispatchEvent(new Event('resize'));
+                                    }, 500);
+                                    setTimeout(function() {
+                                        window.dispatchEvent(new Event('resize'));
+                                        var am2 = document.querySelector('.o_action_manager');
+                                        if (am2) {
+                                            console.log('[${AppBrand.current.webLogTag}] After 1s - ActionManager size: ' + am2.offsetWidth + 'x' + am2.offsetHeight);
+                                            console.log('[${AppBrand.current.webLogTag}] After 1s - innerHTML: ' + am2.innerHTML.length + ' chars');
                                         }
-                                        // Guard stays set until onPageFinished lands a real page —
-                                        // if the reload itself hits /web/login again we must not loop.
+                                    }, 1000);
+                                })();
+                                """.trimIndent(),
+                                null
+                            )
+
+                            // Load-gated deep-link apply: only navigate to the pending link once a
+                            // page from the TARGET account's own host has finished loading. This is
+                            // the point that guarantees a link is never applied while the WebView is
+                            // still showing the previous account's host.
+                            // After an account switch only the switch load's own page counts; a late
+                            // event of the previous account's page (same host included) is ignored.
+                            val targetPageLoaded = loadGate.acceptFinished(
+                                onTargetHost = DeepLinkWebPlanner.hostMatches(
+                                    loadedUrl = url,
+                                    targetServerUrl = target.serverUrl,
+                                ),
+                            )
+                            currentPageLoaded = targetPageLoaded
+
+                            val pending = currentDeepLinkUrl
+                            if (view != null &&
+                                pending != null &&
+                                appliedDeepLinkUrl != pending &&
+                                currentPageLoaded
+                            ) {
+                                applyDeepLink(view, target.serverUrl, pending)
+                                appliedDeepLinkUrl = pending
+                                currentOnDeepLinkConsumed()
+                                Timber.d("Applied pending deep link after page load")
+                            }
+
+                            // D1: after an account switch, drop the previous account's pages from the
+                            // history once the new account's own page has landed, then re-evaluate back.
+                            if (view != null &&
+                                targetPageLoaded &&
+                                clearHistoryOnNextPage.compareAndSet(true, false)
+                            ) {
+                                view.clearHistory()
+                            }
+                            refreshBackState(view)
+
+                            onLoadingChanged(false)
+                        }
+
+                        // D1: Odoo navigates client-side (history.pushState); each history change
+                        // re-evaluates whether system back belongs to the WebView.
+                        override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                            super.doUpdateVisitedHistory(view, url, isReload)
+                            if (!owns(view)) return
+                            refreshBackState(view)
+                        }
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): Boolean {
+                            val url = request?.url?.toString() ?: return false
+                            if (!owns(view)) {
+                                // A replaced account's WebView: cancel whatever it still tries to load.
+                                Timber.d("Blocked navigation of a replaced account WebView")
+                                return true
+                            }
+                            Timber.d("shouldOverrideUrlLoading: $url")
+
+                            // Detect session expiry — Odoo redirects the expired WebView to /web/login.
+                            // Instead of bouncing to Config (the old behaviour, which trapped the user
+                            // in a Main⇄login loop), silently self-heal from the stored password and
+                            // stay on the Odoo page — parity with iOS attemptSelfHealOrLogin.
+                            if (url.contains("/web/login")) {
+                                if (selfHealAttempted.compareAndSet(false, true)) {
+                                    // First expiry this cycle: cancel the login-page load, show the
+                                    // spinner, and re-authenticate off-thread. All security guardrails
+                                    // (https-only + exact stored host, one retry, bad-cred STOP,
+                                    // single-flight, no credential logging) live in SessionReauthenticator.
+                                    Timber.d("Session expired — attempting silent self-heal")
+                                    onLoadingChanged(true)
+                                    val targetServerUrl = target.serverUrl
+                                    val targetDatabase = target.database
+                                    val targetAccountId = target.accountId
+                                    selfHealScope.launch {
+                                        val host = runCatching { java.net.URI(targetServerUrl).host }
+                                            .getOrNull()
+                                        val healed = host != null && currentOnSelfHeal(host)
+                                        // The user switched accounts while the re-auth ran: this heal
+                                        // belongs to a replaced account and may write no cookie,
+                                        // record no owner, load nothing and redirect nowhere.
+                                        if (!isCurrentTarget()) {
+                                            Timber.d("Self-heal finished after an account switch — discarded")
+                                            return@launch
+                                        }
+                                        if (healed) {
+                                            // Re-inject the refreshed session cookie (host-scoped, same
+                                            // proven path as the initial load) and reload the Odoo page.
+                                            val freshSessionId = currentGetFreshSessionId(targetServerUrl)
+                                            // The reload waits until the cookie store holds only the fresh session.
+                                            cookieSequencer.enqueue(::isCurrentTarget) { done ->
+                                                isolateCookiesForAccount(
+                                                    cookieStore,
+                                                    targetServerUrl,
+                                                    freshSessionId,
+                                                    isCurrent = ::isCurrentTarget,
+                                                    onSettled = done,
+                                                ) {
+                                                    currentOnCookiesApplied(
+                                                        targetAccountId,
+                                                        freshSessionId?.let { WebViewCookiePlan.Replace(it) } ?: WebViewCookiePlan.Clear,
+                                                    )
+                                                    if (isCurrentTarget()) thisView.loadUrl("$targetServerUrl/web?db=$targetDatabase")
+                                                }
+                                            }
+                                            // Guard stays set until onPageFinished lands a real page —
+                                            // if the reload itself hits /web/login again we must not loop.
+                                        } else {
+                                            Timber.d("Self-heal failed — surfacing re-login")
+                                            onLoadingChanged(false)
+                                            currentOnReloginRequired()
+                                        }
+                                    }
+                                } else {
+                                    // Second /web/login before a real page loaded: self-heal already
+                                    // ran and did not recover the session. Do NOT retry — surface the
+                                    // re-login prompt so the user can re-authenticate manually.
+                                    Timber.d("Session still expired after self-heal — surfacing re-login")
+                                    onLoadingChanged(false)
+                                    currentOnReloginRequired()
+                                }
+                                return true
+                            }
+
+                            // v1.0.13: Allow all URLs from the same host (not just same prefix)
+                            // This handles /odoo/ redirects in Odoo 17/18
+                            val serverHost = java.net.URI(target.serverUrl).host
+                            val urlHost = try { java.net.URI(url).host } catch (e: Exception) { null }
+                            if (urlHost == serverHost) {
+                                Timber.d("Same host, allowing: $url")
+                                return false
+                            }
+
+                            // Allow blob: URLs (used by OWL framework for downloads)
+                            if (url.startsWith("blob:")) {
+                                Timber.d("Allowing blob URL")
+                                return false
+                            }
+
+                            // B0.5: Block all other URLs — open external URLs in system browser
+                            Timber.d("External URL, opening in browser: $url")
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                view?.context?.startActivity(intent)
+                            } catch (e: android.content.ActivityNotFoundException) {
+                                Timber.e("No browser found to open: $url")
+                            }
+                            return true
+                        }
+
+                        // v1.0.13: Monitor all resource requests for debugging
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): WebResourceResponse? {
+                            val url = request?.url?.toString() ?: return null
+                            // Log failed or important requests
+                            if (url.contains(".js") || url.contains(".css") || url.contains("/web/")) {
+                                Timber.d("Resource request: $url")
+                            }
+                            return null // Don't intercept, let WebView handle it
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: android.webkit.WebResourceError?
+                        ) {
+                            super.onReceivedError(view, request, error)
+                            Timber.e("Resource error: ${request?.url} - ${error?.description}")
+                        }
+                    }
+
+                    // v1.0.15: Enhanced WebChromeClient with file upload, window handling and console logging
+                    webChromeClient = object : WebChromeClient() {
+                        // v1.0.15: File upload support
+                        override fun onShowFileChooser(
+                            webView: WebView?,
+                            callback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?
+                        ): Boolean {
+                            if (!owns(webView)) {
+                                callback?.onReceiveValue(null)
+                                return true
+                            }
+                            Timber.d("onShowFileChooser called")
+                            Timber.d("Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
+                            Timber.d("Mode: ${fileChooserParams?.mode}")
+
+                            // Cancel any pending callback
+                            filePathCallback?.onReceiveValue(null)
+                            filePathCallback = callback
+
+                            try {
+                                // Create camera intent
+                                val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                                val photoFile = createImageFile()
+                                val photoUri = FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    photoFile
+                                )
+                                cameraPhotoUri = photoUri
+                                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                                Timber.d("Camera URI: $photoUri")
+
+                                // Create gallery/file intent
+                                val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                    addCategory(Intent.CATEGORY_OPENABLE)
+
+                                    // Set MIME type based on accept types
+                                    val acceptTypes = fileChooserParams?.acceptTypes
+                                    type = if (acceptTypes.isNullOrEmpty() || acceptTypes[0].isNullOrBlank()) {
+                                        "*/*"
                                     } else {
-                                        Timber.d("Self-heal failed — surfacing re-login")
-                                        onLoadingChanged(false)
-                                        currentOnReloginRequired()
+                                        acceptTypes[0]
+                                    }
+
+                                    // Allow multiple selection if supported
+                                    if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                                     }
                                 }
-                            } else {
-                                // Second /web/login before a real page loaded: self-heal already
-                                // ran and did not recover the session. Do NOT retry — surface the
-                                // re-login prompt so the user can re-authenticate manually.
-                                Timber.d("Session still expired after self-heal — surfacing re-login")
-                                onLoadingChanged(false)
-                                currentOnReloginRequired()
+
+                                // Create chooser with camera as extra option
+                                val chooserIntent = Intent.createChooser(contentIntent, "選擇檔案").apply {
+                                    putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(takePictureIntent))
+                                }
+
+                                fileChooserLauncher.launch(chooserIntent)
+                                return true
+
+                            } catch (e: Exception) {
+                                Timber.e("Error launching file chooser: ${e.message}")
+                                filePathCallback?.onReceiveValue(null)
+                                filePathCallback = null
+                                cameraPhotoUri = null
+                                return false
+                            }
+                        }
+
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: Message?
+                        ): Boolean {
+                            if (!owns(view)) return false
+                            // Handle window creation requests from OWL framework
+                            Timber.d("onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
+                            // Create a new WebView for the popup and pass it back
+                            val newWebView = WebView(view?.context ?: return false)
+                            newWebView.settings.javaScriptEnabled = true
+                            val transport = resultMsg?.obj as? WebView.WebViewTransport
+                            transport?.webView = newWebView
+                            resultMsg?.sendToTarget()
+                            return true
+                        }
+
+                        override fun onCloseWindow(window: WebView?) {
+                            Timber.d("onCloseWindow called")
+                            window?.destroy()
+                        }
+
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                            consoleMessage?.let {
+                                Timber.d(
+                                    "[%s] %s (%s:%d)",
+                                    it.messageLevel(),
+                                    it.message(),
+                                    it.sourceId(),
+                                    it.lineNumber()
+                                )
                             }
                             return true
                         }
 
-                        // v1.0.13: Allow all URLs from the same host (not just same prefix)
-                        // This handles /odoo/ redirects in Odoo 17/18
-                        val serverHost = java.net.URI(serverUrl).host
-                        val urlHost = try { java.net.URI(url).host } catch (e: Exception) { null }
-                        if (urlHost == serverHost) {
-                            Timber.d("Same host, allowing: $url")
-                            return false
-                        }
-
-                        // Allow blob: URLs (used by OWL framework for downloads)
-                        if (url.startsWith("blob:")) {
-                            Timber.d("Allowing blob URL")
-                            return false
-                        }
-
-                        // B0.5: Block all other URLs — open external URLs in system browser
-                        Timber.d("External URL, opening in browser: $url")
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            view?.context?.startActivity(intent)
-                        } catch (e: android.content.ActivityNotFoundException) {
-                            Timber.e("No browser found to open: $url")
-                        }
-                        return true
-                    }
-
-                    // v1.0.13: Monitor all resource requests for debugging
-                    override fun shouldInterceptRequest(
-                        view: WebView?,
-                        request: WebResourceRequest?
-                    ): WebResourceResponse? {
-                        val url = request?.url?.toString() ?: return null
-                        // Log failed or important requests
-                        if (url.contains(".js") || url.contains(".css") || url.contains("/web/")) {
-                            Timber.d("Resource request: $url")
-                        }
-                        return null // Don't intercept, let WebView handle it
-                    }
-
-                    override fun onReceivedError(
-                        view: WebView?,
-                        request: WebResourceRequest?,
-                        error: android.webkit.WebResourceError?
-                    ) {
-                        super.onReceivedError(view, request, error)
-                        Timber.e("Resource error: ${request?.url} - ${error?.description}")
-                    }
-                }
-
-                // v1.0.15: Enhanced WebChromeClient with file upload, window handling and console logging
-                webChromeClient = object : WebChromeClient() {
-                    // v1.0.15: File upload support
-                    override fun onShowFileChooser(
-                        webView: WebView?,
-                        callback: ValueCallback<Array<Uri>>?,
-                        fileChooserParams: FileChooserParams?
-                    ): Boolean {
-                        Timber.d("onShowFileChooser called")
-                        Timber.d("Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
-                        Timber.d("Mode: ${fileChooserParams?.mode}")
-
-                        // Cancel any pending callback
-                        filePathCallback?.onReceiveValue(null)
-                        filePathCallback = callback
-
-                        try {
-                            // Create camera intent
-                            val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                            val photoFile = createImageFile()
-                            val photoUri = FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                photoFile
-                            )
-                            cameraPhotoUri = photoUri
-                            takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-                            Timber.d("Camera URI: $photoUri")
-
-                            // Create gallery/file intent
-                            val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE)
-
-                                // Set MIME type based on accept types
-                                val acceptTypes = fileChooserParams?.acceptTypes
-                                type = if (acceptTypes.isNullOrEmpty() || acceptTypes[0].isNullOrBlank()) {
-                                    "*/*"
-                                } else {
-                                    acceptTypes[0]
-                                }
-
-                                // Allow multiple selection if supported
-                                if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                                }
-                            }
-
-                            // Create chooser with camera as extra option
-                            val chooserIntent = Intent.createChooser(contentIntent, "選擇檔案").apply {
-                                putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(takePictureIntent))
-                            }
-
-                            fileChooserLauncher.launch(chooserIntent)
-                            return true
-
-                        } catch (e: Exception) {
-                            Timber.e("Error launching file chooser: ${e.message}")
-                            filePathCallback?.onReceiveValue(null)
-                            filePathCallback = null
-                            cameraPhotoUri = null
-                            return false
-                        }
-                    }
-
-                    override fun onCreateWindow(
-                        view: WebView?,
-                        isDialog: Boolean,
-                        isUserGesture: Boolean,
-                        resultMsg: Message?
-                    ): Boolean {
-                        // Handle window creation requests from OWL framework
-                        Timber.d("onCreateWindow called: isDialog=$isDialog, isUserGesture=$isUserGesture")
-                        // Create a new WebView for the popup and pass it back
-                        val newWebView = WebView(view?.context ?: return false)
-                        newWebView.settings.javaScriptEnabled = true
-                        val transport = resultMsg?.obj as? WebView.WebViewTransport
-                        transport?.webView = newWebView
-                        resultMsg?.sendToTarget()
-                        return true
-                    }
-
-                    override fun onCloseWindow(window: WebView?) {
-                        Timber.d("onCloseWindow called")
-                        window?.destroy()
-                    }
-
-                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                        consoleMessage?.let {
-                            Timber.d(
-                                "[%s] %s (%s:%d)",
-                                it.messageLevel(),
-                                it.message(),
-                                it.sourceId(),
-                                it.lineNumber()
-                            )
-                        }
-                        return true
-                    }
-
-                    /**
-                     * Called by the WebView when a page requests geolocation permission.
-                     *
-                     * The resolution order is:
-                     * 1. Activity-resumed guard — if the Activity is not RESUMED the OS dialog
-                     *    cannot be shown, so we deny immediately and let Odoo's error callback
-                     *    fire the no-coords clock-in path.
-                     * 2. [LocationPermissionGate.resolve] — checks origin, user preference,
-                     *    and OS permission state.
-                     *
-                     * Every code path invokes [callback] exactly once, satisfying the
-                     * WebView's contract of calling the callback within the 30s timeout.
-                     */
-                    override fun onGeolocationPermissionsShowPrompt(
-                        origin: String?,
-                        callback: GeolocationPermissions.Callback?,
-                    ) {
-                        if (callback == null) return
-
-                        // Guard: OS runtime dialog cannot be shown unless Activity is RESUMED.
-                        if (lifecycleOwner.lifecycle.currentState < Lifecycle.State.RESUMED) {
-                            callback.invoke(origin, false, false)
-                            Timber.w("Geolocation: Activity not RESUMED — denied for %s", origin)
-                            return
-                        }
-
-                        val gate = locationPermissionGate
-                        if (gate == null) {
-                            // Gate unavailable (e.g. previews, tests without Hilt) — deny safely.
-                            callback.invoke(origin, false, false)
-                            return
-                        }
-
-                        when (val decision = gate.resolve(origin, currentActiveHost)) {
-                            is LocationPermissionGate.Decision.Grant -> {
-                                // Defense-in-depth: clear any stale per-origin "blocked" cache
-                                // entry that could override this grant.
-                                if (!origin.isNullOrBlank()) {
-                                    GeolocationPermissions.getInstance().clear(origin)
-                                }
-                                callback.invoke(origin, true, true)
-                                Timber.d("Geolocation: granted for %s", origin)
-                            }
-                            is LocationPermissionGate.Decision.Reject -> {
+                        /**
+                         * Called by the WebView when a page requests geolocation permission.
+                         *
+                         * The resolution order is:
+                         * 1. Activity-resumed guard — if the Activity is not RESUMED the OS dialog
+                         *    cannot be shown, so we deny immediately and let Odoo's error callback
+                         *    fire the no-coords clock-in path.
+                         * 2. [LocationPermissionGate.resolve] — checks origin, user preference,
+                         *    and OS permission state.
+                         *
+                         * Every code path invokes [callback] exactly once, satisfying the
+                         * WebView's contract of calling the callback within the 30s timeout.
+                         */
+                        override fun onGeolocationPermissionsShowPrompt(
+                            origin: String?,
+                            callback: GeolocationPermissions.Callback?,
+                        ) {
+                            if (callback == null) return
+                            if (!owns(thisView)) {
                                 callback.invoke(origin, false, false)
-                                Timber.d("Geolocation: rejected (%s)", decision.reason)
+                                return
                             }
-                            is LocationPermissionGate.Decision.NeedsRuntimePrompt -> {
-                                pendingGeolocationRequest = PendingGeolocationRequest(
-                                    origin = origin,
-                                    callback = callback,
-                                )
-                                locationPermissionLauncher.launch(
-                                    arrayOf(
-                                        Manifest.permission.ACCESS_FINE_LOCATION,
-                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+
+                            // Guard: OS runtime dialog cannot be shown unless Activity is RESUMED.
+                            if (lifecycleOwner.lifecycle.currentState < Lifecycle.State.RESUMED) {
+                                callback.invoke(origin, false, false)
+                                Timber.w("Geolocation: Activity not RESUMED — denied for %s", origin)
+                                return
+                            }
+
+                            val gate = locationPermissionGate
+                            if (gate == null) {
+                                // Gate unavailable (e.g. previews, tests without Hilt) — deny safely.
+                                callback.invoke(origin, false, false)
+                                return
+                            }
+
+                            when (val decision = gate.resolve(origin, currentActiveHost)) {
+                                is LocationPermissionGate.Decision.Grant -> {
+                                    // Defense-in-depth: clear any stale per-origin "blocked" cache
+                                    // entry that could override this grant.
+                                    if (!origin.isNullOrBlank()) {
+                                        GeolocationPermissions.getInstance().clear(origin)
+                                    }
+                                    callback.invoke(origin, true, true)
+                                    Timber.d("Geolocation: granted for %s", origin)
+                                }
+                                is LocationPermissionGate.Decision.Reject -> {
+                                    callback.invoke(origin, false, false)
+                                    Timber.d("Geolocation: rejected (%s)", decision.reason)
+                                }
+                                is LocationPermissionGate.Decision.NeedsRuntimePrompt -> {
+                                    pendingGeolocationRequest = PendingGeolocationRequest(
+                                        origin = origin,
+                                        callback = callback,
                                     )
-                                )
+                                    locationPermissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                                        )
+                                    )
+                                }
                             }
                         }
-                    }
 
-                    override fun onGeolocationPermissionsHidePrompt() {
-                        super.onGeolocationPermissionsHidePrompt()
-                    }
-                }
-
-                // Always load the account's base page; any pending deep link is applied in
-                // onPageFinished once this host has finished loading (load-gated apply). This
-                // keeps the "apply only after load" invariant identical across cold start and
-                // account switch.
-                lastLoadedTarget = WebViewLoadTarget(accountId, serverUrl, database)
-                // Per-account cookie isolation: the CookieManager is process-global, so before the
-                // first load we keep ONLY this account's session — its own surviving WebView cookie,
-                // or a fresh native one — and clear everything else. Account A's cookies can never
-                // load under account B (WebViewCookiePlanner). The load waits for the cookies.
-                prepareCookies(targetAccountId = accountId, targetServerUrl = serverUrl) {
-                    loadUrl("$serverUrl/web?db=$database")
-                }
-            }
-        },
-        modifier = Modifier.fillMaxSize(),
-        update = { webView ->
-            val target = WebViewLoadTarget(accountId, serverUrl, database)
-            if (target != lastLoadedTarget) {
-                // Single-view account switch: the active account changed (another server, or another
-                // database/user on the same server). Re-isolate cookies for the new account and reload
-                // its base page. The pending deep link is then applied in onPageFinished (host-gated).
-                Timber.d("Account switched — reloading WebView for new server")
-                appliedDeepLinkUrl = null
-                currentPageLoaded = false
-                clearHistoryOnNextPage.set(true)
-                canNavigateBack = false
-                lastLoadedTarget = target
-                // Stop the previous account's page so it produces no further load events. Events it
-                // already queued are delivered before the load posted below, and the gate rejects
-                // any finished page that is not this switch's own load (pi 0929 recheck).
-                webView.stopLoading()
-                val switchGeneration = loadGate.beginSwitch()
-                prepareCookies(targetAccountId = target.accountId, targetServerUrl = target.serverUrl) {
-                    webView.post {
-                        // A newer switch superseded this one while the cookies were being prepared.
-                        if (loadGate.isCurrent(switchGeneration)) {
-                            loadGate.onLoadIssued(switchGeneration)
-                            webView.loadUrl("${target.serverUrl}/web?db=${target.database}")
+                        override fun onGeolocationPermissionsHidePrompt() {
+                            super.onGeolocationPermissionsHidePrompt()
                         }
                     }
+
+                    // Always load the account's base page; any pending deep link is applied in
+                    // onPageFinished once this host has finished loading (load-gated apply). This
+                    // keeps the "apply only after load" invariant identical across cold start and
+                    // account switch.
+                    // Per-account cookie isolation: the CookieManager is process-global, so before the
+                    // first load we keep ONLY this account's session — its own surviving WebView cookie,
+                    // or a fresh native one — and clear everything else. Account A's cookies can never
+                    // load under account B (WebViewCookiePlanner). The load waits for the cookies, and
+                    // is dropped if another account replaced this one meanwhile.
+                    prepareCookies(
+                        targetAccountId = target.accountId,
+                        targetServerUrl = target.serverUrl,
+                        isCurrent = ::isCurrentTarget,
+                    ) {
+                        switchGeneration?.let { loadGate.onLoadIssued(it) }
+                        loadUrl("${target.serverUrl}/web?db=${target.database}")
+                    }
                 }
-            } else {
-                // Warm case: already loaded on the target host (no reload happens) and a new deep
-                // link is pending for it. Every warm same-account pending link — with OR without a
-                // `#fragment` (e.g. "/web/login") — is routed through applyDeepLink -> plan() ->
-                // FullLoad (a full cross-document reload), matching iOS which routes every warm tap
-                // with no fragment precondition. Gated on currentPageLoaded so it never fires at a
-                // page that is still loading.
+            },
+            onRelease = { released ->
+                // A replaced account's WebView: stop it and cut its callbacks before destroying it, so
+                // nothing it still has queued reaches the app. When the whole screen leaves, the last
+                // instance is destroyed by its owner as before (MainScreen).
+                if (!isCurrentTarget()) {
+                    released.stopLoading()
+                    released.webViewClient = WebViewClient()
+                    released.webChromeClient = null
+                    released.destroy()
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            update = { webView ->
+                // Warm case: this account's page is shown (an account switch creates a new instance
+                // instead, see key(target)) and a new deep link is pending for it. Every warm
+                // same-account pending link — with OR without a `#fragment` (e.g. "/web/login") — is
+                // routed through applyDeepLink -> plan() -> FullLoad (a full cross-document reload),
+                // matching iOS which routes every warm tap with no fragment precondition. Gated on
+                // currentPageLoaded so it never fires at a page that is still loading.
                 val pending = deepLinkUrl
-                if (currentPageLoaded &&
+                if (isCurrentTarget() &&
+                    currentPageLoaded &&
                     pending != null &&
                     appliedDeepLinkUrl != pending
                 ) {
-                    applyDeepLink(webView, serverUrl, pending)
+                    applyDeepLink(webView, target.serverUrl, pending)
                     appliedDeepLinkUrl = pending
                     onDeepLinkConsumed()
                     Timber.d("Applied pending deep link via full reload (warm)")
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 /**

@@ -297,7 +297,9 @@ class BrandIdentityContracts(unittest.TestCase):
         # (id + server + database), not only the server URL; two accounts on one server must not share.
         screen = (K / 'ui/main/MainScreen.kt').read_text()
         self.assertIn('private data class WebViewLoadTarget(val accountId: String, val serverUrl: String, val database: String)', screen)
-        self.assertIn('if (target != lastLoadedTarget) {', screen)
+        # pi 0929 recheck-2 replaced the single reloaded WebView (`if (target != lastLoadedTarget)`) by one
+        # instance per whole-account target: any change of id, server or database composes a new WebView.
+        self.assertIn('val target = WebViewLoadTarget(accountId, serverUrl, database)\n    key(target) {', screen)
         self.assertNotIn('lastLoadedServerUrl', screen)
 
     def test_account_switch_load_is_generation_gated_and_waits_for_cookies(self):
@@ -306,12 +308,32 @@ class BrandIdentityContracts(unittest.TestCase):
         screen = (K / 'ui/main/MainScreen.kt').read_text()
         switch = (K / 'ui/main/WebViewAccountSwitch.kt').read_text()
         self.assertIn('val targetPageLoaded = loadGate.acceptFinished(', screen)
-        self.assertIn('targetPageLoaded &&\n                            clearHistoryOnNextPage.compareAndSet(true, false)', screen)
+        # Indentation grew by one level when the WebView moved inside key(target) (recheck-2).
+        self.assertIn('targetPageLoaded &&\n                                clearHistoryOnNextPage.compareAndSet(true, false)', screen)
         self.assertIn('loadGate.onPageStarted()', screen)
-        self.assertIn('if (loadGate.isCurrent(switchGeneration)) {', screen)
+        # recheck-2: the switch load is gated on the target generation instead of loadGate.isCurrent().
+        self.assertIn('isCurrent = ::isCurrentTarget,\n                    ) {\n                        switchGeneration?.let { loadGate.onLoadIssued(it) }', screen)
         self.assertNotIn('removeAllCookies(null)', screen)
         self.assertIn('store.removeAllCookies {', switch)
         self.assertIn('if (!loadIssued || !started || !onTargetHost) return false', switch)
+
+    def test_replaced_account_webview_and_async_work_cannot_act(self):
+        # pi 0929 recheck-2 (three P1s): a replaced account's WebView events, reordered cookie callbacks and
+        # a self-heal / cold-start continuation finishing after a switch must all be inert.
+        screen = (K / 'ui/main/MainScreen.kt').read_text()
+        switch = (K / 'ui/main/WebViewAccountSwitch.kt').read_text()
+        self.assertIn('fun owns(view: WebView?): Boolean = view === thisView && isCurrentTarget()', screen)
+        self.assertEqual(3, screen.count('if (!owns(view)) return\n'))
+        self.assertIn('if (!owns(view)) {\n                                // A replaced account', screen)
+        self.assertIn('if (!owns(webView)) {\n                                callback?.onReceiveValue(null)', screen)
+        self.assertIn('if (!owns(thisView)) {\n                                callback.invoke(origin, false, false)', screen)
+        self.assertIn('fun isCurrentTarget(): Boolean = targetGenerations.get() == generation', screen)
+        self.assertIn('if (!isCurrentTarget()) {\n                                            Timber.d("Self-heal finished after an account switch', screen)
+        self.assertIn('cookieSequencer.enqueue(::isCurrentTarget) { done ->', screen)
+        self.assertIn('cookieSequencer.enqueue(isCurrent) { done ->', screen)
+        self.assertIn('released.destroy()', screen)
+        self.assertIn('class WebViewCookieSequencer', switch)
+        self.assertEqual(3, switch.count('if (!isCurrent()) return@removeAllCookies'))
 
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)

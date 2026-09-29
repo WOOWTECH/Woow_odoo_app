@@ -42,21 +42,74 @@ object AndroidWebViewCookieStore : WebViewCookieStore {
  * removal finished, installs [sessionId] for [serverUrl] (if any), flushes, and then runs [then]
  * (the target account's page load). Loading before the removal completes could present the previous
  * account's still-present cookies to the new account's page (pi 0929 recheck).
+ *
+ * The cookie store is process-global, so every side effect after the removal re-checks [isCurrent]:
+ * once a later account switch superseded this one, its continuation writes, flushes and loads nothing
+ * (pi 0929 recheck-2). [onSettled] runs when the removal callback finished, current or not, so a
+ * [WebViewCookieSequencer] can start the next job.
  */
 fun isolateCookiesForAccount(
     store: WebViewCookieStore,
     serverUrl: String,
     sessionId: String?,
+    isCurrent: () -> Boolean = { true },
+    onSettled: () -> Unit = {},
     then: () -> Unit,
 ) {
     store.removeAllCookies {
-        if (sessionId != null) {
-            // Max-Age (Odoo's default 7-day session lifetime) makes the cookie persistent, so a cold
-            // start still finds it; the server stays the judge of whether the session is valid.
-            store.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure; Max-Age=$WEBVIEW_SESSION_COOKIE_MAX_AGE_SECONDS")
+        try {
+            if (!isCurrent()) return@removeAllCookies
+            if (sessionId != null) {
+                // Max-Age (Odoo's default 7-day session lifetime) makes the cookie persistent, so a cold
+                // start still finds it; the server stays the judge of whether the session is valid.
+                store.setCookie(serverUrl, "session_id=$sessionId; Path=/; Secure; Max-Age=$WEBVIEW_SESSION_COOKIE_MAX_AGE_SECONDS")
+            }
+            if (!isCurrent()) return@removeAllCookies
+            store.flush()
+            if (!isCurrent()) return@removeAllCookies
+            then()
+        } finally {
+            onSettled()
         }
-        store.flush()
-        then()
+    }
+}
+
+/**
+ * Runs cookie jobs against the process-global cookie store strictly one at a time (pi 0929 recheck-2).
+ *
+ * Chromium removes cookies asynchronously. Without serialization a fast A→B→C switch issues two
+ * removals whose callbacks may arrive in either order, letting B's stale continuation write B's
+ * session after C's. Here C's job only starts once B's has settled, so callbacks can never
+ * interleave; a queued job whose switch was superseded before it started is dropped entirely.
+ * Main thread only (Compose and the CookieManager removal callback both run there).
+ */
+class WebViewCookieSequencer {
+    private class Job(val isCurrent: () -> Boolean, val run: (done: () -> Unit) -> Unit)
+
+    private val queue = ArrayDeque<Job>()
+    private var busy = false
+
+    /** Queues [run]; it must call `done` exactly once when its cookie work settled. */
+    fun enqueue(isCurrent: () -> Boolean, run: (done: () -> Unit) -> Unit) {
+        queue.addLast(Job(isCurrent, run))
+        if (!busy) startNext()
+    }
+
+    private fun startNext() {
+        while (true) {
+            val job = queue.removeFirstOrNull() ?: return
+            if (!job.isCurrent()) continue
+            busy = true
+            var settled = false
+            job.run {
+                if (!settled) {
+                    settled = true
+                    busy = false
+                    startNext()
+                }
+            }
+            return
+        }
     }
 }
 

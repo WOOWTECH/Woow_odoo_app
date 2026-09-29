@@ -246,13 +246,14 @@ class OdooWebViewSameHostAccountSwitchTest {
         switchTo(ACCOUNT_B)
 
         assertEquals(listOf("removeAll"), cookieStore.events)
-        assertEquals("no load before Chromium finished removing cookies", "$SERVER/web?db=${ACCOUNT_A.database}", lastLoadedUrl())
+        // pi 0929 recheck-2: B gets its own WebView instance, which loads nothing before the removal.
+        assertNull("no load before Chromium finished removing cookies", lastLoadedUrl())
 
         composeRule.runOnUiThread { cookieStore.completeRemovals() }
         composeRule.waitForIdle()
 
         assertEquals(
-            listOf("removeAll", "set session_id=sid-b (loaded: $SERVER/web?db=${ACCOUNT_A.database})", "flush"),
+            listOf("removeAll", "set session_id=sid-b (loaded: null)", "flush"),
             cookieStore.events,
         )
         assertEquals("$SERVER/web?db=${ACCOUNT_B.database}", lastLoadedUrl())
@@ -266,7 +267,7 @@ class OdooWebViewSameHostAccountSwitchTest {
         switchTo(ACCOUNT_B, pendingLink = LINK)
         pageFinished("$SERVER/odoo/discuss") // A's late event while B's load is not issued yet
 
-        assertEquals("$SERVER/web?db=${ACCOUNT_A.database}", lastLoadedUrl())
+        assertNull("B's instance loads nothing before its cookies are ready", lastLoadedUrl())
         assertNotNull(deepLink)
 
         composeRule.runOnUiThread { cookieStore.completeRemovals() }
