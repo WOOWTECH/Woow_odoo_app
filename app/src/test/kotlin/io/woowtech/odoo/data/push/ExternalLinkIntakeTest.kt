@@ -149,4 +149,23 @@ class ExternalLinkIntakeTest {
         assertFalse(intake().accept(null))
         assertNull(deepLinkManager.pending.value)
     }
+
+    /** pi review P2 (2026-09-29): a server on a non-default port must still match its own links. */
+    @Test
+    fun `Given the server has a non-default port when a VIEW link carries a same-server absolute URL then the WebView loads it`() = runTest {
+        val ported = account.copy(serverUrl = "https://odoo.example.com:8443")
+
+        assertTrue(intake(ported).accept(openLink("https%3A%2F%2Fodoo.example.com%3A8443%2Fweb%23action%3D1")))
+        val pending = deepLinkManager.consumeFor(ported.id)
+        val plan = DeepLinkWebPlanner.plan(currentUrl = null, serverUrl = ported.fullServerUrl, deepLink = pending!!)
+        assertEquals("https://odoo.example.com:8443/web#action=1", (plan as DeepLinkWebPlanner.NavPlan.FullLoad).url)
+    }
+
+    @Test
+    fun `Given the server has a non-default port when a VIEW link carries another host on that port then it is ignored`() = runTest {
+        val ported = account.copy(serverUrl = "https://odoo.example.com:8443")
+
+        assertFalse(intake(ported).accept(openLink("https%3A%2F%2Fevil.example.net%3A8443%2Fweb")))
+        assertNull(deepLinkManager.pending.value)
+    }
 }

@@ -41,7 +41,7 @@ class ExternalLinkIntake @Inject constructor(
             Timber.w("Ignoring external link — no signed-in account")
             return false
         }
-        val serverHost = runCatching { URI(active.fullServerUrl).host }.getOrNull().orEmpty()
+        val serverHost = active.serverHost
         if (!isStrictlyValid(url, serverHost)) {
             Timber.w("Rejected external link")
             return false

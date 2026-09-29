@@ -114,6 +114,26 @@ PUSH_LINK_VALIDATOR = (
      '        return false\n'
      '    }\n', ''),
 )
+# pi review P2 (PI-REVIEW-0929-ANDROID-IOS-INCREMENTAL, under the 2026-09-29 push-link iOS-parity approval):
+# MainActivity's private string-split `serverHost()` kept the port (`example.com:8443`) while DeepLinkValidator
+# compares `URI.host`, so same-server https push links on a non-default port were rejected. Both push paths now
+# use `OdooAccount.serverHost` (iOS `URL(fullServerUrl).host`). Only these pairs may differ from the baseline.
+PUSH_LINK_SERVER_HOST_MAIN_ACTIVITY = (
+    ('serverHost = account.serverHost,', 'serverHost = account.serverHost(),'),
+    ('serverHost = active.serverHost)', 'serverHost = active.serverHost())'),
+    ('            Timber.w("Rejected invalid deep link")\n'
+     '        }\n'
+     '    }\n'
+     '}\n',
+     '            Timber.w("Rejected invalid deep link")\n'
+     '        }\n'
+     '    }\n'
+     '\n'
+     '    /** Bare host of this account\'s server, with scheme and path stripped. */\n'
+     '    private fun io.woowtech.odoo.domain.model.OdooAccount.serverHost(): String =\n'
+     '        serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()\n'
+     '}\n'),
+)
 W1_10_ACCOUNT_WOOW = (
     ('    /**\n'
      '     * Deep-link routing predicate. The ACTIVE account is usable through its live session even when\n'
@@ -262,6 +282,15 @@ class BrandIdentityContracts(unittest.TestCase):
                 self.assertEqual(count, (K / name).read_text().count('DeepLinkValidator.isValid('))
         callers = sorted(str(p.relative_to(K)) for p in K.rglob('*.kt') if 'DeepLinkValidator.isValid(' in p.read_text())
         self.assertEqual(sorted(users), callers)
+        # pi review P2: every push/external-link host comes from OdooAccount.serverHost (URI hostname, iOS
+        # `URL(fullServerUrl).host`), never a string split that keeps the port.
+        account = (K / 'domain/model/OdooAccount.kt').read_text()
+        self.assertIn('runCatching { URI(withScheme).host }.getOrNull().orEmpty()', account)
+        activity = (K / 'ui/MainActivity.kt').read_text()
+        self.assertEqual(1, activity.count('serverHost = account.serverHost,'))
+        self.assertEqual(1, activity.count('serverHost = active.serverHost)'))
+        self.assertNotIn('.split("/")', activity)
+        self.assertIn('val serverHost = active.serverHost\n', (K / 'data/push/ExternalLinkIntake.kt').read_text())
 
     def test_provider_has_no_compose_or_context_dependency_and_unknown_fails(self):
         self.assertNotIn('import androidx.compose', BRAND)
@@ -316,7 +345,8 @@ class BrandIdentityContracts(unittest.TestCase):
                 current = (ROOT / path).read_bytes()
                 if name == 'ui/MainActivity.kt':
                     current = reverse_apply(self, current.decode(), W1_10_MAIN_ACTIVITY)
-                    current = reverse_apply(self, current, EXTERNAL_LINK_MAIN_ACTIVITY).encode()
+                    current = reverse_apply(self, current, EXTERNAL_LINK_MAIN_ACTIVITY)
+                    current = reverse_apply(self, current, PUSH_LINK_SERVER_HOST_MAIN_ACTIVITY).encode()
                 if name == 'data/push/DeepLinkValidator.kt':
                     current = reverse_apply(self, current.decode(), PUSH_LINK_VALIDATOR).encode()
                 self.assertEqual(baseline(path), current)

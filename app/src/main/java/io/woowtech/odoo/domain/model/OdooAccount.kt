@@ -2,6 +2,7 @@ package io.woowtech.odoo.domain.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import java.net.URI
 import java.util.UUID
 
 @Entity(tableName = "accounts")
@@ -31,4 +32,16 @@ data class OdooAccount(
 ) {
     val fullServerUrl: String
         get() = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
+
+    /**
+     * Bare hostname of this account's server — no scheme, port or path (iOS `OdooAccount.serverHost`
+     * = `URL(fullServerUrl).host`). This is what [io.woowtech.odoo.data.push.DeepLinkValidator]
+     * compares a link's `URI.host` against, so a server on a non-default port (`example.com:8443`)
+     * still matches its own links. Empty when unparsable, which makes every absolute link rejected.
+     */
+    val serverHost: String
+        get() {
+            val withScheme = if (serverUrl.contains("://")) serverUrl else "https://$serverUrl"
+            return runCatching { URI(withScheme).host }.getOrNull().orEmpty()
+        }
 }

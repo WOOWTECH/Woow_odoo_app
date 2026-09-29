@@ -146,7 +146,7 @@ class MainActivity : FragmentActivity() {
                 RoutableAccount(
                     id = account.id,
                     tenantId = account.tenantId,
-                    serverHost = account.serverHost(),
+                    serverHost = account.serverHost,
                 )
             }
 
@@ -208,15 +208,11 @@ class MainActivity : FragmentActivity() {
             return
         }
 
-        if (DeepLinkValidator.isValid(url = url, serverHost = active.serverHost())) {
+        if (DeepLinkValidator.isValid(url = url, serverHost = active.serverHost)) {
             deepLinkManager.setPending(url = url, accountId = active.id)
             Timber.d("Deep link pending for active account (old-payload path)")
         } else {
             Timber.w("Rejected invalid deep link")
         }
     }
-
-    /** Bare host of this account's server, with scheme and path stripped. */
-    private fun io.woowtech.odoo.domain.model.OdooAccount.serverHost(): String =
-        serverUrl.removePrefix("https://").removePrefix("http://").split("/").first()
 }
