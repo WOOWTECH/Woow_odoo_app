@@ -70,6 +70,28 @@ class LoginErrorMappingParityTest {
     )
 
     @Test
+    fun `Given an empty JSON object over HTTP 200 then every entry maps to localized server error`() = assertType(
+        // pi 0930 F5 P2: valid JSON that is not a JSON-RPC envelope is a server problem, not a wrong password.
+        AuthResult.ErrorType.SERVER_ERROR, "{}",
+    )
+
+    @Test
+    fun `Given a JSON-RPC envelope without result or error then every entry maps to localized server error`() = assertType(
+        AuthResult.ErrorType.SERVER_ERROR, """{"jsonrpc":"2.0","id":1}""",
+    )
+
+    @Test
+    fun `Given a result without uid then every entry still maps to invalid credentials`() = assertType(
+        AuthResult.ErrorType.INVALID_CREDENTIALS, """{"jsonrpc":"2.0","id":1,"result":{"uid":null}}""",
+    )
+
+    @Test
+    fun `Given only a top-level Access Denied message then every entry maps to invalid credentials`() = assertType(
+        // pi 0930 F5 P2: Apporo must fall back to error.message like WOOW does.
+        AuthResult.ErrorType.INVALID_CREDENTIALS, """{"jsonrpc":"2.0","id":1,"error":{"code":200,"message":"Access Denied"}}""",
+    )
+
+    @Test
     fun `Given WOOW database error then its existing mapping is unchanged`() {
         val body = """{"jsonrpc":"2.0","id":1,"error":{"code":200,"message":"Odoo Server Error","data":{"name":"psycopg2.OperationalError","message":"database \"nope\" does not exist"}}}"""
         val result = signIn("woowtech", false, respond(body)) as AuthResult.Error

@@ -184,6 +184,12 @@ F5_WOOW_API = (
      '        } ?: throw InvalidSignInResponseException()\n',
      '        return gson.fromJson(responseBody, JsonRpcResponse::class.java)\n'),
     ('import com.google.gson.JsonParseException\n', ''),
+    # pi 0930 F5 P2: a JSON 200 without a JSON-RPC result/error is a server error, not a wrong password.
+    ('            val result = response.result\n'
+     '                ?: return@withContext AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)\n'
+     '            if (!result.has("uid") || result.get("uid").isJsonNull) {\n',
+     '            val result = response.result\n'
+     '            if (result == null || !result.has("uid") || result.get("uid").isJsonNull) {\n'),
 )
 F5_APP_MODULE = (
     ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),

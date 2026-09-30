@@ -136,7 +136,8 @@ class OdooJsonRpcClient internal constructor(
             }
 
             val result = response.result
-            if (result == null || !result.has("uid") || result.get("uid").isJsonNull) {
+                ?: return@withContext AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)
+            if (!result.has("uid") || result.get("uid").isJsonNull) {
                 return@withContext AuthResult.Error(
                     "Invalid credentials",
                     AuthResult.ErrorType.INVALID_CREDENTIALS
@@ -199,17 +200,19 @@ class OdooJsonRpcClient internal constructor(
                 val error = envelope.getAsJsonObject("error")
                 if (error != null) {
                     val data = error.getAsJsonObject("data")
-                    val denied = isAccessDenied(data?.get("name")?.asString, data?.get("message")?.asString)
+                    val message = data?.get("message")?.asString ?: error.get("message")?.asString
+                    val denied = isAccessDenied(data?.get("name")?.asString, message)
                     return AuthResult.Error("Sign-in request rejected", if (denied) AuthResult.ErrorType.INVALID_CREDENTIALS else AuthResult.ErrorType.SERVER_ERROR)
                 }
                 val result = envelope.getAsJsonObject("result")
-                val uid = runCatching { result?.get("uid")?.asInt }.getOrNull()
+                    ?: return AuthResult.Error("Invalid sign-in response", AuthResult.ErrorType.SERVER_ERROR)
+                val uid = runCatching { result.get("uid")?.asInt }.getOrNull()
                 if (uid == null || uid <= 0) return AuthResult.Error("Invalid credentials", AuthResult.ErrorType.INVALID_CREDENTIALS)
                 val sid = Cookie.parseAll(request.url, response.headers)
                     .firstOrNull { it.name == "session_id" && it.matches(request.url) && it.expiresAt > System.currentTimeMillis() }
                     ?.value.orEmpty()
                 if (sid.isBlank() || sid.any { it <= ' ' || it == ';' || it >= '\u007f' }) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
-                AuthResult.Success(uid, sid, username, result?.get("name")?.asString ?: username)
+                AuthResult.Success(uid, sid, username, result.get("name")?.asString ?: username)
             }
         } catch (_: IOException) {
             AuthResult.Error("Sign-in network error", AuthResult.ErrorType.NETWORK_ERROR)
