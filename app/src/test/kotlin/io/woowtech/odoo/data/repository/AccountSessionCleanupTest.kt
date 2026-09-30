@@ -255,4 +255,59 @@ class AccountSessionCleanupTest {
         verify(exactly = 1) { api.clearCookies("fixture.test") }
         assertTrue("b-live-sid" in revoked)
     }
+
+    // --- pi 0930 F5 P2: cancellation must not skip session bookkeeping or orphan a minted session ---
+
+    @Test
+    fun `Given a re-login is cancelled while committing then the replaced session is still revoked`() = runTest {
+        val repo = repo()
+        accounts["a"] = a
+        repo.authenticate(a.serverUrl, a.database, a.username, "password-fixture") // a-sid-fixture
+        coEvery { api.authenticateApporoIsolated(any(), any(), any(), any()) } returns
+            AuthResult.Success(11, "a-sid-2", a.username, a.displayName)
+        var outer: Job? = null
+        coEvery { dao.insertAccount(any()) } answers {
+            val account = firstArg<OdooAccount>(); accounts[account.id] = account
+            if (account.isActive) active = account.id
+            outer?.cancel()
+            Unit
+        }
+
+        launch { outer = coroutineContext[Job]; repo.authenticate(a.serverUrl, a.database, a.username, "password-fixture") }.join()
+
+        assertEquals("a-sid-2", jar)
+        assertTrue("a-sid-fixture" in revoked, "replaced session must be revoked: $revoked")
+        assertFalse("a-sid-2" in revoked)
+    }
+
+    @Test
+    fun `Given a sign-in is cancelled before its commit then the minted session is revoked`() = runTest {
+        val repo = repo()
+        accounts["a"] = a; accounts["b"] = b
+        repo.authenticate(a.serverUrl, a.database, a.username, "password-fixture")
+        var outer: Job? = null
+        cleaner.onSessionQuery = { outer?.cancel(); yield() }
+
+        launch { outer = coroutineContext[Job]; repo.authenticate(b.serverUrl, b.database, b.username, "password-fixture") }.join()
+
+        assertEquals("a-sid-fixture", jar) // never published
+        assertTrue("b-sid-fixture" in revoked, "orphaned session must be revoked: $revoked")
+    }
+
+    @Test
+    fun `Given a switch is cancelled while committing then the stale session is revoked and the new one kept`() = runTest {
+        val repo = repo()
+        signInBoth(repo, last = b)
+        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
+        coEvery { api.authenticateApporoIsolated(any(), any(), any(), any()) } returns
+            AuthResult.Success(11, "a-sid-2", a.username, a.displayName)
+        var outer: Job? = null
+        coEvery { dao.activateAccount(any()) } answers { active = firstArg<String>(); outer?.cancel(); Unit }
+
+        launch { outer = coroutineContext[Job]; repo.switchAccount("a") }.join()
+
+        assertEquals("a-sid-2", jar)
+        assertTrue("a-sid-fixture" in revoked, "stale session must be revoked: $revoked")
+        assertFalse("a-sid-2" in revoked)
+    }
 }

@@ -369,29 +369,37 @@ class AccountRepository(
         val result = odooClient.authenticateApporoIsolated(fullUrl, database, username, password)
         if (result !is AuthResult.Success) return result
         if (!validApporoSession(result.sessionId)) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
-        // D5: keep the displayed account's live WebView session (the new login replaces it) so switching back can reuse it.
-        accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
-        val committed = selectionMutex.withLock {
-            if (attempt != selectionAttempt) return@withLock false
-            val existing = accountDao.findAccount(fullUrl, database, username)
-            val account = existing?.copy(displayName = result.displayName, userId = result.userId,
-                lastLogin = System.currentTimeMillis(), isActive = true)
-                ?: OdooAccount(serverUrl = fullUrl, database = database, username = username,
-                    displayName = result.displayName, userId = result.userId, isActive = true)
-            commitApporoSelection(account, existing, password.takeIf { rememberPassword }, result.sessionId,
-                forgetPassword = !rememberPassword) {
-                accountDao.insertAccount(account)
+        var published = false
+        val committed = try {
+            // D5: keep the displayed account's live WebView session (the new login replaces it) so switching back can reuse it.
+            accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
+            selectionMutex.withLock {
+                if (attempt != selectionAttempt) return@withLock false
+                val existing = accountDao.findAccount(fullUrl, database, username)
+                val account = existing?.copy(displayName = result.displayName, userId = result.userId,
+                    lastLogin = System.currentTimeMillis(), isActive = true)
+                    ?: OdooAccount(serverUrl = fullUrl, database = database, username = username,
+                        displayName = result.displayName, userId = result.userId, isActive = true)
+                commitApporoSelection(account, existing, password.takeIf { rememberPassword }, result.sessionId,
+                    forgetPassword = !rememberPassword,
+                    onPublished = {
+                        published = true
+                        // Replaced only now that the new session is committed (iOS D5 P1 lesson).
+                        knownSessions.put(account.id, result.sessionId)
+                            ?.takeIf { it != result.sessionId }?.let { revokeLater(fullUrl, it) }
+                    },
+                ) {
+                    accountDao.insertAccount(account)
+                }
+                fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
+                sessionReauthenticator?.onManualReloginSucceeded(account.id)
+                true
             }
-            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
-            sessionReauthenticator?.onManualReloginSucceeded(account.id)
-            // Replaced only now that the new session is committed (iOS D5 P1 lesson).
-            knownSessions.put(account.id, result.sessionId)
-                ?.takeIf { it != result.sessionId }?.let { revokeLater(fullUrl, it) }
-            true
+        } finally {
+            // Minted but never published (superseded, failed or cancelled): nothing on this device will ever use it.
+            if (!published) revokeLater(fullUrl, result.sessionId)
         }
         if (!committed) {
-            // Minted but never published: nothing on this device will ever use it.
-            revokeLater(fullUrl, result.sessionId)
             return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
         }
         fcmTokenRepository?.reconcileOnAccountAvailable()
@@ -417,32 +425,40 @@ class AccountRepository(
         val reused = stored?.takeIf { sessionStillBelongs(account, it) }
         val sessionId = reused ?: run {
             val result = odooClient.authenticateApporoIsolated(account.fullServerUrl, account.database, account.username, password)
-            if (result !is AuthResult.Success || !validApporoSession(result.sessionId) || result.userId != account.userId) return false
+            if (result !is AuthResult.Success || !validApporoSession(result.sessionId)) return false
+            if (result.userId != account.userId) {
+                revokeLater(account.fullServerUrl, result.sessionId)
+                return false
+            }
             result.sessionId
         }
-        val committed = selectionMutex.withLock {
-            val current = accountDao.getAccountById(accountId)
-            if (attempt != selectionAttempt || current == null || current.serverUrl != account.serverUrl ||
-                current.database != account.database || current.username != account.username ||
-                current.userId != account.userId || encryptedPrefs.getPassword(accountId) != password
-            ) return@withLock false
-            commitApporoSelection(current, current, null, sessionId) {
-                accountDao.activateAccount(accountId)
-                accountDao.updateLastLogin(accountId)
+        var published = false
+        val committed = try {
+            selectionMutex.withLock {
+                val current = accountDao.getAccountById(accountId)
+                if (attempt != selectionAttempt || current == null || current.serverUrl != account.serverUrl ||
+                    current.database != account.database || current.username != account.username ||
+                    current.userId != account.userId || encryptedPrefs.getPassword(accountId) != password
+                ) return@withLock false
+                commitApporoSelection(current, current, null, sessionId, onPublished = {
+                    published = true
+                    knownSessions[accountId] = sessionId
+                    // The stale session is revoked only after the replacement committed (iOS D5 P1 lesson): a
+                    // superseded switch must never revoke the target's only stored session.
+                    if (reused == null && stored != null && stored != sessionId) revokeLater(account.fullServerUrl, stored)
+                }) {
+                    accountDao.activateAccount(accountId)
+                    accountDao.updateLastLogin(accountId)
+                }
+                fcmTokenRepository?.onManualLogin(accountId, sessionId)
+                sessionReauthenticator?.onManualReloginSucceeded(accountId)
+                true
             }
-            fcmTokenRepository?.onManualLogin(accountId, sessionId)
-            sessionReauthenticator?.onManualReloginSucceeded(accountId)
-            knownSessions[accountId] = sessionId
-            true
+        } finally {
+            // A freshly minted session that was never published (superseded, failed or cancelled) is orphaned.
+            if (!published && reused == null) revokeLater(account.fullServerUrl, sessionId)
         }
-        if (committed) {
-            // The stale session is revoked only after the replacement committed (iOS D5 P1 lesson): a
-            // superseded switch must never revoke the target's only stored session.
-            if (reused == null && stored != null && stored != sessionId) revokeLater(account.fullServerUrl, stored)
-            registerSavedFcmToken(accountId)
-        } else if (reused == null) {
-            revokeLater(account.fullServerUrl, sessionId)
-        }
+        if (committed) registerSavedFcmToken(accountId)
         return committed
     }
 
@@ -527,13 +543,19 @@ class AccountRepository(
         revoke.filter { validApporoSession(it) }.forEach { revokeLater(url, it) }
     }
 
-    /** Only local writes are cancellation-protected. Push locks/network remain cancellable outside. */
+    /**
+     * Only local writes are cancellation-protected. Push locks/network remain cancellable outside.
+     * [onPublished] (session bookkeeping: record + revoke of the replaced session) runs in the same
+     * non-cancellable boundary right after publication, so a cancellation can no longer land between
+     * "published" and "recorded" (pi 0930 F5 P2).
+     */
     private suspend fun commitApporoSelection(
         target: OdooAccount,
         original: OdooAccount?,
         password: String?,
         sessionId: String,
         forgetPassword: Boolean = false,
+        onPublished: () -> Unit,
         writeAccount: suspend () -> Unit,
     ) {
         val touchesPassword = password != null || forgetPassword
@@ -561,6 +583,7 @@ class AccountRepository(
                 }
                 throw failure
             }
+            onPublished()
         }
         currentCoroutineContext().ensureActive()
     }
