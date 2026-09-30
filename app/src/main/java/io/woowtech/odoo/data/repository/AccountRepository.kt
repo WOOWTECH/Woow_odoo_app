@@ -485,8 +485,12 @@ class AccountRepository(
      *
      * - WebView: cookies only when [account] is the displayed (active) one or none remains; site storage
      *   of its origin only when no remaining account uses that origin (Android keeps it per origin).
-     * - Native jar (keyed by host): kept only when it provably holds a remaining same-host account's
-     *   session; otherwise cleared (never a sibling's proven session, never left with this account's).
+     * - Native jar (keyed by host): cleared only when it is not a same-host sibling's (known, or the
+     *   displayed sibling's WebView session) and either no sibling shares the host, [account] is the
+     *   displayed one (the jar carries the displayed account's session), or the jar session is proven
+     *   [account]'s (its own record, or the server says it is its uid AND db). An unproven session is
+     *   left in place while a sibling may own it (pi 0930 F5 P1: WOOW never records sessions, and an
+     *   Apporo record goes missing after a restart or stale after a self-heal); server revoke covers it.
      * - Server: every session known to be this account's is revoked in the background; a session that
      *   may be a sibling's is never revoked.
      */
@@ -495,11 +499,18 @@ class AccountRepository(
         val remaining = accountDao.getAllAccountsList().filter { it.id != account.id }
         val host = sessionHostOf(url)
         val sameHost = remaining.filter { sessionHostOf(it.fullServerUrl) == host }
-        val siblingSessions = sameHost.mapNotNull { knownSessions[it.id] }.toSet()
+        val displayedSibling = sameHost.firstOrNull { it.isActive }
+        val siblingSessions = sameHost.mapNotNull { knownSessions[it.id] }.toSet() +
+            listOfNotNull(displayedSibling?.let { webDataCleaner?.webViewSessionIdOf(it.id, it.fullServerUrl) })
         val webSession = webDataCleaner?.webViewSessionIdOf(account.id, url)
         val known = knownSessions.remove(account.id)
         val jarSession = host?.let { odooClient.getSessionId(it) }
-        if (host != null && (jarSession == null || jarSession !in siblingSessions)) odooClient.clearCookies(host)
+        val jarProvenOwn = jarSession != null && jarSession !in siblingSessions &&
+            (jarSession == known || jarSession == webSession ||
+                (sameHost.isNotEmpty() && !account.isActive && sessionStillBelongs(account, jarSession)))
+        val clearJar = host != null && jarSession !in siblingSessions &&
+            (sameHost.isEmpty() || account.isActive || jarProvenOwn)
+        if (clearJar) odooClient.clearCookies(host!!)
         webDataCleaner?.removeAccountData(
             account.id, url,
             WebDataRemoval(
@@ -511,7 +522,7 @@ class AccountRepository(
         val revoke = buildSet {
             known?.let(::add)
             webSession?.let(::add)
-            if (jarSession != null && (jarSession == known || sameHost.isEmpty())) add(jarSession)
+            if (jarSession != null && (jarProvenOwn || sameHost.isEmpty())) add(jarSession)
         } - siblingSessions
         revoke.filter { validApporoSession(it) }.forEach { revokeLater(url, it) }
     }

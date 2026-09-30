@@ -14,9 +14,13 @@ import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -40,7 +44,11 @@ class AccountSessionCleanupTest {
     private class FakeCleaner : AccountWebDataCleaner {
         val webSessions = mutableMapOf<String, String>()
         val removals = mutableListOf<Triple<String, String, WebDataRemoval>>()
-        override suspend fun webViewSessionIdOf(accountId: String, serverUrl: String) = webSessions[accountId]
+        var onSessionQuery: (suspend () -> Unit)? = null
+        override suspend fun webViewSessionIdOf(accountId: String, serverUrl: String): String? {
+            onSessionQuery?.invoke()
+            return webSessions[accountId]
+        }
         override suspend fun removeAccountData(accountId: String, serverUrl: String, removal: WebDataRemoval) {
             removals += Triple(accountId, serverUrl, removal)
         }
@@ -196,5 +204,55 @@ class AccountSessionCleanupTest {
         assertEquals(1, cleaner.removals.size)
         assertEquals(listOf("a-web-sid"), revoked)
         coVerify { dao.deleteAccountById("a") }
+    }
+
+    // --- pi 0930 F5 P1: an unproven jar session is never cleared while a same-host sibling may own it ---
+
+    @Test
+    fun `Given WOOW brand removes non-active B on A's host then A's native session stays`() = runTest {
+        accounts["a"] = a; accounts["b"] = b; active = "a"; jar = "a-woow-sid" // WOOW never records sessions
+
+        repo("woowtech").removeAccount("b")
+
+        verify(exactly = 0) { api.clearCookies(any()) }
+        assertEquals("a-woow-sid", jar)
+        assertFalse("a-woow-sid" in revoked)
+    }
+
+    @Test
+    fun `Given Apporo after a restart removes non-active B then active A's unknown jar session stays`() = runTest {
+        accounts["a"] = a; accounts["b"] = b; active = "a"; jar = "a-live-sid" // nothing known in memory
+        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
+
+        repo().removeAccount("b")
+
+        verify(exactly = 0) { api.clearCookies(any()) }
+        assertEquals("a-live-sid", jar)
+        assertFalse("a-live-sid" in revoked)
+    }
+
+    @Test
+    fun `Given A's known session went stale after a self-heal then removing non-active B keeps A's jar session`() = runTest {
+        val repo = repo()
+        signInBoth(repo, last = a) // known: a-sid-fixture
+        jar = "a-healed-sid"       // self-heal replaced A's session; the record is stale
+        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
+
+        repo.removeAccount("b")
+
+        verify(exactly = 0) { api.clearCookies(any()) }
+        assertEquals("a-healed-sid", jar)
+        assertFalse("a-healed-sid" in revoked)
+    }
+
+    @Test
+    fun `Given the server proves the jar session is removed B's then it is cleared and revoked`() = runTest {
+        accounts["a"] = a; accounts["b"] = b; active = "a"; jar = "b-live-sid"
+        coEvery { api.sessionBelongsTo(b.serverUrl, "b-live-sid", 22, "db-b") } returns true
+
+        repo().removeAccount("b")
+
+        verify(exactly = 1) { api.clearCookies("fixture.test") }
+        assertTrue("b-live-sid" in revoked)
     }
 }
