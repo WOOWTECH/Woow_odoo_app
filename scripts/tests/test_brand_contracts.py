@@ -248,6 +248,21 @@ WOOW_RESPONSE_SID_API = (
      '    }\n'
      '}\n'),
 )
+# pi 0930b Android P2 (2026-10-01): WOOW records its own sign-in sessions and remembers the displayed
+# account's WebView session before a sign-in / switch replaces it, so a promotion after a logout can hand
+# the promoted account its still-valid session (publishKnownSession, now for both brands) instead of a new
+# sign-in that orphaned the original on the server. Same (current, baseline) contract.
+F5B_ACCOUNT_WOOW = (
+    ('        // pi 0930b P2: keep the displayed account\'s live WebView session so a later promotion can reuse it.\n'
+     '        accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }\n', ''),
+    ('            accountDao.insertAccount(account)\n'
+     '            knownSessions[account.id] = result.sessionId\n',
+     '            accountDao.insertAccount(account)\n'),
+    ('        if (previousActiveAccountId != null && previousActiveAccountId != accountId) rememberWebViewSession(previousActiveAccountId)\n', ''),
+    ('            knownSessions[accountId] = result.sessionId\n'
+     '            accountDao.deactivateAllAccounts()\n',
+     '            accountDao.deactivateAllAccounts()\n'),
+)
 F5_APP_MODULE = (
     ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),
     ('            // D1 (iOS parity): logout / removal wipes the account\'s WebView data.\n'
@@ -560,6 +575,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
+        account = reverse_apply(self, account, F5B_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5_ACCOUNT_WOOW)
         account = reverse_apply(self, account, W1_10_ACCOUNT_WOOW)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/data/repository/AccountRepository.kt').decode(), account)

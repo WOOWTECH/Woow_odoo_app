@@ -226,6 +226,15 @@ class OdooJsonRpcClient internal constructor(
     /** Shared reauth or the manual selection commit may publish; isolated auth/push heal never do. */
     internal fun publishApporoSession(serverUrl: String, sessionId: String) {
         check(brand.isApporo)
+        publishSession(serverUrl, sessionId)
+    }
+
+    /**
+     * Puts a proven [sessionId] into the native jar for [serverUrl]'s host (both brands). Callers must
+     * have proven it is the account's own live session; a WOOW promotion uses it after a logout so the
+     * promoted account is not signed in again (pi 0930b Android P2).
+     */
+    internal fun publishSession(serverUrl: String, sessionId: String) {
         val url = serverUrl.toHttpUrlOrNull() ?: return
         require(sessionId.isNotBlank()) { "A proven session is required" }
         val cookie = Cookie.Builder().name("session_id").value(sessionId)

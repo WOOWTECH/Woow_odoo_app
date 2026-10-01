@@ -101,6 +101,8 @@ class AccountRepository(
     ): AuthResult {
         if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
+        // pi 0930b P2: keep the displayed account's live WebView session so a later promotion can reuse it.
+        accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
 
         val result = odooClient.authenticate(fullUrl, database, username, password)
 
@@ -125,6 +127,7 @@ class AccountRepository(
             // Deactivate other accounts and save this one
             accountDao.deactivateAllAccounts()
             accountDao.insertAccount(account)
+            knownSessions[account.id] = result.sessionId
 
             // Save password securely only when the user asked us to remember it (W1-10).
             if (rememberPassword) encryptedPrefs.savePassword(account.id, password)
@@ -166,6 +169,7 @@ class AccountRepository(
         // `logout → unregisterToken` pattern (CLAUDE.md
         // § "Repository-Event Symmetry").
         val previousActiveAccountId = accountDao.getActiveAccountOnce()?.id
+        if (previousActiveAccountId != null && previousActiveAccountId != accountId) rememberWebViewSession(previousActiveAccountId)
 
         // CRITICAL ordering: unregister A BEFORE re-authenticating as B.
         //
@@ -210,6 +214,7 @@ class AccountRepository(
         )
 
         return if (result is AuthResult.Success) {
+            knownSessions[accountId] = result.sessionId
             accountDao.deactivateAllAccounts()
             accountDao.activateAccount(accountId)
             accountDao.updateLastLogin(accountId)
@@ -478,16 +483,19 @@ class AccountRepository(
     }
 
     /**
-     * Before [account] is promoted after a logout (Apporo), publishes its known session when the server
-     * still proves it is that uid AND db, so its WebView shows it instead of signing in again and
-     * orphaning it (live finding 2026-09-30). Otherwise nothing is published and the existing self-heal
-     * sign-in takes over; the stale entry is forgotten.
+     * Before [account] is promoted after a logout (both brands), publishes its known session when the
+     * server still proves it is that uid AND db, so its WebView shows it instead of signing in again and
+     * orphaning it (live finding 2026-09-30; WOOW: pi 0930b Android P2). Otherwise nothing is published
+     * and the existing self-heal sign-in takes over; the stale entry is forgotten.
      */
     private suspend fun publishKnownSession(account: OdooAccount) {
-        if (!brand.isApporo) return
         val sessionId = knownSessions[account.id] ?: return
-        if (sessionStillBelongs(account, sessionId)) odooClient.publishApporoSession(account.fullServerUrl, sessionId)
-        else knownSessions.remove(account.id, sessionId)
+        if (!sessionStillBelongs(account, sessionId)) {
+            knownSessions.remove(account.id, sessionId)
+            return
+        }
+        if (brand.isApporo) odooClient.publishApporoSession(account.fullServerUrl, sessionId)
+        else odooClient.publishSession(account.fullServerUrl, sessionId)
     }
 
     private fun revokeLater(serverUrl: String, sessionId: String) {
