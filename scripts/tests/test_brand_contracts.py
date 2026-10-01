@@ -161,6 +161,9 @@ W1_10_ACCOUNT_WOOW = (
 # WebView data and native session and revokes its sessions server-side; an Odoo 18 AccessDenied is a
 # wrong password and a non-JSON 200 a localized server error. Same (current, baseline) contract as
 # W1-10: exactly these insertions/replacements, the rest of each file stays byte-level.
+KNOWN_SESSIONS_EXCLUDE = '<exclude domain="sharedpref" path="known_sessions.xml" />'
+BACKUP_EXCLUSION_RULES = {'app/src/main/res/xml/backup_rules.xml': 1,
+                          'app/src/main/res/xml/data_extraction_rules.xml': 2}
 F5_ACCOUNT_WOOW = (
     ('        // D1 (iOS parity): wipe only this account\'s WebView data and native session, then revoke it server-side.\n'
      '        removeAccountSessions(account)\n',
@@ -726,6 +729,11 @@ class BrandIdentityContracts(unittest.TestCase):
                         if '/values/' not in name:
                             self.assertNotEqual(text(english[key]), text(new[key]))
                             self.assertRegex(text(new[key]), r'[\u4e00-\u9fff]')
+                elif name in BACKUP_EXCLUSION_RULES:
+                    # pi 1001c P2: the only change is one more excluded secret file (BackupExclusionContracts).
+                    current = (ROOT / name).read_text()
+                    self.assertEqual(BACKUP_EXCLUSION_RULES[name], current.count(KNOWN_SESSIONS_EXCLUDE))
+                    self.assertEqual(baseline(name).decode(), re.sub(r'\n *' + re.escape(KNOWN_SESSIONS_EXCLUDE), '', current))
                 else:
                     self.assertEqual(hashlib.sha256(baseline(name)).digest(),
                                      hashlib.sha256((ROOT / name).read_bytes()).digest())
@@ -1119,6 +1127,24 @@ class BrandToolingContracts(unittest.TestCase):
             ast.parse(path.read_text(), filename=str(path))
         for path in (ROOT / 'app/src').rglob('*.xml'):
             ET.parse(path)
+
+
+class BackupExclusionContracts(unittest.TestCase):
+    # pi 1001c P2: the encrypted session-id file (EncryptedKnownSessionStore) must never leave the device
+    # in a backup or device transfer, exactly like encrypted_prefs.xml.
+    def test_session_secrets_are_excluded_from_backup_and_transfer(self):
+        res = ROOT / 'app/src/main/res/xml'
+        backup = (res / 'backup_rules.xml').read_text()
+        self.assertIn('<exclude domain="sharedpref" path="encrypted_prefs.xml" />', backup)
+        self.assertIn('<exclude domain="sharedpref" path="known_sessions.xml" />', backup)
+        extraction = (res / 'data_extraction_rules.xml').read_text()
+        for section in ('cloud-backup', 'device-transfer'):
+            body = extraction.split(f'<{section}>', 1)[1].split(f'</{section}>', 1)[0]
+            with self.subTest(section=section):
+                self.assertIn('<exclude domain="sharedpref" path="encrypted_prefs.xml" />', body)
+                self.assertIn('<exclude domain="sharedpref" path="known_sessions.xml" />', body)
+        store = (K / 'data/local/KnownSessionStore.kt').read_text()
+        self.assertIn('const val FILE = "known_sessions"', store)
 
 
 if __name__ == '__main__':
