@@ -164,6 +164,16 @@ W1_10_ACCOUNT_WOOW = (
 # pi 1001c (2026-10-02): logout / removal run their local cleanup in one non-cancellable boundary and forget
 # the session record only together with the account row (deleteAccountAndRecord). Same (current, baseline)
 # contract; applied before F5_ACCOUNT_WOOW, which then restores the pre-D1 baseline.
+# pi 1001d P1 (2026-10-02): a WOOW manual sign-in / switch supersedes every self-heal in flight
+# (invalidateHeals) so an older heal can no longer replace the winner's session. Same (current, baseline).
+F5E_ACCOUNT_WOOW = (
+    ('        invalidateHeals()\n'
+     '        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"\n',
+     '        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"\n'),
+    ('        invalidateHeals()\n'
+     '        val account = accountDao.getAccountById(accountId) ?: return false\n',
+     '        val account = accountDao.getAccountById(accountId) ?: return false\n'),
+)
 F5D_ACCOUNT_WOOW = (
     ('        // pi 1001c P2: one non-cancellable boundary, and the session record is forgotten only together with the\n'
      '        // account row, so a cancellation can never leave the account without the record needed to clean it up.\n'
@@ -331,7 +341,7 @@ F5C_APP_MODULE = (
     ('        knownSessionStore: io.woowtech.odoo.data.local.EncryptedKnownSessionStore,\n', ''),
     ('            // pi 1001b P2: known sessions survive a restart (encrypted) and self-heal sessions are recorded.\n'
      '            repo.knownSessionStore = knownSessionStore\n'
-     '            sessionReauthenticator.onSessionRefreshed = repo::recordRefreshedSession\n', ''),
+     '            sessionReauthenticator.healCommitter = repo\n', ''),
 )
 F5_APP_MODULE = (
     ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),
@@ -647,6 +657,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
+        account = reverse_apply(self, account, F5E_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5D_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5B_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5_ACCOUNT_WOOW)

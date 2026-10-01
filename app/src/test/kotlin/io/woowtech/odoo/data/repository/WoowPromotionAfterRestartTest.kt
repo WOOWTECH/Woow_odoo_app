@@ -87,6 +87,7 @@ class WoowPromotionAfterRestartTest {
         every { prefs.getPassword(any()) } returns "password-fixture"
         coEvery { push.unregisterToken(any()) } returns Result.success(Unit)
         coEvery { push.reconcileOnAccountAvailable() } returns Result.success(Unit)
+        every { push.getStoredToken() } returns null
         accounts["a"] = a; accounts["b"] = b
     }
 
@@ -195,26 +196,57 @@ class WoowPromotionAfterRestartTest {
     }
 
     @Test
-    fun `Given a self-heal for A finishes after A was logged out then its fresh session is not recorded and is revoked`() = runTest {
-        // pi 1001c P2: a late callback must not leave a session secret no account can clean up.
+    fun `Given a self-heal for A finishes after A was logged out then nothing is published or recorded and its session is revoked`() = runTest {
+        // pi 1001c/1001d P2: a late heal must not leave a session secret no account can clean up.
         val repo = aThenBThenRestart()
         coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Belongs
+        val ticket = repo.beginHeal("a")
         repo.logout("a")
-        assertNull(store.load("a"))
+        val jarBefore = jar
 
-        repo.recordRefreshedSession("a", a.serverUrl, "a-heal-sid")
+        assertFalse(repo.commitHeal("a", a.serverUrl, "a-heal-sid", ticket))
 
         assertNull(store.load("a"), "a deleted account gets no session record")
+        assertEquals(jarBefore, jar, "the active B keeps its jar session")
         assertTrue("a-heal-sid" in revoked, "the heal's own unused session is revoked")
     }
 
     @Test
-    fun `Given a self-heal for a current account then its session is recorded`() = runTest {
+    fun `Given a heal for A is in flight when A signs in manually then the old heal cannot replace the winner`() = runTest {
+        // pi 1001d P1: forced order — heal waits, manual login wins, old heal returns.
         val repo = aThenBThenRestart()
+        val ticket = repo.beginHeal("a")
+        repo.authenticate(a.serverUrl, a.database, a.username, "password-fixture") // winner: a-sid-fixture
 
-        repo.recordRefreshedSession("a", a.serverUrl, "a-heal-sid")
+        assertFalse(repo.commitHeal("a", a.serverUrl, "a-heal-sid", ticket))
 
-        assertEquals("a-heal-sid", store.load("a"))
-        assertFalse("a-heal-sid" in revoked)
+        assertEquals("a-sid-fixture", jar, "the jar keeps the manual login's session")
+        assertEquals("a-sid-fixture", store.load("a"), "the record keeps the manual login's session")
+        assertTrue("a-heal-sid" in revoked)
+    }
+
+    @Test
+    fun `Given a heal for A is in flight when the user switches to B on the same host then the old heal cannot take B's jar`() = runTest {
+        val repo = aThenBThenRestart()
+        repo.switchAccount("a") // A displayed
+        val ticket = repo.beginHeal("a")
+        repo.switchAccount("b") // winner: B's session in the jar
+
+        assertFalse(repo.commitHeal("a", a.serverUrl, "a-heal-sid", ticket))
+
+        assertEquals("b-sid-fixture", jar, "the displayed B keeps its own session")
+        assertTrue("a-heal-sid" in revoked)
+    }
+
+    @Test
+    fun `Given a heal for a current account with no newer selection then it is published and recorded`() = runTest {
+        val repo = aThenBThenRestart()
+        val ticket = repo.beginHeal("b")
+
+        assertTrue(repo.commitHeal("b", b.serverUrl, "b-heal-sid", ticket))
+
+        assertEquals("b-heal-sid", jar)
+        assertEquals("b-heal-sid", store.load("b"))
+        assertFalse("b-heal-sid" in revoked)
     }
 }

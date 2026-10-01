@@ -85,17 +85,18 @@ class ManualReloginResetsReauthCircuitTest {
 
     /** Trips the breaker with transient failures; afterwards auto re-auth is declined without a network call. */
     private fun openCircuit() {
-        coEvery { api.authenticate(any(), any(), any(), any()) } returns
+        coEvery { api.authenticateForSelfHeal(any(), any(), any(), any()) } returns
             AuthResult.Error("timeout", AuthResult.ErrorType.NETWORK_ERROR)
         repeat(SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) { reauthenticator.reauthenticateForHost(host) }
         assertFalse(reauthenticator.reauthenticateForHost(host))
-        coVerify(exactly = SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) { api.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) { api.authenticateForSelfHeal(any(), any(), any(), any()) }
     }
 
     @Test
     fun `Given an open circuit when a WOOW manual login succeeds then automatic re-auth is enabled again`() = runTest {
         openCircuit()
         coEvery { api.authenticate(any(), any(), any(), any()) } returns success
+        coEvery { api.authenticateForSelfHeal(any(), any(), any(), any()) } returns success
 
         assertTrue(repository("woowtech").authenticate(account.serverUrl, account.database, account.username, "new-pass") is AuthResult.Success)
 
@@ -110,7 +111,7 @@ class ManualReloginResetsReauthCircuitTest {
 
         repository("woowtech").authenticate(account.serverUrl, account.database, account.username, "wrong")
 
-        coEvery { api.authenticate(any(), any(), any(), any()) } returns success
+        coEvery { api.authenticateForSelfHeal(any(), any(), any(), any()) } returns success
         assertFalse(reauthenticator.reauthenticateForHost(host))
     }
 
@@ -118,7 +119,7 @@ class ManualReloginResetsReauthCircuitTest {
     fun `Given an open circuit when an Apporo manual login succeeds then automatic re-auth is enabled again`() = runTest {
         openCircuit()
         coEvery { api.authenticateApporoIsolated(any(), any(), any(), any()) } returns success
-        coEvery { api.authenticate(any(), any(), any(), any()) } returns success
+        coEvery { api.authenticateForSelfHeal(any(), any(), any(), any()) } returns success
 
         assertTrue(repository("apporo").authenticate(account.serverUrl, account.database, account.username, "new-pass") is AuthResult.Success)
 
@@ -129,6 +130,7 @@ class ManualReloginResetsReauthCircuitTest {
     fun `Given an open circuit when switching to the account succeeds then automatic re-auth is enabled again`() = runTest {
         openCircuit()
         coEvery { api.authenticate(any(), any(), any(), any()) } returns success
+        coEvery { api.authenticateForSelfHeal(any(), any(), any(), any()) } returns success
 
         assertTrue(repository("woowtech").switchAccount(account.id))
 
@@ -139,6 +141,7 @@ class ManualReloginResetsReauthCircuitTest {
     fun `Given an open circuit when the Relogin route signs in again then automatic re-auth is enabled again`() = runTest {
         openCircuit()
         coEvery { api.authenticate(any(), any(), any(), any()) } returns success
+        coEvery { api.authenticateForSelfHeal(any(), any(), any(), any()) } returns success
         val login = LoginViewModel(repository("woowtech"))
         var signedIn = false
 

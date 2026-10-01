@@ -83,7 +83,7 @@ object AppModule {
             repo.webDataCleaner = accountWebDataCleaner
             // pi 1001b P2: known sessions survive a restart (encrypted) and self-heal sessions are recorded.
             repo.knownSessionStore = knownSessionStore
-            sessionReauthenticator.onSessionRefreshed = repo::recordRefreshedSession
+            sessionReauthenticator.healCommitter = repo
         }
     }
 

@@ -131,7 +131,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         } returns AuthResult.Success(userId = 1, sessionId = "s", username = "admin", displayName = "Admin")
 
         server.enqueue(sessionExpiredEnvelope())
@@ -145,7 +145,7 @@ class SessionReauthInterceptorTest {
         // Original + one retry.
         assertEquals(2, server.requestCount)
         // Exactly one re-auth network call.
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
         // Retried request carried the fence marker (proves the cookie-refreshed replay).
         server.takeRequest()
         val retried = server.takeRequest()
@@ -160,7 +160,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         } returns AuthResult.Success(userId = 1, sessionId = "s", username = "admin", displayName = "Admin")
 
         // Server never recovers — always the session-expired envelope.
@@ -177,7 +177,7 @@ class SessionReauthInterceptorTest {
         // Original + exactly one retry, then give up. No infinite loop.
         assertEquals(2, server.requestCount)
         // Re-auth attempted exactly once (the retry is fenced by the marker header).
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
     }
 
     // AC3.3 — bad credentials stop, clear session, emit re-login, no password re-send loop
@@ -188,7 +188,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "old-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         } returns AuthResult.Error("bad creds", AuthResult.ErrorType.INVALID_CREDENTIALS)
 
         server.enqueue(sessionExpiredEnvelope())
@@ -200,7 +200,7 @@ class SessionReauthInterceptorTest {
         // No retry: only the original request reached the server.
         assertEquals(1, server.requestCount)
         // Re-auth attempted exactly once (the known-bad password is not hammered).
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
         // Stale session cleared + re-login signalled.
         verify { odooClient.clearCookies(any()) }
         verify { reloginSignal.request(accountId = account.id, reason = ReloginReason.INVALID_CREDENTIALS) }
@@ -217,7 +217,7 @@ class SessionReauthInterceptorTest {
 
         assertFalse(didReauth)
         verify(exactly = 0) { encryptedPrefs.getPassword(any()) }
-        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
     }
 
     @Test
@@ -235,7 +235,7 @@ class SessionReauthInterceptorTest {
         val didReauth = reauthenticator.reauthenticateForHost("plain.example.com")
 
         assertFalse(didReauth)
-        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
     }
 
     // AC3.5 — single-flight: concurrent session expiries on the same host do not overlap in re-auth
@@ -248,7 +248,7 @@ class SessionReauthInterceptorTest {
 
         val inFlight = java.util.concurrent.atomic.AtomicInteger(0)
         val maxConcurrent = java.util.concurrent.atomic.AtomicInteger(0)
-        coEvery { odooClient.authenticate(any(), any(), any(), any()) } coAnswers {
+        coEvery { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) } coAnswers {
             val now = inFlight.incrementAndGet()
             maxConcurrent.updateAndGet { prev -> maxOf(prev, now) }
             Thread.sleep(50) // widen the window so an unguarded impl would overlap
@@ -275,7 +275,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         } returns AuthResult.Error("timeout", AuthResult.ErrorType.NETWORK_ERROR)
 
         // Drive the engine directly N times.
@@ -292,13 +292,13 @@ class SessionReauthInterceptorTest {
 
         // Once open, further expiries are declined without any re-auth attempt.
         coVerify(exactly = SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         }
         val afterOpen = reauthenticator.reauthenticateForHost("cb.example.com")
         assertFalse(afterOpen)
         // Still exactly N calls — none after the circuit opened.
         coVerify(exactly = SessionReauthenticator.MAX_CONSECUTIVE_FAILURES) {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         }
     }
 
@@ -317,7 +317,7 @@ class SessionReauthInterceptorTest {
         assertEquals("{\"result\":{\"tenant_id\":\"t1\"}}", response.body?.string())
         response.close()
         assertEquals(1, server.requestCount)
-        coVerify(exactly = 0) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
     }
 
     // A genuine transport-level 401 is still honoured (belt-and-suspenders).
@@ -328,7 +328,7 @@ class SessionReauthInterceptorTest {
         coEvery { accountDao.getAllAccountsList() } returns listOf(account)
         every { encryptedPrefs.getPassword(account.id) } returns "stored-pass"
         coEvery {
-            odooClient.authenticate(any(), any(), any(), any())
+            odooClient.authenticateForSelfHeal(any(), any(), any(), any())
         } returns AuthResult.Success(userId = 1, sessionId = "s", username = "admin", displayName = "Admin")
 
         server.enqueue(MockResponse().setResponseCode(401))
@@ -339,6 +339,6 @@ class SessionReauthInterceptorTest {
         assertEquals(200, response.code)
         response.close()
         assertEquals(2, server.requestCount)
-        coVerify(exactly = 1) { odooClient.authenticate(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { odooClient.authenticateForSelfHeal(any(), any(), any(), any()) }
     }
 }

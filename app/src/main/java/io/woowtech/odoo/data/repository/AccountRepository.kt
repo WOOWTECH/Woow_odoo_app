@@ -34,7 +34,7 @@ class AccountRepository(
     /** Runs best-effort server-side session revokes without blocking logout / switch (iOS D1/D5 parity). */
     private val revokeScope: kotlinx.coroutines.CoroutineScope =
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
-) {
+) : SessionReauthenticator.HealCommitter {
     @Inject
     constructor(
         accountDao: AccountDao,
@@ -105,6 +105,7 @@ class AccountRepository(
         rememberPassword: Boolean = true,
     ): AuthResult {
         if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)
+        invalidateHeals()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
         // pi 0930b P2: keep the displayed account's live WebView session so a later promotion can reuse it.
         accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
@@ -164,6 +165,7 @@ class AccountRepository(
 
     suspend fun switchAccount(accountId: String): Boolean {
         if (brand.isApporo) return switchApporoAccount(accountId)
+        invalidateHeals()
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
 
@@ -377,6 +379,7 @@ class AccountRepository(
         serverUrl: String, database: String, username: String, password: String, rememberPassword: Boolean,
     ): AuthResult {
         val attempt = beginSelection()
+        invalidateHeals()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
         val result = odooClient.authenticateApporoIsolated(fullUrl, database, username, password)
         if (result !is AuthResult.Success) return result
@@ -421,6 +424,7 @@ class AccountRepository(
 
     private suspend fun switchApporoAccount(accountId: String): Boolean {
         val attempt = beginSelection()
+        invalidateHeals()
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
         val previous = accountDao.getActiveAccountOnce()?.id
@@ -511,18 +515,32 @@ class AccountRepository(
     }
 
     /**
-     * Records the session the native self-heal ([SessionReauthenticator]) just established for [accountId]
-     * (pi 1001b P2: every publish is recorded, so a later promotion can reuse or revoke it).
+     * pi 1001d P1 self-heal fence. Every manual sign-in / switch (and every logout / removal) advances the
+     * generation; a heal publishes its session to the jar and records it only if no such selection started
+     * since its ticket and its account still exists. A losing heal revokes only its own, never-published session.
      */
-    suspend fun recordRefreshedSession(accountId: String, serverUrl: String, sessionId: String) {
-        if (!validApporoSession(sessionId)) return
-        // pi 1001c P2: a heal that finishes after its account was logged out / removed must not re-record a
-        // session no account can clean up; that fresh session is the heal's own and unused, so it is revoked.
-        val accountGone = recordFence.withLock {
-            if (accountDao.getAccountById(accountId) == null) true
-            else { knownSessions[accountId] = sessionId; false }
+    private val healGeneration = java.util.concurrent.atomic.AtomicLong()
+
+    override fun beginHeal(accountId: String): Long = healGeneration.get()
+
+    override suspend fun commitHeal(accountId: String, serverUrl: String, sessionId: String, ticket: Long): Boolean {
+        if (!validApporoSession(sessionId)) return false
+        val committed = recordFence.withLock {
+            val current = ticket == healGeneration.get() && accountDao.getAccountById(accountId) != null
+            if (current) {
+                if (brand.isApporo) odooClient.publishApporoSession(serverUrl, sessionId)
+                else odooClient.publishSession(serverUrl, sessionId)
+                knownSessions[accountId] = sessionId
+            }
+            current
         }
-        if (accountGone) revokeLater(serverUrl, sessionId)
+        if (!committed) revokeLater(serverUrl, sessionId)
+        return committed
+    }
+
+    /** A manual selection supersedes every heal in flight (pi 1001d P1). */
+    private suspend fun invalidateHeals() {
+        recordFence.withLock { healGeneration.incrementAndGet() }
     }
 
     /** Serializes "record a self-heal session" against "delete the account and its record" (pi 1001c P2). */

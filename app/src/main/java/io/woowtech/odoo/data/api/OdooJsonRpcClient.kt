@@ -184,6 +184,16 @@ class OdooJsonRpcClient internal constructor(
         authenticateApporo(serverUrl, database, username, password)
     }
 
+    /**
+     * pi 1001d P1: the self-heal sign-in (both brands) reads only THIS response's session and never touches the
+     * shared jar; [SessionReauthenticator] publishes it only after the account's fence admits it.
+     */
+    internal suspend fun authenticateForSelfHeal(
+        serverUrl: String, database: String, username: String, password: String,
+    ): AuthResult = withContext(Dispatchers.IO) {
+        authenticateApporo(serverUrl, database, username, password)
+    }
+
     private fun authenticateApporo(serverUrl: String, database: String, username: String, password: String): AuthResult {
         return try {
             val url = serverUrl.toHttpUrlOrNull()

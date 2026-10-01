@@ -74,8 +74,18 @@ class SessionReauthenticator @Inject constructor(
     /** Accounts whose circuit breaker is open — auto re-auth disabled until a manual re-login. */
     private val openCircuits = ConcurrentHashMap.newKeySet<String>()
 
-    /** Told about each session a successful re-auth established (pi 1001b P2: AccountRepository records it). */
-    var onSessionRefreshed: (suspend (accountId: String, serverUrl: String, sessionId: String) -> Unit)? = null
+    /**
+     * pi 1001d P1: admits a healed session. [beginHeal] is taken before the network sign-in and [commitHeal]
+     * publishes the session to the jar and records it only while the account still exists, is not being
+     * removed, and no newer manual selection happened; otherwise it revokes that fresh session.
+     */
+    interface HealCommitter {
+        fun beginHeal(accountId: String): Long
+        suspend fun commitHeal(accountId: String, serverUrl: String, sessionId: String, ticket: Long): Boolean
+    }
+
+    /** Wired by DI (AccountRepository); null in unit tests, where a healed session is published directly. */
+    var healCommitter: HealCommitter? = null
 
     /**
      * Attempts to refresh the expired Odoo session for [requestHost], applying every security
@@ -142,7 +152,11 @@ class SessionReauthenticator @Inject constructor(
             return false
         }
 
-        val result = odooClient.authenticate(
+        // pi 1001d P1: the ticket is taken BEFORE the network sign-in, so any manual selection or removal that
+        // starts while it is in flight makes this heal lose.
+        val committer = healCommitter
+        val ticket = committer?.beginHeal(account.id)
+        val result = odooClient.authenticateForSelfHeal(
             serverUrl = serverUrl,
             database = account.database,
             username = account.username,
@@ -152,9 +166,17 @@ class SessionReauthenticator @Inject constructor(
         return when (result) {
             is AuthResult.Success -> {
                 consecutiveFailures.remove(account.id)
-                onSessionRefreshed?.invoke(account.id, serverUrl, result.sessionId)
-                Timber.d("Re-auth: session refreshed for account %s", account.id)
-                true
+                // The sign-in touched no jar; the session reaches it only through the fence (or directly when
+                // no fence is wired, e.g. unit tests).
+                val committed = if (committer == null || ticket == null) {
+                    odooClient.publishSession(serverUrl, result.sessionId)
+                    true
+                } else {
+                    committer.commitHeal(account.id, serverUrl, result.sessionId, ticket)
+                }
+                if (committed) Timber.d("Re-auth: session refreshed for account %s", account.id)
+                else Timber.d("Re-auth: superseded for account %s — not published", account.id)
+                committed
             }
 
             is AuthResult.Error -> handleReauthError(account, result)
