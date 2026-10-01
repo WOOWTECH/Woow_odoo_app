@@ -7,6 +7,8 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.woowtech.odoo.brand.AppBrand
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionOwnership
+import io.woowtech.odoo.data.local.KnownSessionStore
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
@@ -56,6 +58,15 @@ class ApporoSessionReuseTest {
             val sid = secondArg<String>(); val uid = thirdArg<Int>(); val db = arg<String>(3)
             sid in valid && accounts.values.any { sid.startsWith("${it.id}-") && it.userId == uid && it.database == db }
         }
+        // pi 1001d P1: a replaced session is revoked only on positive proof it is still the account's.
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } answers {
+            val sid = firstArg<String>().let { secondArg<String>() }; val uid = thirdArg<Int>(); val db = arg<String>(3)
+            when {
+                sid !in valid -> SessionOwnership.ProvenMismatch
+                accounts.values.any { sid.startsWith("${it.id}-") && it.userId == uid && it.database == db } -> SessionOwnership.Belongs
+                else -> SessionOwnership.ProvenMismatch
+            }
+        }
         coEvery { dao.findAccount(any(), any(), any()) } answers { accounts.values.firstOrNull { it.username == thirdArg<String>() } }
         coEvery { dao.getAccountById(any()) } answers { accounts[firstArg()] }
         coEvery { dao.getActiveAccountOnce() } answers { active?.let { accounts[it] } }
@@ -99,7 +110,7 @@ class ApporoSessionReuseTest {
     }
 
     @Test
-    fun `Given B's session expired when switching to B then B signs in again and the stale session is revoked after commit`() = runTest {
+    fun `Given B's session expired when switching to B then B signs in again and the stale session is not revoked`() = runTest {
         signIn(b); signIn(a)
         valid -= "b-sid-1" // expired on the server
 
@@ -107,11 +118,55 @@ class ApporoSessionReuseTest {
 
         coVerify(exactly = 2) { api.authenticateApporoIsolated(b.serverUrl, b.database, b.username, any()) }
         assertEquals("b-sid-3", jar)
+        // pi 1001d P1: an expired session is no longer provably B's, so nothing is revoked on B's behalf.
+        assertTrue(revoked.isEmpty())
+    }
+
+    @Test
+    fun `Given B's stored session is still B's but was replaced when switching to B then it is revoked after commit`() = runTest {
+        signIn(b); signIn(a)
+        // B's stored session still belongs to B on the server, but the switch signs in anew (e.g. the proof failed).
+        coEvery { api.sessionBelongsTo(any(), "b-sid-1", any(), any()) } returns false
+
+        assertTrue(repo.switchAccount("b"))
+
+        assertEquals("b-sid-3", jar)
         assertEquals(listOf("b-sid-1"), revoked)
         io.mockk.coVerifyOrder {
             api.publishApporoSession(b.serverUrl, "b-sid-3")
             api.revokeSession(b.serverUrl, "b-sid-1")
         }
+    }
+
+    @Test
+    fun `Given A's stale record is the session B holds when switching to A then B's session is never revoked`() = runTest {
+        // pi 1001d P1: A and B on one host; A's stale record points at B's live session.
+        valid += "b-live"
+        repo.knownSessionStore = KnownSessionStore.InMemory().apply { save("a", "b-live"); save("b", "b-live") }
+        active = "b"
+
+        assertTrue(repo.switchAccount("a"))
+
+        assertFalse("b-live" in revoked, "a session another account holds must not be revoked")
+    }
+
+    @Test
+    fun `Given A's stale record is the session B holds when A signs in again then B's session is never revoked`() = runTest {
+        valid += "b-live"
+        repo.knownSessionStore = KnownSessionStore.InMemory().apply { save("a", "b-live"); save("b", "b-live") }
+        active = "b"
+
+        signIn(a)
+
+        assertFalse("b-live" in revoked, "a session another account holds must not be revoked")
+    }
+
+    @Test
+    fun `Given A signs in again while A's previous session is still A's then the replaced session is revoked`() = runTest {
+        signIn(a)
+        signIn(a)
+
+        assertEquals(listOf("a-sid-1"), revoked)
     }
 
     @Test

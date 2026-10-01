@@ -266,6 +266,8 @@ class AccountSessionCleanupTest {
         repo.authenticate(a.serverUrl, a.database, a.username, "password-fixture") // a-sid-fixture
         coEvery { api.authenticateApporoIsolated(any(), any(), any(), any()) } returns
             AuthResult.Success(11, "a-sid-2", a.username, a.displayName)
+        // pi 1001d P1: the replaced session is revoked only on proof it is still A's.
+        coEvery { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns SessionOwnership.Belongs
         var outer: Job? = null
         coEvery { dao.insertAccount(any()) } answers {
             val account = firstArg<OdooAccount>(); accounts[account.id] = account
@@ -302,6 +304,8 @@ class AccountSessionCleanupTest {
         coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
         coEvery { api.authenticateApporoIsolated(any(), any(), any(), any()) } returns
             AuthResult.Success(11, "a-sid-2", a.username, a.displayName)
+        // pi 1001d P1: the stale session is revoked only on proof it is still A's.
+        coEvery { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns SessionOwnership.Belongs
         var outer: Job? = null
         coEvery { dao.activateAccount(any()) } answers { active = firstArg<String>(); outer?.cancel(); Unit }
 

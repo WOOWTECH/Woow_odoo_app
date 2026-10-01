@@ -398,7 +398,7 @@ class AccountRepository(
                         published = true
                         // Replaced only now that the new session is committed (iOS D5 P1 lesson).
                         knownSessions.put(account.id, result.sessionId)
-                            ?.takeIf { it != result.sessionId }?.let { revokeLater(fullUrl, it) }
+                            ?.takeIf { it != result.sessionId }?.let { revokeReplacedIfOwn(account, it) }
                     },
                 ) {
                     accountDao.insertAccount(account)
@@ -457,7 +457,7 @@ class AccountRepository(
                     knownSessions[accountId] = sessionId
                     // The stale session is revoked only after the replacement committed (iOS D5 P1 lesson): a
                     // superseded switch must never revoke the target's only stored session.
-                    if (reused == null && stored != null && stored != sessionId) revokeLater(account.fullServerUrl, stored)
+                    if (reused == null && stored != null && stored != sessionId) revokeReplacedIfOwn(current, stored)
                 }) {
                     accountDao.activateAccount(accountId)
                     accountDao.updateLastLogin(accountId)
@@ -531,6 +531,33 @@ class AccountRepository(
     private suspend fun deleteAccountAndRecord(accountId: String) = recordFence.withLock {
         accountDao.deleteAccountById(accountId)
         knownSessions.remove(accountId)
+    }
+
+    /**
+     * pi 1001d P1: a session REPLACED by a newer one of [account] is revoked only when no other account holds it
+     * (its record, its WebView, or the jar while it is displayed) and the server positively proves it is still
+     * [account]'s (uid AND db). A stale record may point at another account's live session; destroy acts on the
+     * session id alone, so "not proven" never authorizes it.
+     */
+    private fun revokeReplacedIfOwn(account: OdooAccount, sessionId: String) {
+        launchDetached(revokeScope) {
+            val userId = account.userId ?: return@launchDetached
+            if (!validApporoSession(sessionId) || heldByAnotherAccount(account.id, account.fullServerUrl, sessionId)) {
+                return@launchDetached
+            }
+            if (odooClient.sessionOwnership(account.fullServerUrl, sessionId, userId, account.database) == SessionOwnership.Belongs) {
+                odooClient.revokeSession(account.fullServerUrl, sessionId)
+            }
+        }
+    }
+
+    private suspend fun heldByAnotherAccount(accountId: String, serverUrl: String, sessionId: String): Boolean {
+        val others = accountDao.getAllAccountsList().filter { it.id != accountId }
+        if (others.any { knownSessions[it.id] == sessionId }) return true
+        if (others.any { webDataCleaner?.webViewSessionIdOf(it.id, it.fullServerUrl) == sessionId }) return true
+        val displayed = accountDao.getActiveAccountOnce()
+        val host = sessionHostOf(serverUrl)
+        return displayed != null && displayed.id != accountId && host != null && odooClient.getSessionId(host) == sessionId
     }
 
     private fun revokeLater(serverUrl: String, sessionId: String) {
