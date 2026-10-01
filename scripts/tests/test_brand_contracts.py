@@ -191,6 +191,17 @@ F5_WOOW_API = (
      '            val result = response.result\n'
      '            if (result == null || !result.has("uid") || result.get("uid").isJsonNull) {\n'),
 )
+# Android 1001 (demo111 live B4, 2026-09-30): a WOOW sign-in never carries the host's stored session_id —
+# Odoo re-authenticated that session as the new user and rotated it, killing the other account's server
+# session. The sign-in jar still saves the new session; it just sends none. Same (current, baseline) contract.
+WOOW_SIGNIN_NO_SESSION_API = (
+    ('        // 1001 (demo111 B4): a sign-in never sends another account\'s session_id; Odoo would\n'
+     '        // re-authenticate that session as the new user and rotate it away.\n'
+     '        override fun loadForRequest(url: HttpUrl): List<Cookie> = emptyList()\n',
+     '        override fun loadForRequest(url: HttpUrl): List<Cookie> {\n'
+     '            return cookieStore[url.host] ?: emptyList()\n'
+     '        }\n'),
+)
 F5_APP_MODULE = (
     ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),
     ('            // D1 (iOS parity): logout / removal wipes the account\'s WebView data.\n'
@@ -536,6 +547,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import io.woowtech.odoo.brand.AppBrand\n'):
             self.assertEqual(1, api.count(line))
             api = api.replace(line, '')
+        api = reverse_apply(self, api, WOOW_SIGNIN_NO_SESSION_API)
         api = reverse_apply(self, api, F5_WOOW_API)
         api = reverse_apply(self, api, SERVER_HTTP_STATUS_WOOW_API)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/data/api/OdooJsonRpcClient.kt').decode(), api)

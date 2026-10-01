@@ -51,9 +51,9 @@ class OdooJsonRpcClient internal constructor(
             }
         }
 
-        override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            return cookieStore[url.host] ?: emptyList()
-        }
+        // 1001 (demo111 B4): a sign-in never sends another account's session_id; Odoo would
+        // re-authenticate that session as the new user and rotate it away.
+        override fun loadForRequest(url: HttpUrl): List<Cookie> = emptyList()
     }
 
     private val client: OkHttpClient = (sharedAuthClient?.newBuilder() ?: OkHttpClient.Builder())
