@@ -90,4 +90,23 @@ class SessionValidationTest {
         val (failing, _) = api(code = 502)
         assertFalse(runBlocking { failing.revokeSession("https://fixture.test", "old-sid") })
     }
+
+    private fun ownership(body: String, code: Int = 200): SessionOwnership {
+        val (client, _) = api(code, body)
+        return runBlocking { client.sessionOwnership("https://fixture.test", "b-sid-fixture", 22, "db-b") }
+    }
+
+    @Test
+    fun `Given only a server answer about the session then ownership is evidence, anything else is Unknown`() {
+        // pi 1001c P1: only a real answer proves anything; a failure to ask must never read as "not yours".
+        assertEquals(SessionOwnership.Belongs, ownership(info("22", "db-b")))
+        assertEquals(SessionOwnership.ProvenMismatch, ownership(info("11", "db-b")))
+        assertEquals(SessionOwnership.ProvenMismatch, ownership(info("22", "db-a")))
+        assertEquals(SessionOwnership.ProvenMismatch,
+            ownership("""{"jsonrpc":"2.0","id":1,"error":{"code":100,"message":"Odoo Session Expired","data":{"name":"odoo.http.SessionExpiredException"}}}"""))
+        assertEquals(SessionOwnership.Unknown, ownership(info("22", "db-b"), code = 530))
+        assertEquals(SessionOwnership.Unknown, ownership("<html>maintenance</html>"))
+        assertEquals(SessionOwnership.Unknown, ownership(info("22", null)))
+        assertEquals(SessionOwnership.Unknown, ownership("""{"jsonrpc":"2.0","id":1,"error":{"code":200,"message":"Odoo Server Error","data":{"name":"builtins.Exception"}}}"""))
+    }
 }

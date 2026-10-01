@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.woowtech.odoo.brand.AppBrand
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionOwnership
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.data.local.KnownSessionStore
@@ -99,9 +100,9 @@ class WoowPromotionAfterRestartTest {
     }
 
     @Test
-    fun `Given A then B and an app restart when B logs out and A's session is still valid then A gets it back without a new sign-in`() = runTest {
+    fun `Given A then B and an app restart when B logs out and A's session is still A's then A gets it back without a new sign-in`() = runTest {
         val afterRestart = aThenBThenRestart()
-        coEvery { api.sessionBelongsTo(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns true
+        coEvery { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns SessionOwnership.Belongs
 
         afterRestart.logout("b")
 
@@ -112,16 +113,45 @@ class WoowPromotionAfterRestartTest {
     }
 
     @Test
-    fun `Given A then B and an app restart when B logs out and A's session is no longer A's then it is revoked, not published`() = runTest {
+    fun `Given the server cannot be asked (offline, timeout) when B logs out then A's session is neither revoked, published nor forgotten`() = runTest {
+        // pi 1001c P1: "cannot prove it is A's" is no evidence that it is dead — it may be A's live session.
         val afterRestart = aThenBThenRestart()
-        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Unknown
+
+        afterRestart.logout("b")
+
+        assertEquals("a", active)
+        assertFalse("a-sid-fixture" in revoked, "an unproven session must never be revoked")
+        verify(exactly = 0) { api.publishSession(any(), "a-sid-fixture") }
+        assertEquals("a-sid-fixture", store.load("a"), "the record is kept to be proven later")
+    }
+
+    @Test
+    fun `Given the server proves A's remembered session is someone else's or expired when B logs out then it is forgotten but never revoked`() = runTest {
+        // pi 1001c P1: a different uid/db may mean the SID now belongs to someone else; destroy acts on the SID alone.
+        val afterRestart = aThenBThenRestart()
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.ProvenMismatch
 
         afterRestart.logout("b")
 
         assertEquals("a", active)
         verify(exactly = 0) { api.publishSession(any(), "a-sid-fixture") }
-        assertTrue("a-sid-fixture" in revoked, "an unproven remembered session must not stay valid on the server")
-        assertNull(store.load("a"), "the unproven record is forgotten")
+        assertFalse("a-sid-fixture" in revoked, "a session that is not A's must not be destroyed on A's behalf")
+        assertNull(store.load("a"), "a session proven not A's is forgotten")
+    }
+
+    @Test
+    fun `Given A's remembered session is the one a sibling holds when B logs out then it is not revoked`() = runTest {
+        val afterRestart = aThenBThenRestart()
+        val c = OdooAccount("c", "https://fixture.test", "db-c", "user-c", "C", userId = 33)
+        accounts["c"] = c
+        store.save("c", "a-sid-fixture")
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.ProvenMismatch
+
+        afterRestart.logout("b")
+
+        assertFalse("a-sid-fixture" in revoked)
+        assertEquals("a-sid-fixture", store.load("c"), "the sibling's record is untouched")
     }
 
     @Test
@@ -131,7 +161,7 @@ class WoowPromotionAfterRestartTest {
         assertEquals("b-sid-fixture", store.load("b"))
         verify(exactly = 0) { prefs.savePassword(any(), match { it.contains("sid") }) }
 
-        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns true
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Belongs
         afterRestart.logout("b")
 
         assertNull(store.load("b"), "logout forgets the logged-out account's session")

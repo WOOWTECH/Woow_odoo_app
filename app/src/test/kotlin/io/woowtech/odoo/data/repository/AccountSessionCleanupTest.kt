@@ -8,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.woowtech.odoo.brand.AppBrand
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionOwnership
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
@@ -107,9 +108,7 @@ class AccountSessionCleanupTest {
         repo.logout("b")
 
         assertEquals(listOf(Triple("b", b.serverUrl, WebDataRemoval(cookies = true, originStorage = false, everything = false))), cleaner.removals)
-        // pi 1001b P2: A's remembered session is unproven here (sessionBelongsTo is not stubbed → false), so the
-        // promotion no longer leaves it valid on the server — it is revoked too. B's own sessions are as before.
-        assertEquals(setOf("b-sid-fixture", "b-web-sid", "a-sid-fixture"), revoked.toSet())
+        assertEquals(setOf("b-sid-fixture", "b-web-sid"), revoked.toSet())
         verify(exactly = 1) { api.clearCookies("fixture.test") } // the jar held B's session
         coVerifyOrder {
             push.unregisterToken("b")
@@ -128,7 +127,7 @@ class AccountSessionCleanupTest {
         // (self-heal) although its own session was still valid, leaving that session orphaned on the server.
         val repo = repo()
         signInBoth(repo, last = b)
-        coEvery { api.sessionBelongsTo(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns true
+        coEvery { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns SessionOwnership.Belongs
 
         repo.logout("b")
 

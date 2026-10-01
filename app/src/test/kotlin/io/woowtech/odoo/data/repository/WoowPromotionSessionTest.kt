@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import io.woowtech.odoo.brand.AppBrand
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionOwnership
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
 import io.woowtech.odoo.domain.model.AuthResult
@@ -96,7 +97,7 @@ class WoowPromotionSessionTest {
     fun `Given WOOW A then B on one host when B logs out and A's session is still valid then A gets it back without a new sign-in`() = runTest {
         val repo = repo()
         aThenB(repo)
-        coEvery { api.sessionBelongsTo(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns true
+        coEvery { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns SessionOwnership.Belongs
 
         repo.logout("b")
 
@@ -111,7 +112,7 @@ class WoowPromotionSessionTest {
     fun `Given WOOW A's remembered session is no longer valid when B logs out then nothing of A is published`() = runTest {
         val repo = repo()
         aThenB(repo)
-        coEvery { api.sessionBelongsTo(any(), any(), any(), any()) } returns false
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.ProvenMismatch
 
         repo.logout("b")
 
@@ -123,10 +124,10 @@ class WoowPromotionSessionTest {
     fun `Given WOOW A then B when B logs out then the server proves A's remembered session before promotion`() = runTest {
         val repo = repo()
         aThenB(repo)
-        coEvery { api.sessionBelongsTo(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns true
+        coEvery { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") } returns SessionOwnership.Belongs
 
         repo.logout("b")
 
-        coVerify { api.sessionBelongsTo(a.serverUrl, "a-sid-fixture", 11, "db-a") }
+        coVerify { api.sessionOwnership(a.serverUrl, "a-sid-fixture", 11, "db-a") }
     }
 }

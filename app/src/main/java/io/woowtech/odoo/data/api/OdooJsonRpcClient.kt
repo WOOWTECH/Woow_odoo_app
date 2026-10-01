@@ -252,12 +252,31 @@ class OdooJsonRpcClient internal constructor(
      * published and no jar is touched.
      */
     internal suspend fun sessionBelongsTo(serverUrl: String, sessionId: String, userId: Int, database: String): Boolean =
+        sessionOwnership(serverUrl, sessionId, userId, database) == SessionOwnership.Belongs
+
+    /**
+     * pi 1001c P1: what the server PROVES about [sessionId]. Only [SessionOwnership.Belongs] and
+     * [SessionOwnership.ProvenMismatch] are evidence; offline, timeout, non-200, an unparsable answer or a
+     * missing db prove nothing ([SessionOwnership.Unknown]) and must never authorize a revoke.
+     */
+    internal suspend fun sessionOwnership(serverUrl: String, sessionId: String, userId: Int, database: String): SessionOwnership =
         withContext(Dispatchers.IO) {
-            val result = postWithSession(serverUrl, "web/session/get_session_info", sessionId)
-                ?.get("result") as? JsonObject ?: return@withContext false
+            val envelope = postWithSession(serverUrl, "web/session/get_session_info", sessionId)
+                ?: return@withContext SessionOwnership.Unknown
+            val error = envelope.get("error") as? JsonObject
+            if (error != null) {
+                val name = runCatching { (error.get("data") as? JsonObject)?.get("name")?.asString }.getOrNull()
+                // The server says this session is dead: it is nobody's live session any more.
+                return@withContext if (name == SESSION_EXPIRED) SessionOwnership.ProvenMismatch else SessionOwnership.Unknown
+            }
+            val result = envelope.get("result") as? JsonObject ?: return@withContext SessionOwnership.Unknown
             val uid = runCatching { result.get("uid")?.takeUnless { it.isJsonNull }?.asInt }.getOrNull()
             val db = runCatching { result.get("db")?.takeUnless { it.isJsonNull }?.asString }.getOrNull()
-            uid == userId && !db.isNullOrEmpty() && db == database
+            when {
+                db.isNullOrEmpty() -> SessionOwnership.Unknown
+                uid == userId && db == database -> SessionOwnership.Belongs
+                else -> SessionOwnership.ProvenMismatch
+            }
         }
 
     /**
@@ -301,6 +320,7 @@ class OdooJsonRpcClient internal constructor(
 
     private companion object {
         const val ACCESS_DENIED = "odoo.exceptions.AccessDenied"
+        const val SESSION_EXPIRED = "odoo.http.SessionExpiredException"
     }
 
     /** A parsed sign-in envelope plus THIS response's live cookies and valid `session_id` (null when none). */
@@ -344,6 +364,16 @@ class OdooJsonRpcClient internal constructor(
         AuthResult.Error("HTTP $code", AuthResult.ErrorType.SERVER_ERROR, httpStatus = code)
 
     private class SignInHttpStatusException(val code: Int) : Exception("HTTP $code")
+}
+
+/** pi 1001c P1: the server's answer about a session's owner; see [OdooJsonRpcClient.sessionOwnership]. */
+sealed interface SessionOwnership {
+    /** The server answered: this session is the account's (uid AND db). */
+    object Belongs : SessionOwnership
+    /** The server answered: another uid/db, or the session is expired. Not the account's — and maybe someone else's. */
+    object ProvenMismatch : SessionOwnership
+    /** No usable answer (offline, timeout, non-200, unparsable, db missing): proves nothing either way. */
+    object Unknown : SessionOwnership
 }
 
 data class JsonRpcRequest(

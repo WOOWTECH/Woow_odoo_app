@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import io.woowtech.odoo.data.api.OdooJsonRpcClient
+import io.woowtech.odoo.data.api.SessionOwnership
 import io.woowtech.odoo.data.api.SessionReauthenticator
 import io.woowtech.odoo.data.local.AccountDao
 import io.woowtech.odoo.data.local.EncryptedPrefs
@@ -494,15 +495,13 @@ class AccountRepository(
      */
     private suspend fun publishKnownSession(account: OdooAccount) {
         val sessionId = knownSessions[account.id] ?: return
-        if (!sessionStillBelongs(account, sessionId)) {
-            knownSessions.remove(account.id, sessionId)
-            // pi 1001b P2: nothing on this device will use it again (the promoted WebView signs in anew), so
-            // it is revoked best-effort instead of being left valid on the server — unless another account holds it.
-            val heldElsewhere = accountDao.getAllAccountsList().filter { it.id != account.id }.any { other ->
-                knownSessions[other.id] == sessionId ||
-                    webDataCleaner?.webViewSessionIdOf(other.id, other.fullServerUrl) == sessionId
-            }
-            if (!heldElsewhere && validApporoSession(sessionId)) revokeLater(account.fullServerUrl, sessionId)
+        val userId = account.userId
+        val ownership = if (userId == null || !validApporoSession(sessionId)) SessionOwnership.Unknown
+            else odooClient.sessionOwnership(account.fullServerUrl, sessionId, userId, account.database)
+        if (ownership != SessionOwnership.Belongs) {
+            // pi 1001c P1: never revoked here. Unknown (offline, timeout, unparsable) proves nothing, so the record
+            // is kept to be proven later; a proven mismatch may be someone else's session, so it is only forgotten.
+            if (ownership == SessionOwnership.ProvenMismatch) knownSessions.remove(account.id, sessionId)
             return
         }
         if (brand.isApporo) odooClient.publishApporoSession(account.fullServerUrl, sessionId)

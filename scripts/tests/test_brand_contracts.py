@@ -209,6 +209,23 @@ WOOW_SIGNIN_NO_SESSION_API = (
 # `Set-Cookie: session_id` (iOS isolated response-cookie rule) and keeps that response's cookies only after
 # the sign-in succeeded; the host jar's other-account session can no longer become the sign-in result, and
 # a failed / cookie-less answer no longer replaces it. Same (current, baseline) contract.
+# pi 1001c P1 (2026-10-02): a top-level tri-state SessionOwnership answer next to the JSON-RPC types; only a
+# server answer is evidence, never a failure to ask. Same (current, baseline) contract.
+SESSION_OWNERSHIP_API = (
+    (
+     "/** pi 1001c P1: the server's answer about a session's owner; see [OdooJsonRpcClient.sessionOwnership]. */\n"
+     'sealed interface SessionOwnership {\n'
+     "    /** The server answered: this session is the account's (uid AND db). */\n"
+     '    object Belongs : SessionOwnership\n'
+     "    /** The server answered: another uid/db, or the session is expired. Not the account's — and maybe someone else's. */\n"
+     '    object ProvenMismatch : SessionOwnership\n'
+     '    /** No usable answer (offline, timeout, non-200, unparsable, db missing): proves nothing either way. */\n'
+     '    object Unknown : SessionOwnership\n'
+     '}\n'
+     '\n'
+     'data class JsonRpcRequest(',
+     'data class JsonRpcRequest('),
+)
 WOOW_RESPONSE_SID_API = (
     # pi 1001b P1 (2026-10-01): the WOOW sign-in client no longer follows redirects (Apporo isolated parity),
     # and the session is parsed against the URL that actually answered; another host is a failure.
@@ -583,6 +600,8 @@ class BrandIdentityContracts(unittest.TestCase):
             '    private val odooClient: OdooJsonRpcClient\n) {\n') + account[end:]
         for line in ('import io.woowtech.odoo.brand.AppBrand\n',
                      'import io.woowtech.odoo.data.api.SessionReauthenticator\n',
+                     # pi 1001c P1: tri-state ownership proof for promotions (publishKnownSession).
+                     'import io.woowtech.odoo.data.api.SessionOwnership\n',
                      'import kotlinx.coroutines.sync.Mutex\n', 'import kotlinx.coroutines.sync.withLock\n',
                      'import kotlinx.coroutines.NonCancellable\n', 'import kotlinx.coroutines.currentCoroutineContext\n',
                      'import kotlinx.coroutines.ensureActive\n', 'import kotlinx.coroutines.withContext\n',
@@ -633,6 +652,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import io.woowtech.odoo.brand.AppBrand\n'):
             self.assertEqual(1, api.count(line))
             api = api.replace(line, '')
+        api = reverse_apply(self, api, SESSION_OWNERSHIP_API)
         api = reverse_apply(self, api, WOOW_RESPONSE_SID_API)
         api = reverse_apply(self, api, WOOW_SIGNIN_NO_SESSION_API)
         api = reverse_apply(self, api, F5_WOOW_API)
