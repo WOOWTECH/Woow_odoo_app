@@ -202,6 +202,52 @@ WOOW_SIGNIN_NO_SESSION_API = (
      '            return cookieStore[url.host] ?: emptyList()\n'
      '        }\n'),
 )
+# pi 0930b Android P1 (2026-10-01): a WOOW sign-in takes its session only from THIS response's live
+# `Set-Cookie: session_id` (iOS isolated response-cookie rule) and keeps that response's cookies only after
+# the sign-in succeeded; the host jar's other-account session can no longer become the sign-in result, and
+# a failed / cookie-less answer no longer replaces it. Same (current, baseline) contract.
+WOOW_RESPONSE_SID_API = (
+    ('        // pi 0930b P1: a sign-in response\'s cookies are kept only once that sign-in succeeded (see\n'
+     '        // [authenticate]); a failed or cookie-less answer never replaces another account\'s session.\n'
+     '        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit\n',
+     '        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {\n'
+     '            cookieStore.getOrPut(url.host) { mutableListOf() }.apply {\n'
+     '                clear()\n'
+     '                addAll(cookies)\n'
+     '            }\n'
+     '        }\n'),
+    ('            val signIn = executeRequest(url, requestBody)\n'
+     '            val response = signIn.body\n',
+     '            val response = executeRequest(url, requestBody)\n'),
+    ('            // pi 0930b P1 (iOS isolated response-cookie rule): only THIS response\'s session counts; the\n'
+     '            // host jar may still hold another account\'s session, which must never become this sign-in\'s.\n'
+     '            val sessionId = signIn.sessionId\n'
+     '                ?: return@withContext AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)\n'
+     '            cookieStore[signIn.host] = signIn.cookies.toMutableList()\n',
+     '            val sessionId = getSessionId(extractHost(serverUrl)) ?: ""\n'),
+    # SignInResponse itself sits in the Apporo-isolated span stripped above (just before executeRequest).
+    ('    private fun executeRequest(url: String, body: JsonRpcRequest): SignInResponse {\n',
+     '    private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {\n'),
+    ('        val now = System.currentTimeMillis()\n'
+     '        val cookies = Cookie.parseAll(request.url, response.headers).filter { it.matches(request.url) && it.expiresAt > now }\n'
+     '        val sessionId = cookies.firstOrNull { it.name == "session_id" }\n'
+     '            ?.value?.takeIf { sid -> sid.isNotBlank() && sid.none { it <= \' \' || it == \';\' || it >= \'\\u007f\' } }\n'
+     '\n'
+     '        val parsed = try {\n',
+     '\n'
+     '        return try {\n'),
+    ('        } ?: throw InvalidSignInResponseException()\n'
+     '        return SignInResponse(parsed, request.url.host, cookies, sessionId)\n',
+     '        } ?: throw InvalidSignInResponseException()\n'),
+    ('    private class SignInHttpStatusException(val code: Int) : Exception("HTTP $code")\n'
+     '}\n',
+     '    private class SignInHttpStatusException(val code: Int) : Exception("HTTP $code")\n'
+     '\n'
+     '    private fun extractHost(url: String): String {\n'
+     '        return url.removePrefix("https://").removePrefix("http://").split("/").first()\n'
+     '    }\n'
+     '}\n'),
+)
 F5_APP_MODULE = (
     ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),
     ('            // D1 (iOS parity): logout / removal wipes the account\'s WebView data.\n'
@@ -547,6 +593,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import io.woowtech.odoo.brand.AppBrand\n'):
             self.assertEqual(1, api.count(line))
             api = api.replace(line, '')
+        api = reverse_apply(self, api, WOOW_RESPONSE_SID_API)
         api = reverse_apply(self, api, WOOW_SIGNIN_NO_SESSION_API)
         api = reverse_apply(self, api, F5_WOOW_API)
         api = reverse_apply(self, api, SERVER_HTTP_STATUS_WOOW_API)

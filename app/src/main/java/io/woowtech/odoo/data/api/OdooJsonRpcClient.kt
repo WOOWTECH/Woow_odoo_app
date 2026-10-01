@@ -44,12 +44,9 @@ class OdooJsonRpcClient internal constructor(
     private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, MutableList<Cookie>>()
 
     private val cookieJar = object : CookieJar {
-        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            cookieStore.getOrPut(url.host) { mutableListOf() }.apply {
-                clear()
-                addAll(cookies)
-            }
-        }
+        // pi 0930b P1: a sign-in response's cookies are kept only once that sign-in succeeded (see
+        // [authenticate]); a failed or cookie-less answer never replaces another account's session.
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit
 
         // 1001 (demo111 B4): a sign-in never sends another account's session_id; Odoo would
         // re-authenticate that session as the new user and rotate it away.
@@ -114,7 +111,8 @@ class OdooJsonRpcClient internal constructor(
                 id = 1
             )
 
-            val response = executeRequest(url, requestBody)
+            val signIn = executeRequest(url, requestBody)
+            val response = signIn.body
 
             if (response.error != null) {
                 val errorMessage = response.error.data?.message
@@ -145,7 +143,11 @@ class OdooJsonRpcClient internal constructor(
             }
 
             val uid = result.get("uid").asInt
-            val sessionId = getSessionId(extractHost(serverUrl)) ?: ""
+            // pi 0930b P1 (iOS isolated response-cookie rule): only THIS response's session counts; the
+            // host jar may still hold another account's session, which must never become this sign-in's.
+            val sessionId = signIn.sessionId
+                ?: return@withContext AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
+            cookieStore[signIn.host] = signIn.cookies.toMutableList()
             val name = result.get("name")?.asString ?: username
 
             AuthResult.Success(
@@ -290,7 +292,10 @@ class OdooJsonRpcClient internal constructor(
         const val ACCESS_DENIED = "odoo.exceptions.AccessDenied"
     }
 
-    private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {
+    /** A parsed sign-in envelope plus THIS response's live cookies and valid `session_id` (null when none). */
+    private class SignInResponse(val body: JsonRpcResponse, val host: String, val cookies: List<Cookie>, val sessionId: String?)
+
+    private fun executeRequest(url: String, body: JsonRpcRequest): SignInResponse {
         val jsonBody = gson.toJson(body)
         val request = Request.Builder()
             .url(url)
@@ -304,12 +309,17 @@ class OdooJsonRpcClient internal constructor(
             throw SignInHttpStatusException(response.code)
         }
         val responseBody = response.body?.string() ?: throw IOException("Empty response")
+        val now = System.currentTimeMillis()
+        val cookies = Cookie.parseAll(request.url, response.headers).filter { it.matches(request.url) && it.expiresAt > now }
+        val sessionId = cookies.firstOrNull { it.name == "session_id" }
+            ?.value?.takeIf { sid -> sid.isNotBlank() && sid.none { it <= ' ' || it == ';' || it >= '\u007f' } }
 
-        return try {
+        val parsed = try {
             gson.fromJson(responseBody, JsonRpcResponse::class.java)
         } catch (e: JsonParseException) {
             null
         } ?: throw InvalidSignInResponseException()
+        return SignInResponse(parsed, request.url.host, cookies, sessionId)
     }
 
     /** Status only; LoginScreen renders the localized `error_server_http` text (iOS parity). */
@@ -317,10 +327,6 @@ class OdooJsonRpcClient internal constructor(
         AuthResult.Error("HTTP $code", AuthResult.ErrorType.SERVER_ERROR, httpStatus = code)
 
     private class SignInHttpStatusException(val code: Int) : Exception("HTTP $code")
-
-    private fun extractHost(url: String): String {
-        return url.removePrefix("https://").removePrefix("http://").split("/").first()
-    }
 }
 
 data class JsonRpcRequest(
