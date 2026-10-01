@@ -193,4 +193,28 @@ class WoowPromotionAfterRestartTest {
         assertEquals(accountGone, recordGone, "account deleted=$accountGone but record forgotten=$recordGone")
         assertTrue(accountGone, "once started, the logout boundary completes")
     }
+
+    @Test
+    fun `Given a self-heal for A finishes after A was logged out then its fresh session is not recorded and is revoked`() = runTest {
+        // pi 1001c P2: a late callback must not leave a session secret no account can clean up.
+        val repo = aThenBThenRestart()
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Belongs
+        repo.logout("a")
+        assertNull(store.load("a"))
+
+        repo.recordRefreshedSession("a", a.serverUrl, "a-heal-sid")
+
+        assertNull(store.load("a"), "a deleted account gets no session record")
+        assertTrue("a-heal-sid" in revoked, "the heal's own unused session is revoked")
+    }
+
+    @Test
+    fun `Given a self-heal for a current account then its session is recorded`() = runTest {
+        val repo = aThenBThenRestart()
+
+        repo.recordRefreshedSession("a", a.serverUrl, "a-heal-sid")
+
+        assertEquals("a-heal-sid", store.load("a"))
+        assertFalse("a-heal-sid" in revoked)
+    }
 }

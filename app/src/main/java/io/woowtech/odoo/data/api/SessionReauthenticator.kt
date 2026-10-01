@@ -75,7 +75,7 @@ class SessionReauthenticator @Inject constructor(
     private val openCircuits = ConcurrentHashMap.newKeySet<String>()
 
     /** Told about each session a successful re-auth established (pi 1001b P2: AccountRepository records it). */
-    var onSessionRefreshed: ((accountId: String, sessionId: String) -> Unit)? = null
+    var onSessionRefreshed: (suspend (accountId: String, serverUrl: String, sessionId: String) -> Unit)? = null
 
     /**
      * Attempts to refresh the expired Odoo session for [requestHost], applying every security
@@ -152,7 +152,7 @@ class SessionReauthenticator @Inject constructor(
         return when (result) {
             is AuthResult.Success -> {
                 consecutiveFailures.remove(account.id)
-                onSessionRefreshed?.invoke(account.id, result.sessionId)
+                onSessionRefreshed?.invoke(account.id, serverUrl, result.sessionId)
                 Timber.d("Re-auth: session refreshed for account %s", account.id)
                 true
             }

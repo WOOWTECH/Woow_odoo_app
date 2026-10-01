@@ -514,8 +514,15 @@ class AccountRepository(
      * Records the session the native self-heal ([SessionReauthenticator]) just established for [accountId]
      * (pi 1001b P2: every publish is recorded, so a later promotion can reuse or revoke it).
      */
-    fun recordRefreshedSession(accountId: String, sessionId: String) {
-        if (validApporoSession(sessionId)) knownSessions[accountId] = sessionId
+    suspend fun recordRefreshedSession(accountId: String, serverUrl: String, sessionId: String) {
+        if (!validApporoSession(sessionId)) return
+        // pi 1001c P2: a heal that finishes after its account was logged out / removed must not re-record a
+        // session no account can clean up; that fresh session is the heal's own and unused, so it is revoked.
+        val accountGone = recordFence.withLock {
+            if (accountDao.getAccountById(accountId) == null) true
+            else { knownSessions[accountId] = sessionId; false }
+        }
+        if (accountGone) revokeLater(serverUrl, sessionId)
     }
 
     /** Serializes "record a self-heal session" against "delete the account and its record" (pi 1001c P2). */
