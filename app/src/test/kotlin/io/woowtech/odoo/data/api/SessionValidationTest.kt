@@ -109,4 +109,14 @@ class SessionValidationTest {
         assertEquals(SessionOwnership.Unknown, ownership(info("22", null)))
         assertEquals(SessionOwnership.Unknown, ownership("""{"jsonrpc":"2.0","id":1,"error":{"code":200,"message":"Odoo Server Error","data":{"name":"builtins.Exception"}}}"""))
     }
+
+    @Test
+    fun `Given db is present but uid is missing or unparseable then ownership is Unknown, not a proven mismatch`() {
+        // pi 1001d P2: only an explicit different uid/db proves another owner; a broken uid proves nothing.
+        assertEquals(SessionOwnership.Unknown, ownership("""{"jsonrpc":"2.0","id":1,"result":{"db":"db-b","name":"B"}}"""))
+        assertEquals(SessionOwnership.Unknown, ownership(info("null", "db-b")))
+        assertEquals(SessionOwnership.Unknown, ownership(info("false", "db-b")))
+        assertEquals(SessionOwnership.Unknown, ownership(info("\"x\"", "db-b")))
+        assertEquals(SessionOwnership.ProvenMismatch, ownership(info("11", "db-b")))
+    }
 }

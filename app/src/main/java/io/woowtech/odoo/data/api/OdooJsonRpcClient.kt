@@ -273,7 +273,8 @@ class OdooJsonRpcClient internal constructor(
             val uid = runCatching { result.get("uid")?.takeUnless { it.isJsonNull }?.asInt }.getOrNull()
             val db = runCatching { result.get("db")?.takeUnless { it.isJsonNull }?.asString }.getOrNull()
             when {
-                db.isNullOrEmpty() -> SessionOwnership.Unknown
+                // pi 1001d P2: a missing or unparseable uid/db proves nothing; only explicit values decide.
+                db.isNullOrEmpty() || uid == null -> SessionOwnership.Unknown
                 uid == userId && db == database -> SessionOwnership.Belongs
                 else -> SessionOwnership.ProvenMismatch
             }
