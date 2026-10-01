@@ -301,13 +301,13 @@ class AccountRepository(
         }
 
         // D1 (iOS parity): wipe only this account's WebView data and native session, then revoke it server-side.
-        removeAccountSessions(account)
-
-        // Remove password
-        encryptedPrefs.removePassword(id)
-
-        // Delete account from database
-        accountDao.deleteAccountById(id)
+        // pi 1001c P2: one non-cancellable boundary, and the session record is forgotten only together with the
+        // account row, so a cancellation can never leave the account without the record needed to clean it up.
+        withContext(NonCancellable) {
+            removeAccountSessions(account)
+            encryptedPrefs.removePassword(id)
+            deleteAccountAndRecord(id)
+        }
         fcmTokenRepository?.forgetAccount(id)
 
         // Multi-account fallback: if other accounts remain and we logged out the ACTIVE one (or none
@@ -360,10 +360,12 @@ class AccountRepository(
                     )
                 }
         }
-        // D1 (iOS parity): the removed account's sessions are wiped and revoked like on logout.
-        accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }
-        encryptedPrefs.removePassword(accountId)
-        accountDao.deleteAccountById(accountId)
+        // D1 (iOS parity): the removed account's sessions are wiped and revoked like on logout (same boundary).
+        withContext(NonCancellable) {
+            accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }
+            encryptedPrefs.removePassword(accountId)
+            deleteAccountAndRecord(accountId)
+        }
         fcmTokenRepository?.forgetAccount(accountId)
     }
 
@@ -516,6 +518,14 @@ class AccountRepository(
         if (validApporoSession(sessionId)) knownSessions[accountId] = sessionId
     }
 
+    /** Serializes "record a self-heal session" against "delete the account and its record" (pi 1001c P2). */
+    private val recordFence = Mutex()
+
+    private suspend fun deleteAccountAndRecord(accountId: String) = recordFence.withLock {
+        accountDao.deleteAccountById(accountId)
+        knownSessions.remove(accountId)
+    }
+
     private fun revokeLater(serverUrl: String, sessionId: String) {
         launchDetached(revokeScope) { odooClient.revokeSession(serverUrl, sessionId) }
     }
@@ -545,7 +555,8 @@ class AccountRepository(
         val siblingSessions = sameHost.mapNotNull { knownSessions[it.id] }.toSet() +
             listOfNotNull(displayedSibling?.let { webDataCleaner?.webViewSessionIdOf(it.id, it.fullServerUrl) })
         val webSession = webDataCleaner?.webViewSessionIdOf(account.id, url)
-        val known = knownSessions.remove(account.id)
+        // Forgotten only with the account row ([deleteAccountAndRecord], pi 1001c P2).
+        val known = knownSessions[account.id]
         val jarSession = host?.let { odooClient.getSessionId(it) }
         val jarProvenOwn = jarSession != null && jarSession !in siblingSessions &&
             (jarSession == known || jarSession == webSession ||

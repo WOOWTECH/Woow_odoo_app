@@ -161,6 +161,35 @@ W1_10_ACCOUNT_WOOW = (
 # WebView data and native session and revokes its sessions server-side; an Odoo 18 AccessDenied is a
 # wrong password and a non-JSON 200 a localized server error. Same (current, baseline) contract as
 # W1-10: exactly these insertions/replacements, the rest of each file stays byte-level.
+# pi 1001c (2026-10-02): logout / removal run their local cleanup in one non-cancellable boundary and forget
+# the session record only together with the account row (deleteAccountAndRecord). Same (current, baseline)
+# contract; applied before F5_ACCOUNT_WOOW, which then restores the pre-D1 baseline.
+F5D_ACCOUNT_WOOW = (
+    ('        // pi 1001c P2: one non-cancellable boundary, and the session record is forgotten only together with the\n'
+     '        // account row, so a cancellation can never leave the account without the record needed to clean it up.\n'
+     '        withContext(NonCancellable) {\n'
+     '            removeAccountSessions(account)\n'
+     '            encryptedPrefs.removePassword(id)\n'
+     '            deleteAccountAndRecord(id)\n'
+     '        }\n',
+     '        removeAccountSessions(account)\n'
+     '\n'
+     '        // Remove password\n'
+     '        encryptedPrefs.removePassword(id)\n'
+     '\n'
+     '        // Delete account from database\n'
+     '        accountDao.deleteAccountById(id)\n'),
+    ('        // D1 (iOS parity): the removed account\'s sessions are wiped and revoked like on logout (same boundary).\n'
+     '        withContext(NonCancellable) {\n'
+     '            accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }\n'
+     '            encryptedPrefs.removePassword(accountId)\n'
+     '            deleteAccountAndRecord(accountId)\n'
+     '        }\n',
+     '        // D1 (iOS parity): the removed account\'s sessions are wiped and revoked like on logout.\n'
+     '        accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }\n'
+     '        encryptedPrefs.removePassword(accountId)\n'
+     '        accountDao.deleteAccountById(accountId)\n'),
+)
 KNOWN_SESSIONS_EXCLUDE = '<exclude domain="sharedpref" path="known_sessions.xml" />'
 BACKUP_EXCLUSION_RULES = {'app/src/main/res/xml/backup_rules.xml': 1,
                           'app/src/main/res/xml/data_extraction_rules.xml': 2}
@@ -618,6 +647,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
+        account = reverse_apply(self, account, F5D_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5B_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5_ACCOUNT_WOOW)
         account = reverse_apply(self, account, W1_10_ACCOUNT_WOOW)

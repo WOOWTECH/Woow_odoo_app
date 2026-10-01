@@ -14,7 +14,10 @@ import io.woowtech.odoo.data.local.KnownSessionStore
 import io.woowtech.odoo.domain.model.AuthResult
 import io.woowtech.odoo.domain.model.OdooAccount
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -45,10 +48,15 @@ class WoowPromotionAfterRestartTest {
     private val revoked = mutableListOf<String>()
     private val published = mutableListOf<String>()
 
+    /** When set, WebView data removal waits for it (cancellation injection, pi 1001c P2). */
+    private var removalGate: CompletableDeferred<Unit>? = null
+
     private val cleaner = object : AccountWebDataCleaner {
         override suspend fun webViewSessionIdOf(accountId: String, serverUrl: String): String? =
             webSessions[accountId]?.takeIf { webOwner == accountId }
-        override suspend fun removeAccountData(accountId: String, serverUrl: String, removal: WebDataRemoval) = Unit
+        override suspend fun removeAccountData(accountId: String, serverUrl: String, removal: WebDataRemoval) {
+            removalGate?.await()
+        }
     }
 
     @BeforeEach
@@ -165,5 +173,24 @@ class WoowPromotionAfterRestartTest {
         afterRestart.logout("b")
 
         assertNull(store.load("b"), "logout forgets the logged-out account's session")
+    }
+
+    @Test
+    fun `Given logout is cancelled while the WebView data is being removed then the account and its session record go together`() = runTest {
+        // pi 1001c P2: the record must not be forgotten while the account survives the cancellation.
+        val repo = aThenBThenRestart()
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Belongs
+        val gate = CompletableDeferred<Unit>().also { removalGate = it }
+
+        val job = launch { repo.logout("b") }
+        advanceUntilIdle()
+        job.cancel()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        val accountGone = "b" !in accounts
+        val recordGone = store.load("b") == null
+        assertEquals(accountGone, recordGone, "account deleted=$accountGone but record forgotten=$recordGone")
+        assertTrue(accountGone, "once started, the logout boundary completes")
     }
 }
