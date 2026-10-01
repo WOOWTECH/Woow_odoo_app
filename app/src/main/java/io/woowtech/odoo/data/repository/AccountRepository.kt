@@ -61,6 +61,16 @@ class AccountRepository(
 
     /** Durable, encrypted backing for [knownSessions]; wired by DI (pi 1001b P2), in-memory otherwise. */
     var knownSessionStore: io.woowtech.odoo.data.local.KnownSessionStore = io.woowtech.odoo.data.local.KnownSessionStore.InMemory()
+        set(value) {
+            field = value
+            // pi 1001d P2: wired once at startup — records left behind by a removal that never reached the disk
+            // (the in-memory retry died with the process) are deleted, so the cleanup survives a restart.
+            launchDetached(revokeScope) { sweepOrphanSessionRecords() }
+        }
+
+    private suspend fun sweepOrphanSessionRecords() {
+        recordFence.withLock { knownSessions.sweep(accountDao.getAllAccountsList().map { it.id }.toSet()) }
+    }
 
     val allAccounts: Flow<List<OdooAccount>> = accountDao.getAllAccounts()
     val activeAccount: Flow<OdooAccount?> = accountDao.getActiveAccount()

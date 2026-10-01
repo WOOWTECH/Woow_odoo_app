@@ -9,6 +9,11 @@ import timber.log.Timber
  * in-memory map. A storage failure never blocks sign-in or logout (pi 1001c P2): a failed read is retried on
  * the next access instead of being cached as a miss, and a failed write is kept and retried on every later
  * operation until it lands. Session ids are never logged.
+ *
+ * Durability limits, stated plainly (pi 1001d P2): a failed REMOVAL is made durable by [sweep] at the next
+ * start (a record whose account no longer exists is deleted). A failed SAVE stays in memory only: if the
+ * process dies before a retry lands, that record is lost and a later promotion signs in again instead of
+ * reusing it (the unrecorded session then just expires on the server).
  */
 internal class KnownSessions(private val store: () -> KnownSessionStore) {
     private val cache = HashMap<String, String>()
@@ -61,6 +66,20 @@ internal class KnownSessions(private val store: () -> KnownSessionStore) {
         if (get(accountId) != sessionId) return false
         remove(accountId)
         return true
+    }
+
+    /** Deletes every stored record whose account is not in [liveAccounts] (startup cleanup, pi 1001d P2). */
+    @Synchronized
+    fun sweep(liveAccounts: Set<String>) {
+        flushPending()
+        val stored = runCatching { store().accountIds() }
+            .onFailure { Timber.w("Known-session store listing failed; cleanup retried at next start") }
+            .getOrNull() ?: return
+        (stored - liveAccounts).forEach { orphan ->
+            cache.remove(orphan)
+            loaded += orphan
+            write(orphan, null)
+        }
     }
 
     private fun write(accountId: String, sessionId: String?) {

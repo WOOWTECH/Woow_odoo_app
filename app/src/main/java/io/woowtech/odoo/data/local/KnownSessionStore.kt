@@ -19,10 +19,13 @@ interface KnownSessionStore {
     /** Throws when the write did not reach the store (the caller retries it). */
     fun save(accountId: String, sessionId: String)
     fun remove(accountId: String)
+    /** Ids of the accounts that have a stored record (startup cleanup, pi 1001d P2). */
+    fun accountIds(): Set<String> = emptySet()
 
     /** Process-only store (unit tests, or before DI wires the encrypted one). */
     class InMemory : KnownSessionStore {
         private val values = java.util.concurrent.ConcurrentHashMap<String, String>()
+        override fun accountIds(): Set<String> = values.keys.toSet()
         override fun load(accountId: String): String? = values[accountId]
         override fun save(accountId: String, sessionId: String) { values[accountId] = sessionId }
         override fun remove(accountId: String) { values.remove(accountId) }
@@ -53,6 +56,8 @@ class EncryptedKnownSessionStore @Inject constructor(
     )
 
     override fun load(accountId: String): String? = prefs.getString(key(accountId), null)
+    override fun accountIds(): Set<String> =
+        prefs.all.keys.filter { it.startsWith(PREFIX) }.map { it.removePrefix(PREFIX) }.toSet()
     // pi 1001c P2: synchronous commit — orphan prevention relies on the record being on disk; a failure throws
     // so [io.woowtech.odoo.data.repository.KnownSessions] keeps and retries it.
     override fun save(accountId: String, sessionId: String) {
@@ -62,9 +67,10 @@ class EncryptedKnownSessionStore @Inject constructor(
         check(prefs.edit().remove(key(accountId)).commit()) { "known-session removal not committed" }
     }
 
-    private fun key(accountId: String) = "sid_$accountId"
+    private fun key(accountId: String) = PREFIX + accountId
 
     private companion object {
         const val FILE = "known_sessions"
+        const val PREFIX = "sid_"
     }
 }

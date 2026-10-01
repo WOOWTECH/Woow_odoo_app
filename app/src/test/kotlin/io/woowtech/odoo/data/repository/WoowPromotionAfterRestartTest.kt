@@ -270,4 +270,30 @@ class WoowPromotionAfterRestartTest {
         assertEquals("b-heal-sid", store.load("b"))
         assertFalse("b-heal-sid" in revoked)
     }
+
+    @Test
+    fun `Given B's record removal never reached the disk when the app restarts then the orphan record is removed`() = runTest {
+        // pi 1001d P2: the RAM retry dies with the process; the cleanup must survive a restart.
+        val disk = object : KnownSessionStore {
+            val values = HashMap<String, String>()
+            var removalsFail = false
+            override fun load(accountId: String): String? = values[accountId]
+            override fun save(accountId: String, sessionId: String) { values[accountId] = sessionId }
+            override fun remove(accountId: String) { check(!removalsFail) { "write not committed" }; values.remove(accountId) }
+            override fun accountIds(): Set<String> = values.keys.toSet()
+        }
+        val before = repo().also { it.knownSessionStore = disk }
+        before.authenticate(a.serverUrl, a.database, a.username, "password-fixture")
+        before.authenticate(b.serverUrl, b.database, b.username, "password-fixture")
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Belongs
+        disk.removalsFail = true
+        before.logout("b")
+        assertEquals("b-sid-fixture", disk.values["b"], "precondition: the removal did not reach the disk")
+
+        disk.removalsFail = false
+        repo().also { it.knownSessionStore = disk } // app restart
+
+        assertNull(disk.values["b"], "a record without an account is removed at startup")
+        assertEquals("a-sid-fixture", disk.values["a"], "a live account's record is kept")
+    }
 }
