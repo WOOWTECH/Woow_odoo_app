@@ -14,7 +14,9 @@ import javax.inject.Singleton
  * Values are session secrets: only an encrypted store may hold them and they are never logged.
  */
 interface KnownSessionStore {
+    /** Throws when the store cannot be read (the caller retries later). */
     fun load(accountId: String): String?
+    /** Throws when the write did not reach the store (the caller retries it). */
     fun save(accountId: String, sessionId: String)
     fun remove(accountId: String)
 
@@ -51,8 +53,14 @@ class EncryptedKnownSessionStore @Inject constructor(
     )
 
     override fun load(accountId: String): String? = prefs.getString(key(accountId), null)
-    override fun save(accountId: String, sessionId: String) { prefs.edit().putString(key(accountId), sessionId).apply() }
-    override fun remove(accountId: String) { prefs.edit().remove(key(accountId)).apply() }
+    // pi 1001c P2: synchronous commit — orphan prevention relies on the record being on disk; a failure throws
+    // so [io.woowtech.odoo.data.repository.KnownSessions] keeps and retries it.
+    override fun save(accountId: String, sessionId: String) {
+        check(prefs.edit().putString(key(accountId), sessionId).commit()) { "known-session write not committed" }
+    }
+    override fun remove(accountId: String) {
+        check(prefs.edit().remove(key(accountId)).commit()) { "known-session removal not committed" }
+    }
 
     private fun key(accountId: String) = "sid_$accountId"
 

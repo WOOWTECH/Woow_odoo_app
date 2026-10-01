@@ -1,22 +1,31 @@
 package io.woowtech.odoo.data.repository
 
 import io.woowtech.odoo.data.local.KnownSessionStore
+import timber.log.Timber
 
 /**
  * Each account's last known Odoo session, cached in memory and written through to [store] (pi 1001b
  * Android P2: the record must survive an app restart). Same operations the repository used on its former
- * in-memory map. A storage failure degrades to the in-memory behaviour and never blocks sign-in or logout.
+ * in-memory map. A storage failure never blocks sign-in or logout (pi 1001c P2): a failed read is retried on
+ * the next access instead of being cached as a miss, and a failed write is kept and retried on every later
+ * operation until it lands. Session ids are never logged.
  */
 internal class KnownSessions(private val store: () -> KnownSessionStore) {
     private val cache = HashMap<String, String>()
     private val loaded = HashSet<String>()
+    /** Writes that have not reached [store] yet: account id → session id to save, or null to remove. */
+    private val pending = LinkedHashMap<String, String?>()
 
     @Synchronized
     operator fun get(accountId: String): String? {
-        if (loaded.add(accountId)) {
-            runCatching { store().load(accountId) }.getOrNull()
-                ?.takeIf { it.isNotBlank() }
-                ?.let { cache[accountId] = it }
+        flushPending()
+        if (accountId !in loaded) {
+            runCatching { store().load(accountId) }
+                .onSuccess { stored ->
+                    loaded += accountId
+                    stored?.takeIf { it.isNotBlank() }?.let { cache[accountId] = it }
+                }
+                .onFailure { Timber.w("Known-session store read failed; will retry on next access") }
         }
         return cache[accountId]
     }
@@ -31,7 +40,8 @@ internal class KnownSessions(private val store: () -> KnownSessionStore) {
     fun put(accountId: String, sessionId: String): String? {
         val previous = get(accountId)
         cache[accountId] = sessionId
-        runCatching { store().save(accountId, sessionId) }
+        loaded += accountId
+        write(accountId, sessionId)
         return previous
     }
 
@@ -40,7 +50,8 @@ internal class KnownSessions(private val store: () -> KnownSessionStore) {
     fun remove(accountId: String): String? {
         val previous = get(accountId)
         cache.remove(accountId)
-        runCatching { store().remove(accountId) }
+        loaded += accountId
+        write(accountId, null)
         return previous
     }
 
@@ -51,4 +62,23 @@ internal class KnownSessions(private val store: () -> KnownSessionStore) {
         remove(accountId)
         return true
     }
+
+    private fun write(accountId: String, sessionId: String?) {
+        pending.remove(accountId)
+        if (!tryWrite(accountId, sessionId)) pending[accountId] = sessionId
+    }
+
+    private fun flushPending() {
+        if (pending.isEmpty()) return
+        val iterator = pending.entries.iterator()
+        while (iterator.hasNext()) {
+            val (accountId, sessionId) = iterator.next()
+            if (tryWrite(accountId, sessionId)) iterator.remove()
+        }
+    }
+
+    private fun tryWrite(accountId: String, sessionId: String?): Boolean =
+        runCatching {
+            if (sessionId == null) store().remove(accountId) else store().save(accountId, sessionId)
+        }.onFailure { Timber.w("Known-session store write failed; will retry") }.isSuccess
 }
