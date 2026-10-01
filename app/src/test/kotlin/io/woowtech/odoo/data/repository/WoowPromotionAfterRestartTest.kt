@@ -239,6 +239,27 @@ class WoowPromotionAfterRestartTest {
     }
 
     @Test
+    fun `Given A is being logged out when a heal for A completes during the WebView cleanup then it cannot commit and is revoked`() = runTest {
+        // pi 1001d P1: the deletion window — the heal must not record a session the cleanup will never revoke.
+        val repo = aThenBThenRestart()
+        coEvery { api.sessionOwnership(any(), any(), any(), any()) } returns SessionOwnership.Belongs
+        val gate = CompletableDeferred<Unit>().also { removalGate = it }
+        val before = repo.beginHeal("a")
+
+        val logout = launch { repo.logout("a") }
+        advanceUntilIdle() // logout is now awaiting the WebView cleanup
+        val during = repo.beginHeal("a")
+        val committedOld = repo.commitHeal("a", a.serverUrl, "a-heal-1", before)
+        val committedNew = repo.commitHeal("a", a.serverUrl, "a-heal-2", during)
+        gate.complete(Unit)
+        logout.join()
+
+        assertFalse(committedOld); assertFalse(committedNew)
+        assertTrue("a-heal-1" in revoked && "a-heal-2" in revoked, "sessions created in the window are revoked: $revoked")
+        assertNull(store.load("a"))
+    }
+
+    @Test
     fun `Given a heal for a current account with no newer selection then it is published and recorded`() = runTest {
         val repo = aThenBThenRestart()
         val ticket = repo.beginHeal("b")

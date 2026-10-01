@@ -306,9 +306,14 @@ class AccountRepository(
         // pi 1001c P2: one non-cancellable boundary, and the session record is forgotten only together with the
         // account row, so a cancellation can never leave the account without the record needed to clean it up.
         withContext(NonCancellable) {
-            removeAccountSessions(account)
-            encryptedPrefs.removePassword(id)
-            deleteAccountAndRecord(id)
+            beginRemoval(id)
+            try {
+                removeAccountSessions(account)
+                encryptedPrefs.removePassword(id)
+                deleteAccountAndRecord(id)
+            } finally {
+                removing -= id
+            }
         }
         fcmTokenRepository?.forgetAccount(id)
 
@@ -364,9 +369,14 @@ class AccountRepository(
         }
         // D1 (iOS parity): the removed account's sessions are wiped and revoked like on logout (same boundary).
         withContext(NonCancellable) {
-            accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }
-            encryptedPrefs.removePassword(accountId)
-            deleteAccountAndRecord(accountId)
+            beginRemoval(accountId)
+            try {
+                accountDao.getAccountById(accountId)?.let { removeAccountSessions(it) }
+                encryptedPrefs.removePassword(accountId)
+                deleteAccountAndRecord(accountId)
+            } finally {
+                removing -= accountId
+            }
         }
         fcmTokenRepository?.forgetAccount(accountId)
     }
@@ -526,7 +536,8 @@ class AccountRepository(
     override suspend fun commitHeal(accountId: String, serverUrl: String, sessionId: String, ticket: Long): Boolean {
         if (!validApporoSession(sessionId)) return false
         val committed = recordFence.withLock {
-            val current = ticket == healGeneration.get() && accountDao.getAccountById(accountId) != null
+            val current = ticket == healGeneration.get() && accountId !in removing &&
+                accountDao.getAccountById(accountId) != null
             if (current) {
                 if (brand.isApporo) odooClient.publishApporoSession(serverUrl, sessionId)
                 else odooClient.publishSession(serverUrl, sessionId)
@@ -536,6 +547,19 @@ class AccountRepository(
         }
         if (!committed) revokeLater(serverUrl, sessionId)
         return committed
+    }
+
+    /**
+     * Accounts whose logout / removal is in progress (pi 1001d P1 deletion window): from its start until the
+     * row is gone no heal may commit for them — a session created in that window is revoked, not recorded.
+     */
+    private val removing = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private suspend fun beginRemoval(accountId: String) {
+        recordFence.withLock {
+            removing += accountId
+            healGeneration.incrementAndGet()
+        }
     }
 
     /** A manual selection supersedes every heal in flight (pi 1001d P1). */
