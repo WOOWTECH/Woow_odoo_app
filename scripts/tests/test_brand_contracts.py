@@ -207,6 +207,12 @@ WOOW_SIGNIN_NO_SESSION_API = (
 # the sign-in succeeded; the host jar's other-account session can no longer become the sign-in result, and
 # a failed / cookie-less answer no longer replaces it. Same (current, baseline) contract.
 WOOW_RESPONSE_SID_API = (
+    # pi 1001b P1 (2026-10-01): the WOOW sign-in client no longer follows redirects (Apporo isolated parity),
+    # and the session is parsed against the URL that actually answered; another host is a failure.
+    ('        .cookieJar(cookieJar)\n'
+     '        // pi 1001b P1: a sign-in never follows a redirect (Apporo isolated parity); a 3xx is a failure.\n'
+     '        .followRedirects(false).followSslRedirects(false)\n',
+     '        .cookieJar(cookieJar)\n'),
     ('        // pi 0930b P1: a sign-in response\'s cookies are kept only once that sign-in succeeded (see\n'
      '        // [authenticate]); a failed or cookie-less answer never replaces another account\'s session.\n'
      '        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) = Unit\n',
@@ -228,8 +234,14 @@ WOOW_RESPONSE_SID_API = (
     # SignInResponse itself sits in the Apporo-isolated span stripped above (just before executeRequest).
     ('    private fun executeRequest(url: String, body: JsonRpcRequest): SignInResponse {\n',
      '    private fun executeRequest(url: String, body: JsonRpcRequest): JsonRpcResponse {\n'),
-    ('        val now = System.currentTimeMillis()\n'
-     '        val cookies = Cookie.parseAll(request.url, response.headers).filter { it.matches(request.url) && it.expiresAt > now }\n'
+    ('        // pi 1001b P1: cookies belong to the URL that actually answered; a different host is no sign-in.\n'
+     '        val answered = response.request.url\n'
+     '        if (answered.host != request.url.host) {\n'
+     '            response.close()\n'
+     '            throw SignInHttpStatusException(response.code)\n'
+     '        }\n'
+     '        val now = System.currentTimeMillis()\n'
+     '        val cookies = Cookie.parseAll(answered, response.headers).filter { it.matches(answered) && it.expiresAt > now }\n'
      '        val sessionId = cookies.firstOrNull { it.name == "session_id" }\n'
      '            ?.value?.takeIf { sid -> sid.isNotBlank() && sid.none { it <= \' \' || it == \';\' || it >= \'\\u007f\' } }\n'
      '\n'

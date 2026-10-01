@@ -55,6 +55,8 @@ class OdooJsonRpcClient internal constructor(
 
     private val client: OkHttpClient = (sharedAuthClient?.newBuilder() ?: OkHttpClient.Builder())
         .cookieJar(cookieJar)
+        // pi 1001b P1: a sign-in never follows a redirect (Apporo isolated parity); a 3xx is a failure.
+        .followRedirects(false).followSslRedirects(false)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -318,8 +320,14 @@ class OdooJsonRpcClient internal constructor(
             throw SignInHttpStatusException(response.code)
         }
         val responseBody = response.body?.string() ?: throw IOException("Empty response")
+        // pi 1001b P1: cookies belong to the URL that actually answered; a different host is no sign-in.
+        val answered = response.request.url
+        if (answered.host != request.url.host) {
+            response.close()
+            throw SignInHttpStatusException(response.code)
+        }
         val now = System.currentTimeMillis()
-        val cookies = Cookie.parseAll(request.url, response.headers).filter { it.matches(request.url) && it.expiresAt > now }
+        val cookies = Cookie.parseAll(answered, response.headers).filter { it.matches(answered) && it.expiresAt > now }
         val sessionId = cookies.firstOrNull { it.name == "session_id" }
             ?.value?.takeIf { sid -> sid.isNotBlank() && sid.none { it <= ' ' || it == ';' || it >= '\u007f' } }
 
