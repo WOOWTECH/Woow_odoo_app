@@ -51,11 +51,15 @@ class AccountRepository(
     var webDataCleaner: AccountWebDataCleaner? = null
 
     /**
-     * The Odoo session each account last had in THIS process (minted by sign-in / switch, or read back
-     * from the WebView when switching away). In memory only — never persisted. An account switch reuses
-     * it after proving it still belongs to that uid and db (iOS D5 parity), and logout revokes it.
+     * The Odoo session each account last had (minted by sign-in / switch / self-heal, or read back from the
+     * WebView when switching away). Written through to the encrypted [knownSessionStore] so it survives an app
+     * restart (pi 1001b P2); never logged. An account switch or promotion reuses it after proving it still
+     * belongs to that uid and db (iOS D5 parity), and logout revokes it.
      */
-    private val knownSessions = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val knownSessions = KnownSessions { knownSessionStore }
+
+    /** Durable, encrypted backing for [knownSessions]; wired by DI (pi 1001b P2), in-memory otherwise. */
+    var knownSessionStore: io.woowtech.odoo.data.local.KnownSessionStore = io.woowtech.odoo.data.local.KnownSessionStore.InMemory()
 
     val allAccounts: Flow<List<OdooAccount>> = accountDao.getAllAccounts()
     val activeAccount: Flow<OdooAccount?> = accountDao.getActiveAccount()
@@ -492,10 +496,25 @@ class AccountRepository(
         val sessionId = knownSessions[account.id] ?: return
         if (!sessionStillBelongs(account, sessionId)) {
             knownSessions.remove(account.id, sessionId)
+            // pi 1001b P2: nothing on this device will use it again (the promoted WebView signs in anew), so
+            // it is revoked best-effort instead of being left valid on the server — unless another account holds it.
+            val heldElsewhere = accountDao.getAllAccountsList().filter { it.id != account.id }.any { other ->
+                knownSessions[other.id] == sessionId ||
+                    webDataCleaner?.webViewSessionIdOf(other.id, other.fullServerUrl) == sessionId
+            }
+            if (!heldElsewhere && validApporoSession(sessionId)) revokeLater(account.fullServerUrl, sessionId)
             return
         }
         if (brand.isApporo) odooClient.publishApporoSession(account.fullServerUrl, sessionId)
         else odooClient.publishSession(account.fullServerUrl, sessionId)
+    }
+
+    /**
+     * Records the session the native self-heal ([SessionReauthenticator]) just established for [accountId]
+     * (pi 1001b P2: every publish is recorded, so a later promotion can reuse or revoke it).
+     */
+    fun recordRefreshedSession(accountId: String, sessionId: String) {
+        if (validApporoSession(sessionId)) knownSessions[accountId] = sessionId
     }
 
     private fun revokeLater(serverUrl: String, sessionId: String) {
@@ -513,8 +532,8 @@ class AccountRepository(
      *   displayed sibling's WebView session) and either no sibling shares the host, [account] is the
      *   displayed one (the jar carries the displayed account's session), or the jar session is proven
      *   [account]'s (its own record, or the server says it is its uid AND db). An unproven session is
-     *   left in place while a sibling may own it (pi 0930 F5 P1: WOOW never records sessions, and an
-     *   Apporo record goes missing after a restart or stale after a self-heal); server revoke covers it.
+     *   left in place while a sibling may own it (pi 0930 F5 P1: a record can be missing — e.g. accounts
+     *   signed in before records were kept — or stale after a self-heal); server revoke covers it.
      * - Server: every session known to be this account's is revoked in the background; a session that
      *   may be a sibling's is never revoked.
      */

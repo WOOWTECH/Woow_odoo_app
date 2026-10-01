@@ -107,7 +107,9 @@ class AccountSessionCleanupTest {
         repo.logout("b")
 
         assertEquals(listOf(Triple("b", b.serverUrl, WebDataRemoval(cookies = true, originStorage = false, everything = false))), cleaner.removals)
-        assertEquals(setOf("b-sid-fixture", "b-web-sid"), revoked.toSet())
+        // pi 1001b P2: A's remembered session is unproven here (sessionBelongsTo is not stubbed → false), so the
+        // promotion no longer leaves it valid on the server — it is revoked too. B's own sessions are as before.
+        assertEquals(setOf("b-sid-fixture", "b-web-sid", "a-sid-fixture"), revoked.toSet())
         verify(exactly = 1) { api.clearCookies("fixture.test") } // the jar held B's session
         coVerifyOrder {
             push.unregisterToken("b")

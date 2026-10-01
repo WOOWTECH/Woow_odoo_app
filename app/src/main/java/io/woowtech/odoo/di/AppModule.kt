@@ -71,6 +71,7 @@ object AppModule {
         fcmTokenRepository: dagger.Lazy<FcmTokenRepository>,
         sessionReauthenticator: SessionReauthenticator,
         accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,
+        knownSessionStore: io.woowtech.odoo.data.local.EncryptedKnownSessionStore,
     ): AccountRepository {
         // A successful manual sign-in re-closes the account's auto re-auth circuit breaker.
         return AccountRepository(accountDao, encryptedPrefs, odooClient, sessionReauthenticator).also { repo ->
@@ -80,6 +81,9 @@ object AppModule {
             repo.fcmTokenRepository = fcmTokenRepository.get()
             // D1 (iOS parity): logout / removal wipes the account's WebView data.
             repo.webDataCleaner = accountWebDataCleaner
+            // pi 1001b P2: known sessions survive a restart (encrypted) and self-heal sessions are recorded.
+            repo.knownSessionStore = knownSessionStore
+            sessionReauthenticator.onSessionRefreshed = repo::recordRefreshedSession
         }
     }
 

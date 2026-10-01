@@ -263,6 +263,15 @@ F5B_ACCOUNT_WOOW = (
      '            accountDao.deactivateAllAccounts()\n',
      '            accountDao.deactivateAllAccounts()\n'),
 )
+# pi 1001b Android P2 (2026-10-01): the repository's known sessions are written through to an encrypted
+# store (EncryptedKnownSessionStore) so a promotion after an app restart can reuse or revoke them, and the
+# native self-heal reports the session it established. Same (current, baseline) contract.
+F5C_APP_MODULE = (
+    ('        knownSessionStore: io.woowtech.odoo.data.local.EncryptedKnownSessionStore,\n', ''),
+    ('            // pi 1001b P2: known sessions survive a restart (encrypted) and self-heal sessions are recorded.\n'
+     '            repo.knownSessionStore = knownSessionStore\n'
+     '            sessionReauthenticator.onSessionRefreshed = repo::recordRefreshedSession\n', ''),
+)
 F5_APP_MODULE = (
     ('        accountWebDataCleaner: io.woowtech.odoo.ui.main.AndroidAccountWebDataCleaner,\n', ''),
     ('            // D1 (iOS parity): logout / removal wipes the account\'s WebView data.\n'
@@ -619,6 +628,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '            apporoTransport = apporoPushTransport,\n'):
             self.assertEqual(1, module.count(line))
             module = module.replace(line, '')
+        module = reverse_apply(self, module, F5C_APP_MODULE)
         module = reverse_apply(self, module, F5_APP_MODULE)
         module = reverse_apply(self, module, LIVE_0927_R3_APP_MODULE)
         self.assertEqual(baseline('app/src/main/java/io/woowtech/odoo/di/AppModule.kt').decode(), module)

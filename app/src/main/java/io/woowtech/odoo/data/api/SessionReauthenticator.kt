@@ -74,6 +74,9 @@ class SessionReauthenticator @Inject constructor(
     /** Accounts whose circuit breaker is open — auto re-auth disabled until a manual re-login. */
     private val openCircuits = ConcurrentHashMap.newKeySet<String>()
 
+    /** Told about each session a successful re-auth established (pi 1001b P2: AccountRepository records it). */
+    var onSessionRefreshed: ((accountId: String, sessionId: String) -> Unit)? = null
+
     /**
      * Attempts to refresh the expired Odoo session for [requestHost], applying every security
      * guardrail. Returns true when a fresh session cookie was established on the shared cookie jar and
@@ -149,6 +152,7 @@ class SessionReauthenticator @Inject constructor(
         return when (result) {
             is AuthResult.Success -> {
                 consecutiveFailures.remove(account.id)
+                onSessionRefreshed?.invoke(account.id, result.sessionId)
                 Timber.d("Re-auth: session refreshed for account %s", account.id)
                 true
             }
