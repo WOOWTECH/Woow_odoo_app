@@ -168,9 +168,14 @@ F5G_ACCOUNT_WOOW = (
      '        // pi 1001f P1: the Apporo selection fence — a sign-in commits only while it is still the newest selection.\n'
      '        val attempt = beginSelection()\n'
      '        invalidateHeals()\n'
+     '        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"\n'
+     '        val removalTicket = removalTicketOf(fullUrl, database, username)\n'
+     "        // pi 0930b P2: keep the displayed account's live WebView session so a later promotion can reuse it.\n"
      ,
      '        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)\n'
      '        invalidateHeals()\n'
+     '        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"\n'
+     "        // pi 0930b P2: keep the displayed account's live WebView session so a later promotion can reuse it.\n"
     ),
     (
      '        if (result is AuthResult.Success) {\n'
@@ -178,6 +183,8 @@ F5G_ACCOUNT_WOOW = (
      '            val committed = try {\n'
      '                selectionMutex.withLock {\n'
      '                    if (attempt != selectionAttempt) return@withLock false\n'
+     '                    // pi 1001g P1: nor may it recreate an account whose logout / removal started after it did.\n'
+     '                    if (!identityUnremovedLocked(fullUrl, database, username, removalTicket)) return@withLock false\n'
      '                    // Check if account already exists\n'
      '                    val existingAccount = accountDao.findAccount(fullUrl, database, username)\n'
      '\n'
@@ -356,6 +363,43 @@ F5G_ACCOUNT_WOOW = (
      '        } else {\n'
      '            false\n'
      '        }\n'
+    ),
+    (
+     '        val account = accountDao.getAccountById(id) ?: return false\n'
+     '        // pi 1001g P1: before any network wait, supersede every sign-in / switch in flight and tombstone this\n'
+     '        // identity, so none of them can recreate or reactivate the account being logged out.\n'
+     '        beginIdentityRemoval(account)\n'
+     '        try {\n'
+     '            return logoutAccount(account)\n'
+     '        } finally {\n'
+     '            endIdentityRemoval(account)\n'
+     '        }\n'
+     '    }\n'
+     '\n'
+     '    private suspend fun logoutAccount(account: OdooAccount): Boolean {\n'
+     '        val id = account.id\n'
+     '        val wasActive = account.isActive\n'
+     ,
+     '        val account = accountDao.getAccountById(id) ?: return false\n'
+     '        val wasActive = account.isActive\n'
+    ),
+    (
+     '    suspend fun removeAccount(accountId: String) {\n'
+     '        // pi 1001g P1: same removal fence as logout, before any network wait.\n'
+     '        val target = accountDao.getAccountById(accountId)\n'
+     '        if (target != null) beginIdentityRemoval(target) else beginSelection()\n'
+     '        try {\n'
+     '            removeAccountRow(accountId)\n'
+     '        } finally {\n'
+     '            if (target != null) endIdentityRemoval(target)\n'
+     '        }\n'
+     '    }\n'
+     '\n'
+     '    private suspend fun removeAccountRow(accountId: String) {\n'
+     '        // Best-effort FCM unregister before local deletion. If the device\n'
+     ,
+     '    suspend fun removeAccount(accountId: String) {\n'
+     '        // Best-effort FCM unregister before local deletion. If the device\n'
     ),
 )
 # Android F5 (2026-09-30, iOS demo111 D1/D2 parity): logout / account removal wipes only that account's

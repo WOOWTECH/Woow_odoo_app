@@ -48,6 +48,17 @@ class AccountRepository(
     private var selectionAttempt = 0L
     private suspend fun beginSelection(): Long = selectionMutex.withLock { ++selectionAttempt }
 
+    /**
+     * pi 1001g P1 (iOS a8f374f parity): per sign-in identity (server, db, login) a removal generation, bumped
+     * when its logout / removal starts and again when it ends, plus the identities being removed right now. A
+     * sign-in commits only if its identity's generation did not move since it started, so a sign-in started
+     * before or during a removal can never recreate the removed account. Guarded by [selectionMutex].
+     */
+    private val removalGenerations = HashMap<String, Long>()
+    private val identitiesBeingRemoved = HashSet<String>()
+    private var removalCounter = 0L
+
+
     /** WebView side of logout / removal (iOS D1 parity); wired by DI, null in unit tests that don't need it. */
     var webDataCleaner: AccountWebDataCleaner? = null
 
@@ -119,6 +130,7 @@ class AccountRepository(
         val attempt = beginSelection()
         invalidateHeals()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
+        val removalTicket = removalTicketOf(fullUrl, database, username)
         // pi 0930b P2: keep the displayed account's live WebView session so a later promotion can reuse it.
         accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
 
@@ -129,6 +141,8 @@ class AccountRepository(
             val committed = try {
                 selectionMutex.withLock {
                     if (attempt != selectionAttempt) return@withLock false
+                    // pi 1001g P1: nor may it recreate an account whose logout / removal started after it did.
+                    if (!identityUnremovedLocked(fullUrl, database, username, removalTicket)) return@withLock false
                     // Check if account already exists
                     val existingAccount = accountDao.findAccount(fullUrl, database, username)
 
@@ -363,6 +377,18 @@ class AccountRepository(
     suspend fun logout(accountId: String? = null): Boolean {
         val id = accountId ?: accountDao.getActiveAccountOnce()?.id ?: return false
         val account = accountDao.getAccountById(id) ?: return false
+        // pi 1001g P1: before any network wait, supersede every sign-in / switch in flight and tombstone this
+        // identity, so none of them can recreate or reactivate the account being logged out.
+        beginIdentityRemoval(account)
+        try {
+            return logoutAccount(account)
+        } finally {
+            endIdentityRemoval(account)
+        }
+    }
+
+    private suspend fun logoutAccount(account: OdooAccount): Boolean {
+        val id = account.id
         val wasActive = account.isActive
 
         // C3: Attempt to unregister FCM token before session is cleared. Non-fatal if it
@@ -426,6 +452,17 @@ class AccountRepository(
      * (CLAUDE.md § "Repository-Event Symmetry").
      */
     suspend fun removeAccount(accountId: String) {
+        // pi 1001g P1: same removal fence as logout, before any network wait.
+        val target = accountDao.getAccountById(accountId)
+        if (target != null) beginIdentityRemoval(target) else beginSelection()
+        try {
+            removeAccountRow(accountId)
+        } finally {
+            if (target != null) endIdentityRemoval(target)
+        }
+    }
+
+    private suspend fun removeAccountRow(accountId: String) {
         // Best-effort FCM unregister before local deletion. If the device
         // is offline we still proceed — the local record removal is the
         // user-facing intent and must not be blocked by network state.
@@ -464,6 +501,7 @@ class AccountRepository(
         val attempt = beginSelection()
         invalidateHeals()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
+        val removalTicket = removalTicketOf(fullUrl, database, username)
         val result = odooClient.authenticateApporoIsolated(fullUrl, database, username, password)
         if (result !is AuthResult.Success) return result
         if (!validApporoSession(result.sessionId)) return AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
@@ -473,6 +511,8 @@ class AccountRepository(
             accountDao.getActiveAccountOnce()?.id?.let { rememberWebViewSession(it) }
             selectionMutex.withLock {
                 if (attempt != selectionAttempt) return@withLock false
+                // pi 1001g P1: a sign-in never recreates an account whose logout / removal started after it did.
+                if (!identityUnremovedLocked(fullUrl, database, username, removalTicket)) return@withLock false
                 val existing = accountDao.findAccount(fullUrl, database, username)
                 val account = existing?.copy(displayName = result.displayName, userId = result.userId,
                     lastLogin = System.currentTimeMillis(), isActive = true)
@@ -677,6 +717,40 @@ class AccountRepository(
 
     private fun revokeLater(serverUrl: String, sessionId: String) {
         launchDetached(revokeScope) { odooClient.revokeSession(serverUrl, sessionId) }
+    }
+
+    private fun identityKey(serverUrl: String, database: String, username: String): String {
+        val url = if (serverUrl.startsWith("https://") || serverUrl.startsWith("http://")) serverUrl else "https://$serverUrl"
+        return listOf(url.trimEnd('/'), database, username).joinToString("\u0000")
+    }
+
+    /** The removal generation of a sign-in identity when a sign-in starts (pi 1001g P1). */
+    private suspend fun removalTicketOf(serverUrl: String, database: String, username: String): Long =
+        selectionMutex.withLock { removalGenerations[identityKey(serverUrl, database, username)] ?: 0L }
+
+    /** Caller holds [selectionMutex]: no logout / removal of this identity started since [ticket]. */
+    private fun identityUnremovedLocked(serverUrl: String, database: String, username: String, ticket: Long): Boolean {
+        val key = identityKey(serverUrl, database, username)
+        return key !in identitiesBeingRemoved && (removalGenerations[key] ?: 0L) == ticket
+    }
+
+    /** pi 1001g P1: a logout / removal supersedes every selection in flight and tombstones [account]'s identity. */
+    private suspend fun beginIdentityRemoval(account: OdooAccount): Long = selectionMutex.withLock {
+        val key = identityKey(account.serverUrl, account.database, account.username)
+        identitiesBeingRemoved += key
+        removalGenerations[key] = ++removalCounter
+        ++selectionAttempt
+    }
+
+    private suspend fun endIdentityRemoval(account: OdooAccount) {
+        withContext(NonCancellable) {
+            selectionMutex.withLock {
+                val key = identityKey(account.serverUrl, account.database, account.username)
+                identitiesBeingRemoved -= key
+                // Bumped again: a sign-in that started DURING the removal cannot commit either.
+                removalGenerations[key] = ++removalCounter
+            }
+        }
     }
 
     /**
