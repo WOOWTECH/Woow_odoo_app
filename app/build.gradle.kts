@@ -81,8 +81,9 @@ android {
             versionName = "1.0"
             // vc1 候選（b4cb1e8）因 W1-3／W1-10 程式變更作廢；每次上傳手動遞增。
             // vc2＝aa49043（Play 內部測試 2026-09-27）；vc3＝048218b（Play 內部測試 2026-09-29）；
-            // vc4＝pi 0929 五輪複查的帳號切換隔離修正（7ab78a1）。
-            versionCode = 4
+            // vc4＝pi 0929 五輪複查的帳號切換隔離修正（7ab78a1）；
+            // vc5＝F5＋1001 系列帳號／推播隔離修正（pi 1001I 原始碼複查無 P1/P2，cf3dd17）。
+            versionCode = 5
             buildConfigField("String", "APP_BRAND", "\"apporo\"")
             manifestPlaceholders["brandScheme"] = "apporoodoo"
             signingConfig = signingConfigs.findByName("apporoRelease")
