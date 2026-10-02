@@ -55,11 +55,10 @@ class WoowPromotionSessionTest {
         every { api.getSessionId(any()) } answers { jar }
         every { api.clearCookies(any()) } answers { jar = null }
         coEvery { api.revokeSession(any(), any()) } answers { revoked += secondArg<String>(); true }
-        // WOOW sign-in: the client itself stores THIS response's session in the native jar.
+        // WOOW sign-in: THIS response's session is returned; the repository publishes it at its commit (pi 1001f P1).
         coEvery { api.authenticate(any(), any(), any(), any()) } answers {
             val account = accounts.values.first { it.username == thirdArg<String>() }
             val sid = "${account.id}-sid-fixture"
-            jar = sid
             AuthResult.Success(account.userId!!, sid, account.username, account.displayName)
         }
         coEvery { dao.findAccount(any(), any(), any()) } answers { accounts.values.firstOrNull { it.username == thirdArg<String>() } }
@@ -91,6 +90,7 @@ class WoowPromotionSessionTest {
         webOwner = "a"; webSessions["a"] = "a-sid-fixture"
         repo.authenticate(b.serverUrl, b.database, b.username, "password-fixture")
         webOwner = "b"; webSessions["b"] = "b-sid-fixture"
+        published.clear() // the sign-ins' own commits (pi 1001f P1); the tests look at the promotion
     }
 
     @Test
@@ -117,7 +117,7 @@ class WoowPromotionSessionTest {
         repo.logout("b")
 
         assertEquals("a", active)
-        verify(exactly = 0) { api.publishSession(any(), "a-sid-fixture") }
+        assertFalse("a-sid-fixture" in published, "nothing of A is published at the promotion")
     }
 
     @Test

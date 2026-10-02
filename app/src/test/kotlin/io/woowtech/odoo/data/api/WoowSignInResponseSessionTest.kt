@@ -71,6 +71,7 @@ class WoowSignInResponseSessionTest {
     private fun signInA() {
         reply(8, "session_id=sid-A; Path=/; HttpOnly")
         assertEquals("sid-A", (login("a") as AuthResult.Success).sessionId)
+        api.publishSession("https://fixture.test", "sid-A") // the repository's commit (pi 1001f P1)
     }
 
     @Test

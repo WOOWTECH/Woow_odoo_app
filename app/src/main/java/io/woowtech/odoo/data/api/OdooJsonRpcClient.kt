@@ -149,7 +149,7 @@ class OdooJsonRpcClient internal constructor(
             // host jar may still hold another account's session, which must never become this sign-in's.
             val sessionId = signIn.sessionId
                 ?: return@withContext AuthResult.Error("Sign-in session was not established", AuthResult.ErrorType.SESSION_EXPIRED)
-            cookieStore[signIn.host] = signIn.cookies.toMutableList()
+            // pi 1001f P1: nothing is published here; the repository publishes at its selection commit.
             val name = result.get("name")?.asString ?: username
 
             AuthResult.Success(

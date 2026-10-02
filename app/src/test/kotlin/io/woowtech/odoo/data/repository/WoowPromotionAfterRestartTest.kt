@@ -69,8 +69,8 @@ class WoowPromotionAfterRestartTest {
         coEvery { api.revokeSession(any(), any()) } answers { revoked += secondArg<String>(); true }
         coEvery { api.authenticate(any(), any(), any(), any()) } answers {
             val account = accounts.values.first { it.username == thirdArg<String>() }
+            // pi 1001f P1: the client publishes nothing; the repository publishes at its selection commit.
             val sid = "${account.id}-sid-fixture"
-            jar = sid
             AuthResult.Success(account.userId!!, sid, account.username, account.displayName)
         }
         coEvery { dao.findAccount(any(), any(), any()) } answers { accounts.values.firstOrNull { it.username == thirdArg<String>() } }
@@ -105,6 +105,7 @@ class WoowPromotionAfterRestartTest {
         webOwner = "a"; webSessions["a"] = "a-sid-fixture"
         before.authenticate(b.serverUrl, b.database, b.username, "password-fixture")
         webOwner = "b"; webSessions["b"] = "b-sid-fixture"
+        published.clear() // the sign-ins' own commits (pi 1001f P1); the tests look at the promotion
         return repo()
     }
 
@@ -131,7 +132,7 @@ class WoowPromotionAfterRestartTest {
 
         assertEquals("a", active)
         assertFalse("a-sid-fixture" in revoked, "an unproven session must never be revoked")
-        verify(exactly = 0) { api.publishSession(any(), "a-sid-fixture") }
+        assertFalse("a-sid-fixture" in published, "nothing of A is published at the promotion")
         assertEquals("a-sid-fixture", store.load("a"), "the record is kept to be proven later")
     }
 
@@ -144,7 +145,7 @@ class WoowPromotionAfterRestartTest {
         afterRestart.logout("b")
 
         assertEquals("a", active)
-        verify(exactly = 0) { api.publishSession(any(), "a-sid-fixture") }
+        assertFalse("a-sid-fixture" in published, "nothing of A is published at the promotion")
         assertFalse("a-sid-fixture" in revoked, "a session that is not A's must not be destroyed on A's behalf")
         assertNull(store.load("a"), "a session proven not A's is forgotten")
     }

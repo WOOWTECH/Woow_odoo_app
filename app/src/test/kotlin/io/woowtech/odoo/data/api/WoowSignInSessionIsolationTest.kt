@@ -81,6 +81,7 @@ class WoowSignInSessionIsolationTest {
     fun `Given account A signed in on the host when account B signs in then B's request carries no session of A`() {
         signInReply("sid-A", 8)
         assertTrue(login("a") is AuthResult.Success)
+        api.publishSession("https://fixture.test", "sid-A") // the repository's commit (pi 1001f P1)
         take()
         signInReply("sid-B", 9)
 
@@ -90,28 +91,32 @@ class WoowSignInSessionIsolationTest {
     }
 
     @Test
-    fun `Given A then B sign in when B succeeds then the native jar holds B's session and B's result carries it`() {
+    fun `Given A then B sign in when B succeeds then B's result carries B's session and the jar is left to the repository's commit`() {
         signInReply("sid-A", 8)
         assertEquals("sid-A", (login("a") as AuthResult.Success).sessionId)
+        api.publishSession("https://fixture.test", "sid-A") // the repository's commit (pi 1001f P1)
         signInReply("sid-B", 9)
 
         val b = login("b")
 
         assertTrue(b is AuthResult.Success)
         assertEquals("sid-B", (b as AuthResult.Success).sessionId)
-        assertEquals("sid-B", api.getSessionId("fixture.test"))
+        // pi 1001f P1: a WOOW sign-in no longer publishes; the jar keeps A until the repository commits B.
+        assertEquals("sid-A", api.getSessionId("fixture.test"))
     }
 
     @Test
     fun `Given a stored session when the same account signs in again then the request is still cookie-less`() {
         signInReply("sid-A", 8)
         login("a")
+        api.publishSession("https://fixture.test", "sid-A") // the repository's commit (pi 1001f P1)
         take()
         signInReply("sid-A2", 8)
 
-        login("a")
+        val again = login("a")
 
         assertNull(take().getHeader("Cookie"), "a re-sign-in must not re-authenticate the stored session in place")
-        assertEquals("sid-A2", api.getSessionId("fixture.test"))
+        assertEquals("sid-A2", (again as AuthResult.Success).sessionId)
+        assertEquals("sid-A", api.getSessionId("fixture.test"), "publication is the repository's commit (pi 1001f P1)")
     }
 }

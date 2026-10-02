@@ -115,6 +115,8 @@ class AccountRepository(
         rememberPassword: Boolean = true,
     ): AuthResult {
         if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)
+        // pi 1001f P1: the Apporo selection fence — a sign-in commits only while it is still the newest selection.
+        val attempt = beginSelection()
         invalidateHeals()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
         // pi 0930b P2: keep the displayed account's live WebView session so a later promotion can reuse it.
@@ -123,33 +125,49 @@ class AccountRepository(
         val result = odooClient.authenticate(fullUrl, database, username, password)
 
         if (result is AuthResult.Success) {
-            // Check if account already exists
-            val existingAccount = accountDao.findAccount(fullUrl, database, username)
+            var published = false
+            val committed = try {
+                selectionMutex.withLock {
+                    if (attempt != selectionAttempt) return@withLock false
+                    // Check if account already exists
+                    val existingAccount = accountDao.findAccount(fullUrl, database, username)
 
-            val account = existingAccount?.copy(
-                displayName = result.displayName,
-                userId = result.userId,
-                lastLogin = System.currentTimeMillis(),
-                isActive = true
-            ) ?: OdooAccount(
-                serverUrl = fullUrl,
-                database = database,
-                username = username,
-                displayName = result.displayName,
-                userId = result.userId,
-                isActive = true
-            )
+                    val account = existingAccount?.copy(
+                        displayName = result.displayName,
+                        userId = result.userId,
+                        lastLogin = System.currentTimeMillis(),
+                        isActive = true
+                    ) ?: OdooAccount(
+                        serverUrl = fullUrl,
+                        database = database,
+                        username = username,
+                        displayName = result.displayName,
+                        userId = result.userId,
+                        isActive = true
+                    )
 
-            // Deactivate other accounts and save this one
-            accountDao.deactivateAllAccounts()
-            accountDao.insertAccount(account)
-            knownSessions[account.id] = result.sessionId
-
-            // Save password securely only when the user asked us to remember it (W1-10).
-            if (rememberPassword) encryptedPrefs.savePassword(account.id, password)
-            else encryptedPrefs.removePassword(account.id)
-            fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
-            sessionReauthenticator?.onManualReloginSucceeded(account.id)
+                    // pi 1001f P1: rows, password (only when remembered, W1-10), jar and record are written at one
+                    // non-cancellable boundary; the session reaches the jar only once the rows are written.
+                    commitApporoSelection(account, existingAccount, password.takeIf { rememberPassword }, result.sessionId,
+                        forgetPassword = !rememberPassword,
+                        onPublished = {
+                            published = true
+                            knownSessions[account.id] = result.sessionId
+                        },
+                    ) {
+                        accountDao.insertAccount(account)
+                    }
+                    fcmTokenRepository?.onManualLogin(account.id, result.sessionId)
+                    sessionReauthenticator?.onManualReloginSucceeded(account.id)
+                    true
+                }
+            } finally {
+                // Minted but never published (superseded, failed or cancelled): nothing on this device will use it.
+                if (!published) revokeLater(fullUrl, result.sessionId)
+            }
+            if (!committed) {
+                return AuthResult.Error("Sign-in superseded by a newer selection", AuthResult.ErrorType.UNKNOWN)
+            }
 
             // S2 / AC8.b — account-added event: fire the event-driven reconcile so the current
             // token is upserted for EACH logged-in account (not only this one). This starts push
@@ -175,6 +193,8 @@ class AccountRepository(
 
     suspend fun switchAccount(accountId: String): Boolean {
         if (brand.isApporo) return switchApporoAccount(accountId)
+        // pi 1001f P1: the Apporo selection fence — a switch commits only while it is still the newest selection.
+        val attempt = beginSelection()
         invalidateHeals()
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
@@ -230,9 +250,8 @@ class AccountRepository(
             userId != null && validApporoSession(it) &&
                 odooClient.sessionOwnership(account.fullServerUrl, it, userId, account.database) == SessionOwnership.Belongs
         }
-        if (reused != null) odooClient.publishSession(account.fullServerUrl, reused)
 
-        // Try to re-authenticate (this overwrites the cookie jar for the host)
+        // Sign in again only when no stored session is proven; the result is published at the commit below.
         val result = if (reused != null) {
             AuthResult.Success(userId!!, reused, account.username, account.displayName)
         } else odooClient.authenticate(
@@ -242,24 +261,42 @@ class AccountRepository(
             password
         )
 
-        return if (result is AuthResult.Success) {
-            knownSessions[accountId] = result.sessionId
-            // The target's previous session is revoked only after the new one is committed, and only when it is
-            // positively still the target's and no other account holds it (pi 1001d P1 rule).
-            if (reused == null && stored != null && stored != result.sessionId) revokeReplacedIfOwn(account, stored)
-            accountDao.deactivateAllAccounts()
-            accountDao.activateAccount(accountId)
-            accountDao.updateLastLogin(accountId)
-            fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
-            sessionReauthenticator?.onManualReloginSucceeded(accountId)
-            // Same reason as authenticate(): the FCM token may have been
-            // saved before this account became active. Replay it.
-            registerSavedFcmToken(accountId)
-            true
-        } else {
-            false
+        // The target's previous session is revoked only when it is positively still the target's and no other
+        // account holds it (pi 1001d P1 rule).
+        if (result is AuthResult.Success && reused == null && stored != null && stored != result.sessionId) {
+            revokeReplacedIfOwn(account, stored)
         }
+        // pi 1001f P1: one commit boundary — attempt still current, target unchanged, rows written — then the jar
+        // and the record. A loser keeps the existing jar and revokes only its own unpublished session.
+        var published = false
+        val committed = try {
+            result is AuthResult.Success && selectionMutex.withLock {
+                val current = accountDao.getAccountById(accountId)
+                if (attempt != selectionAttempt || current == null || current.serverUrl != account.serverUrl ||
+                    current.database != account.database || current.username != account.username ||
+                    current.userId != account.userId
+                ) return@withLock false
+                commitApporoSelection(current, current, null, result.sessionId, onPublished = {
+                    published = true
+                    knownSessions[accountId] = result.sessionId
+                }) {
+                    accountDao.activateAccount(accountId)
+                    accountDao.updateLastLogin(accountId)
+                }
+                fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
+                sessionReauthenticator?.onManualReloginSucceeded(accountId)
+                true
+            }
+        } finally {
+            if (!published && reused == null && result is AuthResult.Success) revokeLater(account.fullServerUrl, result.sessionId)
+        }
+
+        // Same reason as authenticate(): the FCM token may have been
+        // saved before this account became active. Replay it.
+        if (committed) registerSavedFcmToken(accountId)
+        return committed
     }
+
 
     /**
      * Register the locally-saved FCM token with the given Odoo account.
@@ -707,7 +744,8 @@ class AccountRepository(
                 if (password != null) encryptedPrefs.savePassword(target.id, password)
                 else if (forgetPassword) encryptedPrefs.removePassword(target.id)
                 // Last local operation: publication validates before its single in-memory assignment.
-                odooClient.publishApporoSession(target.fullServerUrl, sessionId)
+                if (brand.isApporo) odooClient.publishApporoSession(target.fullServerUrl, sessionId)
+                else odooClient.publishSession(target.fullServerUrl, sessionId)
             } catch (failure: Exception) {
                 // No cookie has been published on a failed local commit. Restore rows/credentials
                 // before releasing the selection fence, including a newly inserted login account.

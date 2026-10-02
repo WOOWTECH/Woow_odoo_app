@@ -72,6 +72,7 @@ class WoowSignInRedirectTest {
     fun `Given A in the jar when B's sign-in is redirected to another host that answers uid and a session then B fails and A stays`() {
         server.enqueue(okWithSession(8, "sid-A"))
         assertEquals("sid-A", (login("a") as AuthResult.Success).sessionId)
+        api.publishSession("https://fixture.test", "sid-A") // the repository's commit (pi 1001f P1)
         server.enqueue(MockResponse().setResponseCode(302)
             .setHeader("Location", "http://other.test:${server.port}/web/session/authenticate"))
         server.enqueue(okWithSession(9, "sid-other-host"))

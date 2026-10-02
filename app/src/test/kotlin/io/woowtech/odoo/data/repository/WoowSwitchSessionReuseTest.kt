@@ -59,11 +59,11 @@ class WoowSwitchSessionReuseTest {
                 else -> SessionOwnership.ProvenMismatch
             }
         }
-        // WOOW sign-in: the client stores THIS response's session in the native jar.
+        // WOOW sign-in: THIS response's session is returned; the repository publishes it at its commit (pi 1001f P1).
         coEvery { api.authenticate(any(), any(), any(), any()) } answers {
             val account = accounts.values.first { it.username == thirdArg<String>() }
             val sid = "${account.id}-sid-${++mint}"
-            valid += sid; jar = sid
+            valid += sid
             AuthResult.Success(account.userId!!, sid, account.username, account.displayName)
         }
         coEvery { dao.findAccount(any(), any(), any()) } answers { accounts.values.firstOrNull { it.username == thirdArg<String>() } }
