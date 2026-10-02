@@ -166,6 +166,51 @@ W1_10_ACCOUNT_WOOW = (
 # contract; applied before F5_ACCOUNT_WOOW, which then restores the pre-D1 baseline.
 # pi 1001d P1 (2026-10-02): a WOOW manual sign-in / switch supersedes every self-heal in flight
 # (invalidateHeals) so an older heal can no longer replace the winner's session. Same (current, baseline).
+# Live 1001e W3 (2026-10-02): a WOOW switch reuses the target's known session when the server proves it is
+# that uid AND db (Apporo parity), and revokes the target's replaced session only after the new one is
+# committed and only when it is positively the target's and held by no other account. Same (current, baseline).
+F5F_ACCOUNT_WOOW = (
+    (
+     "        // Live 1001e W3 (Apporo parity): reuse the target's known session when the server proves it is this uid\n"
+     '        // AND db, instead of signing in again on every switch and orphaning the session it replaces.\n'
+     '        val stored = knownSessions[accountId]\n'
+     '        val userId = account.userId\n'
+     '        val reused = stored?.takeIf {\n'
+     '            userId != null && validApporoSession(it) &&\n'
+     '                odooClient.sessionOwnership(account.fullServerUrl, it, userId, account.database) == SessionOwnership.Belongs\n'
+     '        }\n'
+     '        if (reused != null) odooClient.publishSession(account.fullServerUrl, reused)\n'
+     '\n'
+     '        // Try to re-authenticate (this overwrites the cookie jar for the host)\n'
+     '        val result = if (reused != null) {\n'
+     '            AuthResult.Success(userId!!, reused, account.username, account.displayName)\n'
+     '        } else odooClient.authenticate(\n'
+     '            account.fullServerUrl,\n'
+     '            account.database,\n'
+     '            account.username,\n'
+     '            password\n'
+     '        )\n'
+     '\n'
+     '        return if (result is AuthResult.Success) {\n'
+     '            knownSessions[accountId] = result.sessionId\n'
+     "            // The target's previous session is revoked only after the new one is committed, and only when it is\n"
+     "            // positively still the target's and no other account holds it (pi 1001d P1 rule).\n"
+     '            if (reused == null && stored != null && stored != result.sessionId) revokeReplacedIfOwn(account, stored)\n'
+     '            accountDao.deactivateAllAccounts()\n'
+     ,
+     '        // Try to re-authenticate (this overwrites the cookie jar for the host)\n'
+     '        val result = odooClient.authenticate(\n'
+     '            account.fullServerUrl,\n'
+     '            account.database,\n'
+     '            account.username,\n'
+     '            password\n'
+     '        )\n'
+     '\n'
+     '        return if (result is AuthResult.Success) {\n'
+     '            knownSessions[accountId] = result.sessionId\n'
+     '            accountDao.deactivateAllAccounts()\n'
+    ),
+)
 F5E_ACCOUNT_WOOW = (
     ('        invalidateHeals()\n'
      '        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"\n',
@@ -667,6 +712,7 @@ class BrandIdentityContracts(unittest.TestCase):
                      '        fcmTokenRepository?.forgetAccount(accountId)\n'):
             self.assertEqual(1, account.count(line))
             account = account.replace(line, '')
+        account = reverse_apply(self, account, F5F_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5E_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5D_ACCOUNT_WOOW)
         account = reverse_apply(self, account, F5B_ACCOUNT_WOOW)

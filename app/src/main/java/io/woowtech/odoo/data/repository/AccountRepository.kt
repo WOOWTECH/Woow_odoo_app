@@ -222,8 +222,20 @@ class AccountRepository(
             }
         }
 
+        // Live 1001e W3 (Apporo parity): reuse the target's known session when the server proves it is this uid
+        // AND db, instead of signing in again on every switch and orphaning the session it replaces.
+        val stored = knownSessions[accountId]
+        val userId = account.userId
+        val reused = stored?.takeIf {
+            userId != null && validApporoSession(it) &&
+                odooClient.sessionOwnership(account.fullServerUrl, it, userId, account.database) == SessionOwnership.Belongs
+        }
+        if (reused != null) odooClient.publishSession(account.fullServerUrl, reused)
+
         // Try to re-authenticate (this overwrites the cookie jar for the host)
-        val result = odooClient.authenticate(
+        val result = if (reused != null) {
+            AuthResult.Success(userId!!, reused, account.username, account.displayName)
+        } else odooClient.authenticate(
             account.fullServerUrl,
             account.database,
             account.username,
@@ -232,6 +244,9 @@ class AccountRepository(
 
         return if (result is AuthResult.Success) {
             knownSessions[accountId] = result.sessionId
+            // The target's previous session is revoked only after the new one is committed, and only when it is
+            // positively still the target's and no other account holds it (pi 1001d P1 rule).
+            if (reused == null && stored != null && stored != result.sessionId) revokeReplacedIfOwn(account, stored)
             accountDao.deactivateAllAccounts()
             accountDao.activateAccount(accountId)
             accountDao.updateLastLogin(accountId)
