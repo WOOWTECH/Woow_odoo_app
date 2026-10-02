@@ -274,11 +274,6 @@ F5G_ACCOUNT_WOOW = (
     ),
     (
      '\n'
-     "        // The target's previous session is revoked only when it is positively still the target's and no other\n"
-     '        // account holds it (pi 1001d P1 rule).\n'
-     '        if (result is AuthResult.Success && reused == null && stored != null && stored != result.sessionId) {\n'
-     '            revokeReplacedIfOwn(account, stored)\n'
-     '        }\n'
      '        // pi 1001f P1: one commit boundary — attempt still current, target unchanged, rows written — then the jar\n'
      '        // and the record. A loser keeps the existing jar and revokes only its own unpublished session.\n'
      '        var published = false\n'
@@ -292,6 +287,9 @@ F5G_ACCOUNT_WOOW = (
      '                commitApporoSelection(current, current, null, result.sessionId, onPublished = {\n'
      '                    published = true\n'
      '                    knownSessions[accountId] = result.sessionId\n'
+     "                    // pi 1001f P2: the target's previous session is revoked only after the new one is committed,\n"
+     "                    // and only when it is positively still the target's and no other account holds it (pi 1001d P1).\n"
+     '                    if (reused == null && stored != null && stored != result.sessionId) revokeReplacedIfOwn(current, stored)\n'
      '                }) {\n'
      '                    accountDao.activateAccount(accountId)\n'
      '                    accountDao.updateLastLogin(accountId)\n'

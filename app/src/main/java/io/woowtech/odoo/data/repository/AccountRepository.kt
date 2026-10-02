@@ -261,11 +261,6 @@ class AccountRepository(
             password
         )
 
-        // The target's previous session is revoked only when it is positively still the target's and no other
-        // account holds it (pi 1001d P1 rule).
-        if (result is AuthResult.Success && reused == null && stored != null && stored != result.sessionId) {
-            revokeReplacedIfOwn(account, stored)
-        }
         // pi 1001f P1: one commit boundary — attempt still current, target unchanged, rows written — then the jar
         // and the record. A loser keeps the existing jar and revokes only its own unpublished session.
         var published = false
@@ -279,6 +274,9 @@ class AccountRepository(
                 commitApporoSelection(current, current, null, result.sessionId, onPublished = {
                     published = true
                     knownSessions[accountId] = result.sessionId
+                    // pi 1001f P2: the target's previous session is revoked only after the new one is committed,
+                    // and only when it is positively still the target's and no other account holds it (pi 1001d P1).
+                    if (reused == null && stored != null && stored != result.sessionId) revokeReplacedIfOwn(current, stored)
                 }) {
                     accountDao.activateAccount(accountId)
                     accountDao.updateLastLogin(accountId)

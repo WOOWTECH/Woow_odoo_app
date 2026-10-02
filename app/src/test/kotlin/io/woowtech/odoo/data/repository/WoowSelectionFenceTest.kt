@@ -163,4 +163,16 @@ class WoowSelectionFenceTest {
         assertEquals("a-sid-2", jar, "the jar is not handed to B without a committed selection")
         assertTrue(revoked.all { it.startsWith("b-sid-3") }, "only B's own unpublished session may be revoked: $revoked")
     }
+
+    @Test
+    fun `Given B's stored session is still B's when the commit fails then it is not revoked`() = runTest {
+        signIn(b); signIn(a)
+        coEvery { api.sessionOwnership(any(), "b-sid-1", any(), any()) } returnsMany
+            listOf(SessionOwnership.Unknown, SessionOwnership.Belongs, SessionOwnership.Belongs)
+        failActivate = "b"
+
+        runCatching { repo.switchAccount("b") }
+
+        assertFalse("b-sid-1" in revoked, "the replaced session is revoked only after a successful commit")
+    }
 }
