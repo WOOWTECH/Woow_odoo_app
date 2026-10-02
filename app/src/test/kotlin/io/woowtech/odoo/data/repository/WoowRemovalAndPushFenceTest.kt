@@ -205,4 +205,40 @@ class WoowRemovalAndPushFenceTest {
         assertEquals("a", active)
         assertTrue("a" in registered, "A is displayed again and must get its push device back")
     }
+
+    // ---- P2: the re-registration runs outside the selection lock
+
+    @Test
+    fun `Given A's re-registration is held when a newer sign-in starts then it commits without waiting`() = runTest {
+        signIn(b); signIn(c); signIn(a)
+        valid -= "b-sid-1"; failAuth += "b"
+        val register = CompletableDeferred<Unit>().also { holdRegister["a"] = it }
+        assertFalse(repo.switchAccount("b"))
+
+        val newer = async { signIn(c) }
+        advanceUntilIdle()
+
+        assertTrue(newer.isCompleted, "the held re-registration must not hold the selection lock")
+        assertEquals("c", active)
+        register.complete(Unit)
+        assertTrue("a" in registered)
+    }
+
+    @Test
+    fun `Given A's re-registration is held when switching away from A then the switch commits and A stays unregistered`() = runTest {
+        signIn(b); signIn(c); signIn(a)
+        valid -= "b-sid-1"; failAuth += "b"
+        val register = CompletableDeferred<Unit>().also { holdRegister["a"] = it }
+        assertFalse(repo.switchAccount("b"))
+
+        val away = async { repo.switchAccount("c") }
+        advanceUntilIdle()
+
+        assertTrue(away.isCompleted && away.await(), "a switch away from A is not blocked by A's re-registration")
+        assertEquals("c", active)
+        register.complete(Unit)
+        advanceUntilIdle()
+        assertFalse("a" in registered, "the cancelled re-registration must not land after A's unregistration")
+        coVerify(exactly = 2) { push.unregisterToken("a") }
+    }
 }

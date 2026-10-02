@@ -296,7 +296,8 @@ F5G_ACCOUNT_WOOW = (
      '        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
      '            fcmTokenRepository?.let { repo ->\n'
      '                pendingPushReRegister += previousActiveAccountId\n'
-     '                repo.unregisterToken(previousActiveAccountId)\n'
+     '                unregisterPush(repo, previousActiveAccountId)\n'
+     '                    .onSuccess {\n'
      ,
      '        //\n'
      "        // Trade-off: if re-auth then fails, A's FCM record is already\n"
@@ -307,6 +308,7 @@ F5G_ACCOUNT_WOOW = (
      '        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
      '            fcmTokenRepository?.let { repo ->\n'
      '                repo.unregisterToken(previousActiveAccountId)\n'
+     '                    .onSuccess {\n'
     ),
     (
      '                odooClient.sessionOwnership(account.fullServerUrl, it, userId, account.database) == SessionOwnership.Belongs\n'
@@ -425,6 +427,15 @@ F5G_ACCOUNT_WOOW = (
      '        val wasActive = account.isActive\n'
     ),
     (
+     '        fcmTokenRepository?.let { repo ->\n'
+     '            unregisterPush(repo, id)\n'
+     '                .onSuccess { Timber.d("FCM token unregistered for account %s before logout", id) }\n'
+     ,
+     '        fcmTokenRepository?.let { repo ->\n'
+     '            repo.unregisterToken(id)\n'
+     '                .onSuccess { Timber.d("FCM token unregistered for account %s before logout", id) }\n'
+    ),
+    (
      '        }\n'
      '        pendingPushReRegister -= id\n'
      '        fcmTokenRepository?.forgetAccount(id)\n'
@@ -449,6 +460,15 @@ F5G_ACCOUNT_WOOW = (
      ,
      '    suspend fun removeAccount(accountId: String) {\n'
      '        // Best-effort FCM unregister before local deletion. If the device\n'
+    ),
+    (
+     '        fcmTokenRepository?.let { repo ->\n'
+     '            unregisterPush(repo, accountId)\n'
+     '                .onSuccess { Timber.d("FCM token unregistered for account %s before removal", accountId) }\n'
+     ,
+     '        fcmTokenRepository?.let { repo ->\n'
+     '            repo.unregisterToken(accountId)\n'
+     '                .onSuccess { Timber.d("FCM token unregistered for account %s before removal", accountId) }\n'
     ),
     (
      '        }\n'
@@ -1002,6 +1022,8 @@ class BrandIdentityContracts(unittest.TestCase):
                      'import io.woowtech.odoo.data.api.SessionOwnership\n',
                      'import kotlinx.coroutines.sync.Mutex\n', 'import kotlinx.coroutines.sync.withLock\n',
                      'import kotlinx.coroutines.NonCancellable\n', 'import kotlinx.coroutines.currentCoroutineContext\n',
+                     # pi 1001g P2: push compensation runs outside the selection lock and is cancelled by a newer unregister.
+                     'import kotlinx.coroutines.cancelAndJoin\n', 'import kotlinx.coroutines.launch\n',
                      'import kotlinx.coroutines.ensureActive\n', 'import kotlinx.coroutines.withContext\n',
                      '        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)\n',
                      '        if (brand.isApporo) return switchApporoAccount(accountId)\n'):

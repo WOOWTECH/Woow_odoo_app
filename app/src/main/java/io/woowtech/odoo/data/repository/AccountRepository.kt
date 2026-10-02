@@ -2,8 +2,10 @@ package io.woowtech.odoo.data.repository
 
 import io.woowtech.odoo.brand.AppBrand
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,6 +75,8 @@ class AccountRepository(
      * ends last with such an account displayed re-registers it; a committed switch away from it clears it.
      */
     private val pendingPushReRegister = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val pushCompensations = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    private val PUSH_COMPENSATION_TIMEOUT_MS = 15_000L
 
     /** WebView side of logout / removal (iOS D1 parity); wired by DI, null in unit tests that don't need it. */
     var webDataCleaner: AccountWebDataCleaner? = null
@@ -276,7 +280,7 @@ class AccountRepository(
         if (previousActiveAccountId != null && previousActiveAccountId != accountId) {
             fcmTokenRepository?.let { repo ->
                 pendingPushReRegister += previousActiveAccountId
-                repo.unregisterToken(previousActiveAccountId)
+                unregisterPush(repo, previousActiveAccountId)
                     .onSuccess {
                         Timber.d(
                             "FCM token unregistered for previous account %s before switching to %s",
@@ -422,7 +426,7 @@ class AccountRepository(
         // C3: Attempt to unregister FCM token before session is cleared. Non-fatal if it
         // fails — the token will eventually be cleaned up server-side when it bounces.
         fcmTokenRepository?.let { repo ->
-            repo.unregisterToken(id)
+            unregisterPush(repo, id)
                 .onSuccess { Timber.d("FCM token unregistered for account %s before logout", id) }
                 .onFailure { error ->
                     Timber.w(error, "FCM unregister failed for account %s — proceeding with logout anyway", id)
@@ -496,7 +500,7 @@ class AccountRepository(
         // is offline we still proceed — the local record removal is the
         // user-facing intent and must not be blocked by network state.
         fcmTokenRepository?.let { repo ->
-            repo.unregisterToken(accountId)
+            unregisterPush(repo, accountId)
                 .onSuccess { Timber.d("FCM token unregistered for account %s before removal", accountId) }
                 .onFailure { error ->
                     Timber.w(
@@ -786,19 +790,46 @@ class AccountRepository(
 
     /**
      * pi 1001g P2: ends a tracked selection. Once no newer selection is still running, the displayed account is
-     * re-registered if a switch left it owed one; a failed registration leaves it owed.
+     * re-registered if a switch left it owed one. Only the claim happens under [selectionMutex]; the time-limited
+     * registration runs outside it, so newer selections can start and commit meanwhile.
      */
     private suspend fun endSelection(attempt: Long) {
-        withContext(NonCancellable) {
+        val claimed = withContext(NonCancellable) {
             selectionMutex.withLock {
                 selectionsInFlight -= attempt
                 val displayed = accountDao.getActiveAccountOnce()?.id
                 if (selectionAttempt in selectionsInFlight || displayed == null || !pendingPushReRegister.remove(displayed)) {
-                    return@withLock
+                    return@withLock null
                 }
-                if (!runCatching { registerSavedFcmToken(displayed) }.getOrDefault(false)) pendingPushReRegister += displayed
+                val job = revokeScope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) { compensatePush(displayed) }
+                pushCompensations.put(displayed, job)?.cancel()
+                job
             }
         }
+        claimed?.start()
+    }
+
+    private suspend fun compensatePush(accountId: String) {
+        var registered = false
+        try {
+            registered = kotlinx.coroutines.withTimeoutOrNull(PUSH_COMPENSATION_TIMEOUT_MS) {
+                runCatching { registerSavedFcmToken(accountId) }.getOrDefault(false)
+            } == true
+        } finally {
+            pushCompensations.remove(accountId, currentCoroutineContext()[kotlinx.coroutines.Job])
+            // Re-checked after the wait: failed, timed out or cancelled by a newer unregistration of this account
+            // → still owed, settled by the next selection that ends with it displayed (or cleared by a commit).
+            if (!registered) pendingPushReRegister += accountId
+        }
+    }
+
+    /**
+     * Every unregistration of an account first cancels (and awaits) a compensation still registering it, so a
+     * late re-registration can never land after — and undo — this unregistration (pi 1001g P2).
+     */
+    private suspend fun unregisterPush(repo: FcmTokenRepository, accountId: String): Result<Unit> {
+        pushCompensations.remove(accountId)?.cancelAndJoin()
+        return repo.unregisterToken(accountId)
     }
 
     /**
