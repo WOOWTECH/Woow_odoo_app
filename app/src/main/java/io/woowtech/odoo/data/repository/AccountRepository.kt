@@ -64,9 +64,11 @@ class AccountRepository(
      * when its logout / removal starts and again when it ends, plus the identities being removed right now. A
      * sign-in commits only if its identity's generation did not move since it started, so a sign-in started
      * before or during a removal can never recreate the removed account. Guarded by [selectionMutex].
+     * pi 1001h P1: removals of one identity can overlap (logout + removal), so the tombstone is a count of
+     * removals in flight and lasts until the LAST of them ends, whether it completes, fails or is cancelled.
      */
     private val removalGenerations = HashMap<String, Long>()
-    private val identitiesBeingRemoved = HashSet<String>()
+    private val removalsInFlight = HashMap<String, Int>()
     private var removalCounter = 0L
 
     /**
@@ -765,13 +767,13 @@ class AccountRepository(
     /** Caller holds [selectionMutex]: no logout / removal of this identity started since [ticket]. */
     private fun identityUnremovedLocked(serverUrl: String, database: String, username: String, ticket: Long): Boolean {
         val key = identityKey(serverUrl, database, username)
-        return key !in identitiesBeingRemoved && (removalGenerations[key] ?: 0L) == ticket
+        return key !in removalsInFlight && (removalGenerations[key] ?: 0L) == ticket
     }
 
     /** pi 1001g P1: a logout / removal supersedes every selection in flight and tombstones [account]'s identity. */
     private suspend fun beginIdentityRemoval(account: OdooAccount): Long = selectionMutex.withLock {
         val key = identityKey(account.serverUrl, account.database, account.username)
-        identitiesBeingRemoved += key
+        removalsInFlight[key] = (removalsInFlight[key] ?: 0) + 1
         removalGenerations[key] = ++removalCounter
         (++selectionAttempt).also { selectionsInFlight += it }
     }
@@ -780,7 +782,8 @@ class AccountRepository(
         withContext(NonCancellable) {
             selectionMutex.withLock {
                 val key = identityKey(account.serverUrl, account.database, account.username)
-                identitiesBeingRemoved -= key
+                val left = (removalsInFlight[key] ?: 1) - 1
+                if (left > 0) removalsInFlight[key] = left else removalsInFlight.remove(key)
                 // Bumped again: a sign-in that started DURING the removal cannot commit either.
                 removalGenerations[key] = ++removalCounter
             }

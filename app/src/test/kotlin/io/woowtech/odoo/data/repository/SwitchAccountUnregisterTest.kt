@@ -123,8 +123,9 @@ class SwitchAccountUnregisterTest {
         assertTrue(!ok)
         // A WAS unregistered (we did it before re-auth)
         coVerify(exactly = 1) { fcmTokenRepository.unregisterToken("acc-A") }
-        // ...and registered again, because A is still the displayed account
-        coVerify(exactly = 1) { fcmTokenRepository.registerToken("acc-A", "fcm-token-shared") }
+        // ...and registered again, because A is still the displayed account. The re-registration runs detached on
+        // the repository's IO scope (outside the selection lock, pi 1001g P2), so wait for it (1001i: flaked).
+        coVerify(timeout = 5_000, exactly = 1) { fcmTokenRepository.registerToken("acc-A", "fcm-token-shared") }
         // B was never registered (re-auth failed before we got there)
         coVerify(exactly = 0) { fcmTokenRepository.registerToken("acc-B", any()) }
         // Local state untouched: A remains the active account

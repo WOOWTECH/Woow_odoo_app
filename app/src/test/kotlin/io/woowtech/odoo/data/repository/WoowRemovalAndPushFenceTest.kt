@@ -45,6 +45,8 @@ class WoowRemovalAndPushFenceTest {
     private val valid = mutableSetOf<String>()
     private val holdAuth = mutableMapOf<String, CompletableDeferred<Unit>>()
     private val holdUnregister = mutableMapOf<String, CompletableDeferred<Unit>>()
+    /** One gate per unregister call, in call order (overlapping removals of one account, pi 1001h P1). */
+    private val unregisterGates = mutableMapOf<String, ArrayDeque<CompletableDeferred<Unit>>>()
     private val holdRegister = mutableMapOf<String, CompletableDeferred<Unit>>()
     private val failAuth = mutableSetOf<String>()
     private val registered = mutableListOf<String>()
@@ -96,11 +98,28 @@ class WoowRemovalAndPushFenceTest {
             registered += firstArg<String>()
             Result.success(Unit)
         }
-        coEvery { push.unregisterToken(any()) } coAnswers { holdUnregister[firstArg()]?.await(); Result.success(Unit) }
+        coEvery { push.unregisterToken(any()) } coAnswers {
+            (unregisterGates[firstArg()]?.removeFirstOrNull() ?: holdUnregister[firstArg()])?.await()
+            Result.success(Unit)
+        }
         coEvery { push.reconcileOnAccountAvailable() } returns Result.success(Unit)
-        repo = AccountRepository(dao, prefs, api, AppBrand.forCode("woowtech"), null, CoroutineScope(Dispatchers.Unconfined))
-        repo.fcmTokenRepository = push
+        // Apporo sign-in: isolated, response session only (same identity fence, pi 1001h P1).
+        coEvery { api.authenticateApporoIsolated(any(), any(), any(), any()) } coAnswers {
+            val user = thirdArg<String>()
+            val id = user.removePrefix("user-")
+            holdAuth[id]?.await()
+            val userId = mapOf("a" to 11, "b" to 22, "c" to 33).getValue(id)
+            val sid = "$id-sid-${++mint}"
+            valid += sid
+            AuthResult.Success(userId, sid, user, id.uppercase())
+        }
+        every { api.publishApporoSession(any(), any()) } answers { jar = secondArg() }
+        repo = repoFor("woowtech")
     }
+
+    private fun repoFor(brand: String) =
+        AccountRepository(dao, prefs, api, AppBrand.forCode(brand), null, CoroutineScope(Dispatchers.Unconfined))
+            .also { it.fcmTokenRepository = push }
 
     private suspend fun signIn(account: OdooAccount) = repo.authenticate(account.serverUrl, account.database, account.username, "password-fixture")
 
@@ -240,5 +259,78 @@ class WoowRemovalAndPushFenceTest {
         advanceUntilIdle()
         assertFalse("a" in registered, "the cancelled re-registration must not land after A's unregistration")
         coVerify(exactly = 2) { push.unregisterToken("a") }
+    }
+
+    // ---- pi 1001h P1: overlapping removals of one identity
+
+    /** logout(B) and removeAccount(B) are both held in their unregister; returns the two gates in call order. */
+    private fun kotlinx.coroutines.test.TestScope.overlappingRemovalsOfB(): Triple<CompletableDeferred<Unit>, CompletableDeferred<Unit>, Pair<kotlinx.coroutines.Deferred<Boolean>, kotlinx.coroutines.Deferred<Unit>>> {
+        val first = CompletableDeferred<Unit>(); val second = CompletableDeferred<Unit>()
+        unregisterGates["b"] = ArrayDeque(listOf(first, second))
+        val logout = async { repo.logout("b") }
+        advanceUntilIdle()
+        val remove = async { repo.removeAccount("b") }
+        advanceUntilIdle()
+        return Triple(first, second, logout to remove)
+    }
+
+    private fun assertBAbsent() {
+        assertFalse(accounts.values.any { it.username == "user-b" }, "B must not be recreated while a removal of B is running")
+        assertEquals("a", active)
+        assertTrue(jar!!.startsWith("a-"), "the jar keeps A's session")
+    }
+
+    @Test
+    fun `Given logout and removal of B overlap when the first ends and B signs in then B is not recreated until the second ends`() = runTest {
+        signIn(b); signIn(a)
+        val (first, second, jobs) = overlappingRemovalsOfB()
+
+        first.complete(Unit)
+        jobs.first.await() // the logout finished; the removal is still in its unregister wait
+        val during = signIn(b)
+
+        assertTrue(during is AuthResult.Error, "a sign-in while a removal of B is still running must not commit: $during")
+        assertBAbsent()
+        second.complete(Unit)
+        jobs.second.await()
+        assertBAbsent()
+        assertTrue(signIn(b) is AuthResult.Success, "after the LAST removal ended a new sign-in commits")
+    }
+
+    @Test
+    fun `Given logout and removal of B overlap when the removal is cancelled then the logout keeps the tombstone until it ends`() = runTest {
+        signIn(b); signIn(a)
+        val (first, _, jobs) = overlappingRemovalsOfB()
+
+        jobs.second.cancel()
+        advanceUntilIdle()
+        val during = signIn(b)
+
+        assertTrue(during is AuthResult.Error, "the logout of B is still running: $during")
+        // B's original row is still there (the logout has not deleted it yet); no new B was made or activated.
+        assertFalse(accounts.values.any { it.username == "user-b" && it.id != "b" }, "no new B may be created")
+        assertEquals("a", active)
+        assertTrue(jar!!.startsWith("a-"), "the jar keeps A's session")
+        first.complete(Unit)
+        jobs.first.await()
+        assertBAbsent()
+        assertTrue(signIn(b) is AuthResult.Success, "the cancelled removal released its share of the tombstone")
+    }
+
+    @Test
+    fun `Given Apporo logout and removal of B overlap when the first ends and B signs in then B is not recreated`() = runTest {
+        repo = repoFor("apporo")
+        signIn(b); signIn(a)
+        val (first, second, jobs) = overlappingRemovalsOfB()
+
+        first.complete(Unit)
+        jobs.first.await()
+        val during = signIn(b)
+
+        assertTrue(during is AuthResult.Error, "Apporo shares the identity fence: $during")
+        assertBAbsent()
+        second.complete(Unit)
+        jobs.second.await()
+        assertTrue(signIn(b) is AuthResult.Success)
     }
 }
