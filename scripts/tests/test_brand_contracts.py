@@ -166,7 +166,22 @@ F5G_ACCOUNT_WOOW = (
     (
      '        if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)\n'
      '        // pi 1001f P1: the Apporo selection fence — a sign-in commits only while it is still the newest selection.\n'
-     '        val attempt = beginSelection()\n'
+     '        val attempt = beginTrackedSelection()\n'
+     '        try {\n'
+     '            return authenticateWoow(attempt, serverUrl, database, username, password, rememberPassword)\n'
+     '        } finally {\n'
+     '            endSelection(attempt)\n'
+     '        }\n'
+     '    }\n'
+     '\n'
+     '    private suspend fun authenticateWoow(\n'
+     '        attempt: Long,\n'
+     '        serverUrl: String,\n'
+     '        database: String,\n'
+     '        username: String,\n'
+     '        password: String,\n'
+     '        rememberPassword: Boolean,\n'
+     '    ): AuthResult {\n'
      '        invalidateHeals()\n'
      '        val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"\n'
      '        val removalTicket = removalTicketOf(fullUrl, database, username)\n'
@@ -259,7 +274,16 @@ F5G_ACCOUNT_WOOW = (
     (
      '        if (brand.isApporo) return switchApporoAccount(accountId)\n'
      '        // pi 1001f P1: the Apporo selection fence — a switch commits only while it is still the newest selection.\n'
-     '        val attempt = beginSelection()\n'
+     '        val attempt = beginTrackedSelection()\n'
+     '        try {\n'
+     '            return switchWoowAccount(attempt, accountId)\n'
+     '        } finally {\n'
+     '            // pi 1001g P2: every exit — including an early one — settles a push re-registration still owed.\n'
+     '            endSelection(attempt)\n'
+     '        }\n'
+     '    }\n'
+     '\n'
+     '    private suspend fun switchWoowAccount(attempt: Long, accountId: String): Boolean {\n'
      '        invalidateHeals()\n'
      ,
      '        if (brand.isApporo) return switchApporoAccount(accountId)\n'
@@ -267,10 +291,12 @@ F5G_ACCOUNT_WOOW = (
     ),
     (
      '        //\n'
-     '        // pi 1001f P2: if the switch then fails or is cancelled, A is registered again (below) while A is still\n'
-     '        // the displayed account and no newer selection has started, so A keeps receiving its notifications.\n'
-     '        val unregistered = previousActiveAccountId != null && previousActiveAccountId != accountId && fcmTokenRepository != null\n'
+     '        // pi 1001f/1001g P2: A is first recorded as owed a re-registration; if this switch does not commit, the\n'
+     '        // last tracked selection to end with A still displayed registers A again (see endSelection).\n'
      '        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
+     '            fcmTokenRepository?.let { repo ->\n'
+     '                pendingPushReRegister += previousActiveAccountId\n'
+     '                repo.unregisterToken(previousActiveAccountId)\n'
      ,
      '        //\n'
      "        // Trade-off: if re-auth then fails, A's FCM record is already\n"
@@ -279,6 +305,8 @@ F5G_ACCOUNT_WOOW = (
      '        // FCM token rotation re-registers. This is the lesser of two evils\n'
      "        // versus risking a server-side corruption of B's record.\n"
      '        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
+     '            fcmTokenRepository?.let { repo ->\n'
+     '                repo.unregisterToken(previousActiveAccountId)\n'
     ),
     (
      '                odooClient.sessionOwnership(account.fullServerUrl, it, userId, account.database) == SessionOwnership.Belongs\n'
@@ -316,13 +344,16 @@ F5G_ACCOUNT_WOOW = (
      '                    accountDao.activateAccount(accountId)\n'
      '                    accountDao.updateLastLogin(accountId)\n'
      '                }\n'
+     "                // The switch away from A committed: A's unregistration is now intended, nothing is owed to it.\n"
+     '                if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
+     '                    pendingPushReRegister -= previousActiveAccountId\n'
+     '                }\n'
      '                fcmTokenRepository?.onManualLogin(accountId, result.sessionId)\n'
      '                sessionReauthenticator?.onManualReloginSucceeded(accountId)\n'
      '                true\n'
      '            }\n'
      '        } finally {\n'
      '            if (!published && reused == null && result is AuthResult.Success) revokeLater(account.fullServerUrl, result.sessionId)\n'
-     '            if (!published && unregistered) reRegisterIfStillDisplayed(previousActiveAccountId!!, attempt)\n'
      '        }\n'
      '\n'
      '        // Same reason as authenticate(): the FCM token may have been\n'
@@ -330,20 +361,6 @@ F5G_ACCOUNT_WOOW = (
      '        if (committed) registerSavedFcmToken(accountId)\n'
      '        return committed\n'
      '    }\n'
-     '\n'
-     '    /**\n'
-     "     * pi 1001f P2: a failed / superseded / cancelled WOOW switch already unregistered [accountId]'s push device.\n"
-     '     * Registers it again (detached, so it also runs after a cancellation) only while no newer selection has\n'
-     '     * started and [accountId] is still the displayed account; a newer selection owns the device state otherwise.\n'
-     '     */\n'
-     '    private fun reRegisterIfStillDisplayed(accountId: String, attempt: Long) {\n'
-     '        launchDetached(revokeScope) {\n'
-     '            selectionMutex.withLock {\n'
-     '                if (attempt == selectionAttempt && accountDao.getActiveAccountOnce()?.id == accountId) {\n'
-     '                    registerSavedFcmToken(accountId)\n'
-     '                }\n'
-     '            }\n'
-     '        }\n'
      ,
      '\n'
      '        return if (result is AuthResult.Success) {\n'
@@ -363,16 +380,40 @@ F5G_ACCOUNT_WOOW = (
      '        } else {\n'
      '            false\n'
      '        }\n'
+     '    }\n'
+    ),
+    (
+     '     */\n'
+     '    private suspend fun registerSavedFcmToken(accountId: String): Boolean {\n'
+     '        val repo = fcmTokenRepository ?: return true\n'
+     '        val token = repo.getStoredToken() ?: return true\n'
+     '        return repo.registerToken(accountId = accountId, token = token)\n'
+     '            .onSuccess { Timber.d("FCM token registered for account %s on login", accountId) }\n'
+     ,
+     '     */\n'
+     '    private suspend fun registerSavedFcmToken(accountId: String) {\n'
+     '        val repo = fcmTokenRepository ?: return\n'
+     '        val token = repo.getStoredToken() ?: return\n'
+     '        repo.registerToken(accountId = accountId, token = token)\n'
+     '            .onSuccess { Timber.d("FCM token registered for account %s on login", accountId) }\n'
+    ),
+    (
+     '            }\n'
+     '            .isSuccess\n'
+     '    }\n'
+     ,
+     '            }\n'
+     '    }\n'
     ),
     (
      '        val account = accountDao.getAccountById(id) ?: return false\n'
      '        // pi 1001g P1: before any network wait, supersede every sign-in / switch in flight and tombstone this\n'
      '        // identity, so none of them can recreate or reactivate the account being logged out.\n'
-     '        beginIdentityRemoval(account)\n'
+     '        val attempt = beginIdentityRemoval(account)\n'
      '        try {\n'
      '            return logoutAccount(account)\n'
      '        } finally {\n'
-     '            endIdentityRemoval(account)\n'
+     '            endIdentityRemoval(account, attempt)\n'
      '        }\n'
      '    }\n'
      '\n'
@@ -384,14 +425,22 @@ F5G_ACCOUNT_WOOW = (
      '        val wasActive = account.isActive\n'
     ),
     (
+     '        }\n'
+     '        pendingPushReRegister -= id\n'
+     '        fcmTokenRepository?.forgetAccount(id)\n'
+     ,
+     '        }\n'
+     '        fcmTokenRepository?.forgetAccount(id)\n'
+    ),
+    (
      '    suspend fun removeAccount(accountId: String) {\n'
      '        // pi 1001g P1: same removal fence as logout, before any network wait.\n'
      '        val target = accountDao.getAccountById(accountId)\n'
-     '        if (target != null) beginIdentityRemoval(target) else beginSelection()\n'
+     '        val attempt = if (target != null) beginIdentityRemoval(target) else beginTrackedSelection()\n'
      '        try {\n'
      '            removeAccountRow(accountId)\n'
      '        } finally {\n'
-     '            if (target != null) endIdentityRemoval(target)\n'
+     '            if (target != null) endIdentityRemoval(target, attempt) else endSelection(attempt)\n'
      '        }\n'
      '    }\n'
      '\n'
@@ -400,6 +449,14 @@ F5G_ACCOUNT_WOOW = (
      ,
      '    suspend fun removeAccount(accountId: String) {\n'
      '        // Best-effort FCM unregister before local deletion. If the device\n'
+    ),
+    (
+     '        }\n'
+     '        pendingPushReRegister -= accountId\n'
+     '        fcmTokenRepository?.forgetAccount(accountId)\n'
+     ,
+     '        }\n'
+     '        fcmTokenRepository?.forgetAccount(accountId)\n'
     ),
 )
 # Android F5 (2026-09-30, iOS demo111 D1/D2 parity): logout / account removal wipes only that account's

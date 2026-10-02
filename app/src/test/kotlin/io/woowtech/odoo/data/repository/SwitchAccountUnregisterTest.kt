@@ -106,15 +106,14 @@ class SwitchAccountUnregisterTest {
     }
 
     @Test
-    fun `Given previous account A when switch to B fails re-auth then A is still unregistered and B is not registered`() = runTest {
-        // Re-auth-failure case: documents the trade-off in the new ordering.
-        // A's FCM record is already deactivated server-side before re-auth
-        // is attempted; if re-auth fails, the user keeps account A locally
-        // but won't receive A's notifications until the next successful
-        // login OR an FCM token rotation triggers re-registration.
+    fun `Given previous account A when switch to B fails re-auth then A is unregistered, registered again and B is not registered`() = runTest {
+        // Re-auth-failure case: A's FCM record is deactivated server-side before re-auth is attempted; when
+        // re-auth then fails and A is still displayed, A is registered again (pi 1001f/1001g P2) instead of
+        // staying without notifications until the next login or token rotation.
         coEvery { accountDao.getActiveAccountOnce() } returns accountA
         coEvery { fcmTokenRepository.getStoredToken() } returns "fcm-token-shared"
         coEvery { fcmTokenRepository.unregisterToken("acc-A") } returns Result.success(Unit)
+        coEvery { fcmTokenRepository.registerToken("acc-A", any()) } returns Result.success(Unit)
         coEvery {
             odooClient.authenticate(any(), any(), any(), any())
         } returns AuthResult.Error("network", AuthResult.ErrorType.NETWORK_ERROR)
@@ -124,6 +123,8 @@ class SwitchAccountUnregisterTest {
         assertTrue(!ok)
         // A WAS unregistered (we did it before re-auth)
         coVerify(exactly = 1) { fcmTokenRepository.unregisterToken("acc-A") }
+        // ...and registered again, because A is still the displayed account
+        coVerify(exactly = 1) { fcmTokenRepository.registerToken("acc-A", "fcm-token-shared") }
         // B was never registered (re-auth failed before we got there)
         coVerify(exactly = 0) { fcmTokenRepository.registerToken("acc-B", any()) }
         // Local state untouched: A remains the active account

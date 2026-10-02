@@ -49,6 +49,15 @@ class AccountRepository(
     private suspend fun beginSelection(): Long = selectionMutex.withLock { ++selectionAttempt }
 
     /**
+     * pi 1001g: WOOW sign-ins / switches and every logout / removal are TRACKED selections. Each ends through
+     * [endSelection], which settles a push re-registration still owed to the displayed account
+     * ([pendingPushReRegister]) once no newer selection is still running. Guarded by [selectionMutex].
+     */
+    private val selectionsInFlight = HashSet<Long>()
+    private suspend fun beginTrackedSelection(): Long =
+        selectionMutex.withLock { (++selectionAttempt).also { selectionsInFlight += it } }
+
+    /**
      * pi 1001g P1 (iOS a8f374f parity): per sign-in identity (server, db, login) a removal generation, bumped
      * when its logout / removal starts and again when it ends, plus the identities being removed right now. A
      * sign-in commits only if its identity's generation did not move since it started, so a sign-in started
@@ -58,6 +67,12 @@ class AccountRepository(
     private val identitiesBeingRemoved = HashSet<String>()
     private var removalCounter = 0L
 
+    /**
+     * pi 1001g P2: accounts whose push device a switch unregistered and that are owed a re-registration if
+     * they end up displayed again (the switch failed, was superseded or cancelled). Whichever tracked selection
+     * ends last with such an account displayed re-registers it; a committed switch away from it clears it.
+     */
+    private val pendingPushReRegister = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /** WebView side of logout / removal (iOS D1 parity); wired by DI, null in unit tests that don't need it. */
     var webDataCleaner: AccountWebDataCleaner? = null
@@ -127,7 +142,22 @@ class AccountRepository(
     ): AuthResult {
         if (brand.isApporo) return authenticateApporo(serverUrl, database, username, password, rememberPassword)
         // pi 1001f P1: the Apporo selection fence — a sign-in commits only while it is still the newest selection.
-        val attempt = beginSelection()
+        val attempt = beginTrackedSelection()
+        try {
+            return authenticateWoow(attempt, serverUrl, database, username, password, rememberPassword)
+        } finally {
+            endSelection(attempt)
+        }
+    }
+
+    private suspend fun authenticateWoow(
+        attempt: Long,
+        serverUrl: String,
+        database: String,
+        username: String,
+        password: String,
+        rememberPassword: Boolean,
+    ): AuthResult {
         invalidateHeals()
         val fullUrl = if (serverUrl.startsWith("https://")) serverUrl else "https://$serverUrl"
         val removalTicket = removalTicketOf(fullUrl, database, username)
@@ -208,7 +238,16 @@ class AccountRepository(
     suspend fun switchAccount(accountId: String): Boolean {
         if (brand.isApporo) return switchApporoAccount(accountId)
         // pi 1001f P1: the Apporo selection fence — a switch commits only while it is still the newest selection.
-        val attempt = beginSelection()
+        val attempt = beginTrackedSelection()
+        try {
+            return switchWoowAccount(attempt, accountId)
+        } finally {
+            // pi 1001g P2: every exit — including an early one — settles a push re-registration still owed.
+            endSelection(attempt)
+        }
+    }
+
+    private suspend fun switchWoowAccount(attempt: Long, accountId: String): Boolean {
         invalidateHeals()
         val account = accountDao.getAccountById(accountId) ?: return false
         val password = encryptedPrefs.getPassword(accountId) ?: return false
@@ -232,11 +271,11 @@ class AccountRepository(
         // no-op (server can't find A's record) or worse, delete B's
         // brand-new record. So: unregister first, while A's cookie is live.
         //
-        // pi 1001f P2: if the switch then fails or is cancelled, A is registered again (below) while A is still
-        // the displayed account and no newer selection has started, so A keeps receiving its notifications.
-        val unregistered = previousActiveAccountId != null && previousActiveAccountId != accountId && fcmTokenRepository != null
+        // pi 1001f/1001g P2: A is first recorded as owed a re-registration; if this switch does not commit, the
+        // last tracked selection to end with A still displayed registers A again (see endSelection).
         if (previousActiveAccountId != null && previousActiveAccountId != accountId) {
             fcmTokenRepository?.let { repo ->
+                pendingPushReRegister += previousActiveAccountId
                 repo.unregisterToken(previousActiveAccountId)
                     .onSuccess {
                         Timber.d(
@@ -293,34 +332,22 @@ class AccountRepository(
                     accountDao.activateAccount(accountId)
                     accountDao.updateLastLogin(accountId)
                 }
+                // The switch away from A committed: A's unregistration is now intended, nothing is owed to it.
+                if (previousActiveAccountId != null && previousActiveAccountId != accountId) {
+                    pendingPushReRegister -= previousActiveAccountId
+                }
                 fcmTokenRepository?.onManualLogin(accountId, result.sessionId)
                 sessionReauthenticator?.onManualReloginSucceeded(accountId)
                 true
             }
         } finally {
             if (!published && reused == null && result is AuthResult.Success) revokeLater(account.fullServerUrl, result.sessionId)
-            if (!published && unregistered) reRegisterIfStillDisplayed(previousActiveAccountId!!, attempt)
         }
 
         // Same reason as authenticate(): the FCM token may have been
         // saved before this account became active. Replay it.
         if (committed) registerSavedFcmToken(accountId)
         return committed
-    }
-
-    /**
-     * pi 1001f P2: a failed / superseded / cancelled WOOW switch already unregistered [accountId]'s push device.
-     * Registers it again (detached, so it also runs after a cancellation) only while no newer selection has
-     * started and [accountId] is still the displayed account; a newer selection owns the device state otherwise.
-     */
-    private fun reRegisterIfStillDisplayed(accountId: String, attempt: Long) {
-        launchDetached(revokeScope) {
-            selectionMutex.withLock {
-                if (attempt == selectionAttempt && accountDao.getActiveAccountOnce()?.id == accountId) {
-                    registerSavedFcmToken(accountId)
-                }
-            }
-        }
     }
 
     /**
@@ -342,10 +369,10 @@ class AccountRepository(
      * A warning is logged so it can be correlated with reports of "missed
      * notifications".
      */
-    private suspend fun registerSavedFcmToken(accountId: String) {
-        val repo = fcmTokenRepository ?: return
-        val token = repo.getStoredToken() ?: return
-        repo.registerToken(accountId = accountId, token = token)
+    private suspend fun registerSavedFcmToken(accountId: String): Boolean {
+        val repo = fcmTokenRepository ?: return true
+        val token = repo.getStoredToken() ?: return true
+        return repo.registerToken(accountId = accountId, token = token)
             .onSuccess { Timber.d("FCM token registered for account %s on login", accountId) }
             .onFailure { error ->
                 Timber.w(
@@ -354,6 +381,7 @@ class AccountRepository(
                     accountId,
                 )
             }
+            .isSuccess
     }
 
     /**
@@ -379,11 +407,11 @@ class AccountRepository(
         val account = accountDao.getAccountById(id) ?: return false
         // pi 1001g P1: before any network wait, supersede every sign-in / switch in flight and tombstone this
         // identity, so none of them can recreate or reactivate the account being logged out.
-        beginIdentityRemoval(account)
+        val attempt = beginIdentityRemoval(account)
         try {
             return logoutAccount(account)
         } finally {
-            endIdentityRemoval(account)
+            endIdentityRemoval(account, attempt)
         }
     }
 
@@ -414,6 +442,7 @@ class AccountRepository(
                 removing -= id
             }
         }
+        pendingPushReRegister -= id
         fcmTokenRepository?.forgetAccount(id)
 
         // Multi-account fallback: if other accounts remain and we logged out the ACTIVE one (or none
@@ -454,11 +483,11 @@ class AccountRepository(
     suspend fun removeAccount(accountId: String) {
         // pi 1001g P1: same removal fence as logout, before any network wait.
         val target = accountDao.getAccountById(accountId)
-        if (target != null) beginIdentityRemoval(target) else beginSelection()
+        val attempt = if (target != null) beginIdentityRemoval(target) else beginTrackedSelection()
         try {
             removeAccountRow(accountId)
         } finally {
-            if (target != null) endIdentityRemoval(target)
+            if (target != null) endIdentityRemoval(target, attempt) else endSelection(attempt)
         }
     }
 
@@ -488,6 +517,7 @@ class AccountRepository(
                 removing -= accountId
             }
         }
+        pendingPushReRegister -= accountId
         fcmTokenRepository?.forgetAccount(accountId)
     }
 
@@ -739,16 +769,34 @@ class AccountRepository(
         val key = identityKey(account.serverUrl, account.database, account.username)
         identitiesBeingRemoved += key
         removalGenerations[key] = ++removalCounter
-        ++selectionAttempt
+        (++selectionAttempt).also { selectionsInFlight += it }
     }
 
-    private suspend fun endIdentityRemoval(account: OdooAccount) {
+    private suspend fun endIdentityRemoval(account: OdooAccount, attempt: Long) {
         withContext(NonCancellable) {
             selectionMutex.withLock {
                 val key = identityKey(account.serverUrl, account.database, account.username)
                 identitiesBeingRemoved -= key
                 // Bumped again: a sign-in that started DURING the removal cannot commit either.
                 removalGenerations[key] = ++removalCounter
+            }
+        }
+        endSelection(attempt)
+    }
+
+    /**
+     * pi 1001g P2: ends a tracked selection. Once no newer selection is still running, the displayed account is
+     * re-registered if a switch left it owed one; a failed registration leaves it owed.
+     */
+    private suspend fun endSelection(attempt: Long) {
+        withContext(NonCancellable) {
+            selectionMutex.withLock {
+                selectionsInFlight -= attempt
+                val displayed = accountDao.getActiveAccountOnce()?.id
+                if (selectionAttempt in selectionsInFlight || displayed == null || !pendingPushReRegister.remove(displayed)) {
+                    return@withLock
+                }
+                if (!runCatching { registerSavedFcmToken(displayed) }.getOrDefault(false)) pendingPushReRegister += displayed
             }
         }
     }

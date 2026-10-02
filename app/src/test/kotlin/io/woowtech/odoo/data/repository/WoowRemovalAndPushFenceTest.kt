@@ -186,4 +186,23 @@ class WoowRemovalAndPushFenceTest {
         assertTrue(again is AuthResult.Success)
         assertEquals("user-b", accounts[active]!!.username)
     }
+
+    // ---- P2: compensation owned by the finally displayed account
+
+    @Test
+    fun `Given B unregistered A when a later C fails early and B fails late then A's push device is registered again`() = runTest {
+        signIn(b); signIn(a)
+        valid -= "b-sid-1"; failAuth += "b"
+        val gate = CompletableDeferred<Unit>().also { holdAuth["b"] = it }
+        val lateB = async { repo.switchAccount("b") }
+        advanceUntilIdle()
+        coVerify { push.unregisterToken("a") }
+
+        assertFalse(repo.switchAccount("missing"), "C fails before it touches A")
+        gate.complete(Unit)
+
+        assertFalse(lateB.await())
+        assertEquals("a", active)
+        assertTrue("a" in registered, "A is displayed again and must get its push device back")
+    }
 }
