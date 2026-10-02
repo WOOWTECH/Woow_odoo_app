@@ -175,4 +175,34 @@ class WoowSelectionFenceTest {
 
         assertFalse("b-sid-1" in revoked, "the replaced session is revoked only after a successful commit")
     }
+
+    @Test
+    fun `Given a switch to B fails after A's push device was unregistered then A is registered again`() = runTest {
+        signIn(b); signIn(a)
+        valid -= "b-sid-1"
+        coEvery { api.authenticate(any(), any(), "user-b", any()) } returns
+            AuthResult.Error("Bad gateway", AuthResult.ErrorType.SERVER_ERROR, httpStatus = 502)
+
+        assertFalse(repo.switchAccount("b"))
+
+        coVerify { push.unregisterToken("a") }
+        coVerify { push.registerToken("a", "token-fixture") }
+        assertEquals("a", active)
+    }
+
+    @Test
+    fun `Given a switch to B is superseded by C when B fails late then A is not registered again`() = runTest {
+        signIn(b); signIn(c); signIn(a)
+        valid -= "b-sid-1"
+        val gate = CompletableDeferred<Unit>().also { holdAuth["b"] = it }
+
+        val lateB = async { repo.switchAccount("b") }
+        advanceUntilIdle()
+        assertTrue(repo.switchAccount("c"))
+        gate.complete(Unit)
+
+        assertFalse(lateB.await())
+        coVerify(exactly = 0) { push.registerToken("a", any()) }
+        coVerify { push.registerToken("c", "token-fixture") }
+    }
 }

@@ -218,11 +218,9 @@ class AccountRepository(
         // no-op (server can't find A's record) or worse, delete B's
         // brand-new record. So: unregister first, while A's cookie is live.
         //
-        // Trade-off: if re-auth then fails, A's FCM record is already
-        // deactivated server-side and the user keeps account A locally but
-        // won't receive A's notifications until the next successful login or
-        // FCM token rotation re-registers. This is the lesser of two evils
-        // versus risking a server-side corruption of B's record.
+        // pi 1001f P2: if the switch then fails or is cancelled, A is registered again (below) while A is still
+        // the displayed account and no newer selection has started, so A keeps receiving its notifications.
+        val unregistered = previousActiveAccountId != null && previousActiveAccountId != accountId && fcmTokenRepository != null
         if (previousActiveAccountId != null && previousActiveAccountId != accountId) {
             fcmTokenRepository?.let { repo ->
                 repo.unregisterToken(previousActiveAccountId)
@@ -287,6 +285,7 @@ class AccountRepository(
             }
         } finally {
             if (!published && reused == null && result is AuthResult.Success) revokeLater(account.fullServerUrl, result.sessionId)
+            if (!published && unregistered) reRegisterIfStillDisplayed(previousActiveAccountId!!, attempt)
         }
 
         // Same reason as authenticate(): the FCM token may have been
@@ -295,6 +294,20 @@ class AccountRepository(
         return committed
     }
 
+    /**
+     * pi 1001f P2: a failed / superseded / cancelled WOOW switch already unregistered [accountId]'s push device.
+     * Registers it again (detached, so it also runs after a cancellation) only while no newer selection has
+     * started and [accountId] is still the displayed account; a newer selection owns the device state otherwise.
+     */
+    private fun reRegisterIfStillDisplayed(accountId: String, attempt: Long) {
+        launchDetached(revokeScope) {
+            selectionMutex.withLock {
+                if (attempt == selectionAttempt && accountDao.getActiveAccountOnce()?.id == accountId) {
+                    registerSavedFcmToken(accountId)
+                }
+            }
+        }
+    }
 
     /**
      * Register the locally-saved FCM token with the given Odoo account.

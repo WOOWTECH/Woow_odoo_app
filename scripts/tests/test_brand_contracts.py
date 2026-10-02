@@ -259,6 +259,21 @@ F5G_ACCOUNT_WOOW = (
      '        invalidateHeals()\n'
     ),
     (
+     '        //\n'
+     '        // pi 1001f P2: if the switch then fails or is cancelled, A is registered again (below) while A is still\n'
+     '        // the displayed account and no newer selection has started, so A keeps receiving its notifications.\n'
+     '        val unregistered = previousActiveAccountId != null && previousActiveAccountId != accountId && fcmTokenRepository != null\n'
+     '        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
+     ,
+     '        //\n'
+     "        // Trade-off: if re-auth then fails, A's FCM record is already\n"
+     '        // deactivated server-side and the user keeps account A locally but\n'
+     "        // won't receive A's notifications until the next successful login or\n"
+     '        // FCM token rotation re-registers. This is the lesser of two evils\n'
+     "        // versus risking a server-side corruption of B's record.\n"
+     '        if (previousActiveAccountId != null && previousActiveAccountId != accountId) {\n'
+    ),
+    (
      '                odooClient.sessionOwnership(account.fullServerUrl, it, userId, account.database) == SessionOwnership.Belongs\n'
      '        }\n'
      '\n'
@@ -300,6 +315,7 @@ F5G_ACCOUNT_WOOW = (
      '            }\n'
      '        } finally {\n'
      '            if (!published && reused == null && result is AuthResult.Success) revokeLater(account.fullServerUrl, result.sessionId)\n'
+     '            if (!published && unregistered) reRegisterIfStillDisplayed(previousActiveAccountId!!, attempt)\n'
      '        }\n'
      '\n'
      '        // Same reason as authenticate(): the FCM token may have been\n'
@@ -308,7 +324,19 @@ F5G_ACCOUNT_WOOW = (
      '        return committed\n'
      '    }\n'
      '\n'
-     '\n'
+     '    /**\n'
+     "     * pi 1001f P2: a failed / superseded / cancelled WOOW switch already unregistered [accountId]'s push device.\n"
+     '     * Registers it again (detached, so it also runs after a cancellation) only while no newer selection has\n'
+     '     * started and [accountId] is still the displayed account; a newer selection owns the device state otherwise.\n'
+     '     */\n'
+     '    private fun reRegisterIfStillDisplayed(accountId: String, attempt: Long) {\n'
+     '        launchDetached(revokeScope) {\n'
+     '            selectionMutex.withLock {\n'
+     '                if (attempt == selectionAttempt && accountDao.getActiveAccountOnce()?.id == accountId) {\n'
+     '                    registerSavedFcmToken(accountId)\n'
+     '                }\n'
+     '            }\n'
+     '        }\n'
      ,
      '\n'
      '        return if (result is AuthResult.Success) {\n'
@@ -328,8 +356,6 @@ F5G_ACCOUNT_WOOW = (
      '        } else {\n'
      '            false\n'
      '        }\n'
-     '    }\n'
-     '\n'
     ),
 )
 # Android F5 (2026-09-30, iOS demo111 D1/D2 parity): logout / account removal wipes only that account's
