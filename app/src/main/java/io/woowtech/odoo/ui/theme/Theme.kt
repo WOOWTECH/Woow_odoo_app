@@ -46,7 +46,7 @@ object ThemeManager {
 }
 
 // Brand color ratio: White 50%, Gray 20%, Deep Gray 10%, Blue 10%, Accent 5%, Black 5%
-private fun createLightColorScheme(primaryColor: Color) = lightColorScheme(
+internal fun createLightColorScheme(primaryColor: Color) = lightColorScheme(
     primary = primaryColor,                          // Blue 10%
     onPrimary = OnPrimaryLight,
     primaryContainer = PrimaryContainerLight,
@@ -67,7 +67,7 @@ private fun createLightColorScheme(primaryColor: Color) = lightColorScheme(
     onError = Color.White
 )
 
-private fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
+internal fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
     primary = primaryColor,
     onPrimary = OnPrimaryDark,
     primaryContainer = PrimaryContainerDark,

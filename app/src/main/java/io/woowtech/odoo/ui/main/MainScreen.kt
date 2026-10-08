@@ -40,7 +40,9 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +71,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -343,10 +346,14 @@ private fun NotificationPermissionBanner(
     onEnableClick: () -> Unit,
     onDismissClick: () -> Unit,
 ) {
+    val colors = notificationBannerColors(MaterialTheme.colorScheme)
+    // W2-4 U9: the buttons used the theme primary (brand gold #8B6B24, or any picked theme colour) on the
+    // error container — unreadable on dark red. They now use the container's own foreground (WCAG AA).
+    val buttonColors = ButtonDefaults.textButtonColors(contentColor = colors.action)
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        color = colors.container,
+        contentColor = colors.content,
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
@@ -357,16 +364,27 @@ private fun NotificationPermissionBanner(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onDismissClick) {
+                TextButton(onClick = onDismissClick, colors = buttonColors) {
                     Text(text = stringResource(R.string.notification_permission_banner_dismiss))
                 }
-                TextButton(onClick = onEnableClick) {
+                TextButton(onClick = onEnableClick, colors = buttonColors) {
                     Text(text = stringResource(R.string.notification_permission_banner_action))
                 }
             }
         }
     }
 }
+
+/** Colours of the notification denial banner: [container] background, [content] text, [action] buttons. */
+internal data class NotificationBannerColors(val container: Color, val content: Color, val action: Color)
+
+/** Error-container banner whose text and buttons both use onErrorContainer, never the theme primary. */
+internal fun notificationBannerColors(scheme: ColorScheme): NotificationBannerColors =
+    NotificationBannerColors(
+        container = scheme.errorContainer,
+        content = scheme.onErrorContainer,
+        action = scheme.onErrorContainer,
+    )
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
