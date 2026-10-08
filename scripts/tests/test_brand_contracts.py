@@ -765,6 +765,9 @@ PIN_DELETE_KEY_STRINGS = {'pin_delete'}
 # Same round: "1 attempts remaining" — these baseline <string>s become <plurals> of the same name.
 # The baseline text survives verbatim as the `other` quantity; English adds `one`, zh has only `other`.
 PIN_PLURALS_RETYPED = {'wrong_pin_attempts_remaining'}
+# W2-4 L7 (owner-approved 2026-10-08, Pixel 7a vc5 acceptance): the file chooser title was a hardcoded
+# Chinese "選擇檔案" in every UI language; now a three-locale string. Same additive contract.
+FILE_CHOOSER_STRINGS = {'file_chooser_title'}
 # LIVE-0927 Android r3 approved seam: AccountRepository gets the shared SessionReauthenticator so a
 # successful manual sign-in re-closes that account's auto re-auth circuit breaker.
 LIVE_0927_R3_APP_MODULE = (
@@ -1133,7 +1136,7 @@ class BrandIdentityContracts(unittest.TestCase):
                                'login_server_url_required', 'login_database_required',
                                'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS \
                               | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS | PIN_LOCKOUT_STRINGS \
-                              | REMOVE_PIN_STRINGS | PIN_DELETE_KEY_STRINGS
+                              | REMOVE_PIN_STRINGS | PIN_DELETE_KEY_STRINGS | FILE_CHOOSER_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):
@@ -1249,6 +1252,15 @@ class BrandResourceContracts(unittest.TestCase):
         app = (K / 'WoowOdooApp.kt').read_text()
         self.assertIn('getString(R.string.notification_channel_messages)', app)
         self.assertIn('getString(R.string.notification_channel_messages_desc)', app)
+
+    def test_file_chooser_title_is_a_three_locale_resource(self):
+        # W2-4 L7: no hardcoded chooser title; both brands read the shared three-locale string.
+        screen = (K / 'ui/main/MainScreen.kt').read_text()
+        self.assertNotIn('選擇檔案', screen)
+        self.assertIn('context.getString(R.string.file_chooser_title)', screen)
+        for locale in ('values', 'values-zh-rTW', 'values-zh-rCN'):
+            with self.subTest(locale=locale):
+                self.assertTrue(strings('main', locale)['file_chooser_title'])
 
     def test_every_legacy_asset_qualifier_has_an_apporo_overlay(self):
         base = ROOT / 'app/src/main/res'

@@ -93,6 +93,13 @@ private data class PendingGeolocationRequest(
     val callback: GeolocationPermissions.Callback,
 )
 
+/** A file chooser waiting for the CAMERA permission answer; [isCurrent] = its account is still shown. */
+private data class PendingFileChooser(
+    val mimeType: String,
+    val allowMultiple: Boolean,
+    val isCurrent: () -> Boolean,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -488,9 +495,12 @@ fun OdooWebView(
         refreshBackState(view)
     }
 
-    // v1.0.15: File upload support - state for file chooser callback
-    var filePathCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    // v1.0.15: File upload support. The WebView's callback must be answered exactly once on every
+    // path (W2-4 L7), or the page can never open another chooser: FileChooserCallbackHolder.
+    val fileChooserCallback = remember { FileChooserCallbackHolder<Array<Uri>>() }
     var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    // A chooser waiting for the CAMERA permission answer.
+    var pendingFileChooser by remember { mutableStateOf<PendingFileChooser?>(null) }
 
     // Geolocation: holds an in-flight permission request while the OS dialog is open.
     var pendingGeolocationRequest by remember { mutableStateOf<PendingGeolocationRequest?>(null) }
@@ -579,9 +589,69 @@ fun OdooWebView(
         // Send result to WebView (must always call, even with empty/null result)
         val resultUris = if (uris.isNotEmpty()) uris.toTypedArray() else null
         Timber.d("Sending ${uris.size} URIs to WebView")
-        filePathCallback?.onReceiveValue(resultUris)
-        filePathCallback = null
+        fileChooserCallback.deliver(resultUris)
         cameraPhotoUri = null
+    }
+
+    // Opens the system chooser for files, with the camera as an extra option only when [withCamera]
+    // (CAMERA granted). Any failure answers the WebView with null so its next chooser still works.
+    fun launchFileChooser(mimeType: String, allowMultiple: Boolean, withCamera: Boolean) {
+        try {
+            val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = mimeType
+                if (allowMultiple) putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+            val chooserIntent = Intent.createChooser(contentIntent, context.getString(R.string.file_chooser_title))
+            cameraPhotoUri = null
+            if (withCamera) {
+                val photoUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    createImageFile()
+                )
+                cameraPhotoUri = photoUri
+                val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
+                    addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                Timber.d("Camera URI: $photoUri")
+                chooserIntent.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(takePictureIntent))
+            }
+            fileChooserLauncher.launch(chooserIntent)
+        } catch (e: Exception) {
+            Timber.e("Error launching file chooser: ${e.message}")
+            cameraPhotoUri = null
+            fileChooserCallback.cancel()
+        }
+    }
+
+    // W2-4 L7: CAMERA is requested before the chooser offers the camera. Granted → chooser with camera;
+    // denied (also permanently, which answers at once without a dialog) → files only. A request whose
+    // account was replaced meanwhile, or whose WebView callback is gone, is answered with null.
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val request = pendingFileChooser
+        pendingFileChooser = null
+        Timber.d("CAMERA permission result: granted=%s", granted)
+        if (request == null || !request.isCurrent() || !fileChooserCallback.isPending) {
+            fileChooserCallback.cancel()
+        } else {
+            launchFileChooser(
+                mimeType = request.mimeType,
+                allowMultiple = request.allowMultiple,
+                withCamera = FileChooserPlan.afterCameraPermission(granted) == FileChooserPlan.Step.CHOOSER_WITH_CAMERA,
+            )
+        }
+    }
+
+    // The screen left while a chooser or the permission dialog was open: answer the WebView.
+    DisposableEffect(Unit) {
+        onDispose {
+            pendingFileChooser = null
+            fileChooserCallback.cancel()
+        }
     }
 
     // One WebView instance per account target (id + server + database). An account switch — another
@@ -941,60 +1011,39 @@ fun OdooWebView(
                                 callback?.onReceiveValue(null)
                                 return true
                             }
+                            if (callback == null) return false
+                            val acceptTypes = fileChooserParams?.acceptTypes
                             Timber.d("onShowFileChooser called")
-                            Timber.d("Accept types: ${fileChooserParams?.acceptTypes?.joinToString()}")
+                            Timber.d("Accept types: ${acceptTypes?.joinToString()}")
                             Timber.d("Mode: ${fileChooserParams?.mode}")
 
-                            // Cancel any pending callback
-                            filePathCallback?.onReceiveValue(null)
-                            filePathCallback = callback
-
-                            try {
-                                // Create camera intent
-                                val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                                val photoFile = createImageFile()
-                                val photoUri = FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.fileprovider",
-                                    photoFile
-                                )
-                                cameraPhotoUri = photoUri
-                                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-                                Timber.d("Camera URI: $photoUri")
-
-                                // Create gallery/file intent
-                                val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-
-                                    // Set MIME type based on accept types
-                                    val acceptTypes = fileChooserParams?.acceptTypes
-                                    type = if (acceptTypes.isNullOrEmpty() || acceptTypes[0].isNullOrBlank()) {
-                                        "*/*"
-                                    } else {
-                                        acceptTypes[0]
-                                    }
-
-                                    // Allow multiple selection if supported
-                                    if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                            // Answers any older unanswered request with null, then holds this one. From
+                            // here on every path answers it (result, cancel, denial, failure).
+                            pendingFileChooser = null
+                            fileChooserCallback.begin { callback.onReceiveValue(it) }
+                            val mimeType = FileChooserPlan.contentMimeType(acceptTypes)
+                            val allowMultiple = fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE
+                            val cameraGranted = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            when (FileChooserPlan.firstStep(FileChooserPlan.acceptsCameraPhoto(acceptTypes), cameraGranted)) {
+                                FileChooserPlan.Step.REQUEST_CAMERA_PERMISSION -> {
+                                    pendingFileChooser = PendingFileChooser(mimeType, allowMultiple, ::isCurrentTarget)
+                                    try {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    } catch (e: Exception) {
+                                        Timber.e("Error requesting CAMERA: ${e.message}")
+                                        pendingFileChooser = null
+                                        fileChooserCallback.cancel()
                                     }
                                 }
-
-                                // Create chooser with camera as extra option
-                                val chooserIntent = Intent.createChooser(contentIntent, "選擇檔案").apply {
-                                    putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(takePictureIntent))
-                                }
-
-                                fileChooserLauncher.launch(chooserIntent)
-                                return true
-
-                            } catch (e: Exception) {
-                                Timber.e("Error launching file chooser: ${e.message}")
-                                filePathCallback?.onReceiveValue(null)
-                                filePathCallback = null
-                                cameraPhotoUri = null
-                                return false
+                                FileChooserPlan.Step.CHOOSER_WITH_CAMERA ->
+                                    launchFileChooser(mimeType, allowMultiple, withCamera = true)
+                                FileChooserPlan.Step.CHOOSER_FILES_ONLY ->
+                                    launchFileChooser(mimeType, allowMultiple, withCamera = false)
                             }
+                            return true
                         }
 
                         override fun onCreateWindow(

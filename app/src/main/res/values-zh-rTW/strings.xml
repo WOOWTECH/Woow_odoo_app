@@ -225,4 +225,5 @@
     <string name="login_database_required">請輸入資料庫名稱</string>
     <string name="login_username_required">請輸入使用者名稱</string>
     <string name="login_password_required">請輸入密碼</string>
+    <string name="file_chooser_title">選擇檔案</string>
 </resources>

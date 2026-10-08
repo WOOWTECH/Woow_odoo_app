@@ -230,4 +230,5 @@
     <string name="login_database_required">请输入数据库名称</string>
     <string name="login_username_required">请输入用户名</string>
     <string name="login_password_required">请输入密码</string>
+    <string name="file_chooser_title">选择文件</string>
 </resources>
