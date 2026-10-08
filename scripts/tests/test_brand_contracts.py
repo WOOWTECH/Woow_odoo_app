@@ -810,8 +810,8 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('applicationId = "com.apporo.odoo"', GRADLE)
         self.assertIn('applicationIdSuffix = ".debug"', GRADLE)
         self.assertIn('versionName = "1.0"', GRADLE)
-        self.assertIn('versionCode = 5\n', GRADLE)
-        for voided in (1, 2, 3, 4):  # vc1 voided by W1 code changes; vc2/vc3/vc4 already on Play internal testing
+        self.assertIn('versionCode = 6\n', GRADLE)
+        for voided in (1, 2, 3, 4, 5):  # vc1 voided by W1 code changes; vc2–vc5 already on Play internal testing
             self.assertNotIn(f'versionCode = {voided}\n', GRADLE)
         self.assertIn('versionName = "1.4.2"', GRADLE)
         self.assertIn('versionCode = 23', GRADLE)
