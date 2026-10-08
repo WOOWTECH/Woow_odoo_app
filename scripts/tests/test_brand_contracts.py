@@ -1267,10 +1267,52 @@ class BrandResourceContracts(unittest.TestCase):
                 self.assertEqual(record['sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
                 w, h, pixels = read_rgba(path)
                 self.assertEqual(record['size'], [w, h])
+                if 'badge' in record:
+                    # Circular login badge: transparency is the point; checked in the badge test below.
+                    self.assertTrue(record['path'].endswith('/woow_logo.png'))
+                    continue
                 self.assertTrue(all(a == 255 for a in pixels[3::4]))
                 for i in (0, w - 1, (h - 1) * w, w * h - 1):
                     self.assertEqual(b'\xff\xff\xff\xff', pixels[i * 4:i * 4 + 4])
                 self.assertLess(min(pixels), 255)
+
+    def test_login_logo_is_circular_badge_with_transparent_corners_and_grey_ring(self):
+        # Owner: every logo gets a round frame. Shared spec with iOS: disc = canvas, fill #FFFFFF,
+        # inner stroke #D9D9D9 at 3% of the edge, mark 60% centred, alpha 0 outside the circle.
+        manifest = json.loads((ROOT / 'docs/plans/2026-09-24-apporo-assets.json').read_text())
+        badges = {r['path']: r for r in manifest['outputs'] if 'badge' in r}
+        expected = {f'app/src/apporo/res/drawable-{d}/woow_logo.png': s
+                    for d, s in (('mdpi', 72), ('hdpi', 108), ('xhdpi', 144), ('xxhdpi', 216), ('xxxhdpi', 288))}
+        self.assertEqual(set(expected), set(badges))
+        for relative, size in expected.items():
+            with self.subTest(path=relative):
+                record = badges[relative]
+                self.assertEqual(0.6, record['fraction'])
+                self.assertEqual({'shape': 'circle', 'fill': '#FFFFFF', 'stroke': '#D9D9D9',
+                                  'stroke_fraction': 0.03, 'supersample': 4}, record['badge'])
+                w, h, pixels = read_rgba(ROOT / relative)
+                self.assertEqual((size, size), (w, h))
+
+                def px(x, y):
+                    return tuple(pixels[(y * w + x) * 4:(y * w + x) * 4 + 4])
+                for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+                    self.assertEqual(0, px(x, y)[3])
+                self.assertEqual(255, px(w // 2, h // 2)[3])
+                # Middle of the stroke band on all four sides: opaque, close to #D9D9D9.
+                band = int(w * 0.015)
+                for x, y in ((w // 2, band), (w // 2, h - 1 - band), (band, h // 2), (w - 1 - band, h // 2)):
+                    r, g, b, a = px(x, y)
+                    self.assertEqual(255, a)
+                    for channel in (r, g, b):
+                        self.assertLessEqual(abs(channel - 0xD9), 8)
+                # Just inside the stroke (above the mark): white fill.
+                self.assertEqual((255, 255, 255, 255), px(w // 2, int(w * 0.08)))
+                # Anti-aliased edge: some partially transparent pixels exist; nothing outside the disc is visible.
+                alphas = pixels[3::4]
+                self.assertTrue(any(0 < a < 255 for a in alphas))
+                for i in range(w * h):
+                    if math.hypot(i % w + .5 - w / 2, i // w + .5 - h / 2) > w / 2 + .75:
+                        self.assertEqual(0, alphas[i])
 
     def test_adaptive_mark_fits_safe_circle_without_cropping(self):
         w, h, pixels = read_rgba(ROOT / 'app/src/apporo/res/drawable-xxxhdpi/ic_launcher_foreground.png')

@@ -1,6 +1,6 @@
 {
   "source_directory": "~/WOOW-mobile-app-analysis/sources/Woow_apporo_ha_app/tools/brand/assets/",
-  "method": "RGBA8 bilinear; composite white #FFFFFF; no crop/recolor; adaptive artwork square 60/108, contained in 66dp safe circle",
+  "method": "RGBA8 bilinear; composite white #FFFFFF; no crop/recolor; adaptive artwork square 60/108, contained in 66dp safe circle; woow_logo = circular badge: alpha 0 outside a disc of canvas diameter, anti-aliased by 4x4 supersample coverage, fill #FFFFFF, inner stroke #D9D9D9 3% of edge, mark 60% of edge centred, same image light/dark",
   "inputs": {
     "apporo-mark.png": {
       "sha256": "9db14c6e5e3a84c4b7600a330ad3ad084875f4cffa2785f778cff2493539fdfa",
@@ -25,8 +25,15 @@
         72,
         72
       ],
-      "fraction": 1,
-      "sha256": "c22ab64cb6248e860a46d6a09afa61fc7fa6ed867072e48c2537f64df24aebd5"
+      "fraction": 0.6,
+      "sha256": "2942f2be5f4935df396d0d33cfccc2a7115ddfa9c1760ceea90d736ce9ebd20b",
+      "badge": {
+        "shape": "circle",
+        "fill": "#FFFFFF",
+        "stroke": "#D9D9D9",
+        "stroke_fraction": 0.03,
+        "supersample": 4
+      }
     },
     {
       "path": "app/src/apporo/res/drawable-mdpi/ic_launcher_foreground.png",
@@ -75,8 +82,15 @@
         108,
         108
       ],
-      "fraction": 1,
-      "sha256": "b84b800cf9ccbb70a6a1f491497b74be2d4292e9b6f02b5e7af8fd407a619fa8"
+      "fraction": 0.6,
+      "sha256": "024e18c99cc9d75d19c7863482b4f60018869f10d9a99130fe58ac2c1449a29d",
+      "badge": {
+        "shape": "circle",
+        "fill": "#FFFFFF",
+        "stroke": "#D9D9D9",
+        "stroke_fraction": 0.03,
+        "supersample": 4
+      }
     },
     {
       "path": "app/src/apporo/res/drawable-hdpi/ic_launcher_foreground.png",
@@ -125,8 +139,15 @@
         144,
         144
       ],
-      "fraction": 1,
-      "sha256": "c3f5141fe5df7bc8e02234bc9c7b3c990bdf8cce0e1beadbd3d57fed5683f0cd"
+      "fraction": 0.6,
+      "sha256": "517436e48ade84b506eb526096367942dffaa5516a8028acef719256a2abc88a",
+      "badge": {
+        "shape": "circle",
+        "fill": "#FFFFFF",
+        "stroke": "#D9D9D9",
+        "stroke_fraction": 0.03,
+        "supersample": 4
+      }
     },
     {
       "path": "app/src/apporo/res/drawable-xhdpi/ic_launcher_foreground.png",
@@ -175,8 +196,15 @@
         216,
         216
       ],
-      "fraction": 1,
-      "sha256": "f4293044d1b7fe4c032dfb391981c6afe62488fd99da005cda0b5161817887a5"
+      "fraction": 0.6,
+      "sha256": "e8c0415abcbc066faf33fb8f930d0d30f4c271c3f5313807850072b9bd52159d",
+      "badge": {
+        "shape": "circle",
+        "fill": "#FFFFFF",
+        "stroke": "#D9D9D9",
+        "stroke_fraction": 0.03,
+        "supersample": 4
+      }
     },
     {
       "path": "app/src/apporo/res/drawable-xxhdpi/ic_launcher_foreground.png",
@@ -225,8 +253,15 @@
         288,
         288
       ],
-      "fraction": 1,
-      "sha256": "a9cdfd650a6fd8bd5bd23ffcc215f48cde431a15907dae66e20d52836ce5200d"
+      "fraction": 0.6,
+      "sha256": "b6ebc19ad67362ac592cf40e84fb903b1f430c1cf6fc1af9af66a19149a71ea6",
+      "badge": {
+        "shape": "circle",
+        "fill": "#FFFFFF",
+        "stroke": "#D9D9D9",
+        "stroke_fraction": 0.03,
+        "supersample": 4
+      }
     },
     {
       "path": "app/src/apporo/res/drawable-xxxhdpi/ic_launcher_foreground.png",
