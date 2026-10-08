@@ -273,7 +273,8 @@ private fun ServerInfoForm(
             onValueChange = onServerUrlChange,
             label = stringResource(R.string.server_url),
             placeholder = stringResource(R.string.server_url_hint),
-            prefix = stringResource(R.string.https_prefix),
+            // W2-4 U4: a typed/pasted scheme replaces the fixed prefix (no "https://http://…").
+            prefix = stringResource(R.string.https_prefix).takeIf { showsHttpsPrefix(serverUrl) },
             isError = serverUrlError != null,
             errorMessage = serverUrlError?.let { stringResource(it.messageResource()) },
             keyboardOptions = KeyboardOptions(
@@ -557,4 +558,14 @@ private fun StyledTextField(
             )
         }
     }
+}
+
+/**
+ * Whether the server field shows its fixed `https://` prefix (W2-4 U4). Once the field itself starts with
+ * `http://` or `https://` (any case, leading spaces ignored) the prefix is hidden, so "http://host" no
+ * longer reads "https://http://host". Validation is unchanged: http:// is still refused (HTTPS required).
+ */
+internal fun showsHttpsPrefix(fieldValue: String): Boolean {
+    val value = fieldValue.trimStart().lowercase()
+    return !value.startsWith("http://") && !value.startsWith("https://")
 }
