@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -78,6 +77,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.woowtech.odoo.R
 import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
+import io.woowtech.odoo.ui.theme.brandSolidButtonColors
 
 /**
  * 登入表單在大螢幕上的寬度上限，對齊 iOS `LoginView` 的
@@ -315,9 +315,7 @@ private fun ServerInfoForm(
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
+            colors = brandSolidButtonColors()
         ) {
             Text(
                 text = stringResource(R.string.next_button),
@@ -447,9 +445,7 @@ private fun CredentialsForm(
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
             enabled = !isLoading,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
+            colors = brandSolidButtonColors()
         ) {
             if (isLoading) {
                 CircularProgressIndicator(

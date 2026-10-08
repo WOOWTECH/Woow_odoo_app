@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -55,6 +54,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.woowtech.odoo.R
 import io.woowtech.odoo.ui.theme.WoowFixedBrandTheme
+import io.woowtech.odoo.ui.theme.brandSolidButtonColors
 
 /**
  * Biometric authentication screen. There is no "skip" path — if the user cannot or will
@@ -305,9 +305,7 @@ fun BiometricScreen(
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
+                    colors = brandSolidButtonColors()
                 ) {
                     Icon(
                         imageVector = Icons.Default.Fingerprint,
@@ -354,9 +352,7 @@ fun BiometricScreen(
                         .fillMaxWidth()
                         .height(56.dp),
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
+                    colors = brandSolidButtonColors()
                 ) {
                     Text(
                         text = stringResource(R.string.applock_recovery_continue),

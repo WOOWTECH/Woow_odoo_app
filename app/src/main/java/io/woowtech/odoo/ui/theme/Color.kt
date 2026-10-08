@@ -6,6 +6,8 @@ import androidx.compose.ui.graphics.Color
 // ─── Brand Colors (from woowtech_claude_brand_prompt_library.pdf) ───
 
 val BrandPrimaryBlue = Color(AppBrand.current.primaryArgb)
+/** Filled-button container for the brand primary (white text ≥ 4.5:1), see [AppBrand.solidButtonArgb]. */
+val BrandSolidButton = Color(AppBrand.current.solidButtonArgb)
 val BrandWhite = Color(0xFFFFFFFF)
 val BrandLightGray = Color(0xFFEFF1F5)
 val BrandGray = Color(0xFF646262)

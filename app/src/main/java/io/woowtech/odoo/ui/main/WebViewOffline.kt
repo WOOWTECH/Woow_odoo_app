@@ -36,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.woowtech.odoo.R
+import io.woowtech.odoo.ui.theme.brandSolidButtonColors
 import kotlinx.coroutines.delay
 import timber.log.Timber
 
@@ -187,7 +188,7 @@ internal fun WebViewOfflineScreen(onRetry: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = onRetry) {
+            Button(onClick = onRetry, colors = brandSolidButtonColors()) {
                 Text(text = stringResource(R.string.retry))
             }
         }

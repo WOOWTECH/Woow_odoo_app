@@ -1260,6 +1260,16 @@ class BrandResourceContracts(unittest.TestCase):
         for resource in ('url_support', 'url_privacy_policy', 'url_account_deletion'):
             self.assertIn('R.string.' + resource, BRAND)
 
+    def test_filled_buttons_on_the_brand_primary_use_the_aa_button_colour(self):
+        # 2026-10-08: white on WOOW blue is 3.41:1; filled buttons use AppBrand.solidButtonArgb via the helper.
+        for name, count in (('ui/login/LoginScreen.kt', 2), ('ui/auth/BiometricScreen.kt', 2),
+                            ('ui/main/WebViewOffline.kt', 1)):
+            text = (K / name).read_text()
+            with self.subTest(file=name):
+                self.assertEqual(count, text.count('colors = brandSolidButtonColors()'))
+                self.assertNotIn('containerColor = MaterialTheme.colorScheme.primary\n', text)
+        self.assertIn('val solidButtonArgb: Long get() = if (isApporo) primaryArgb else 0xFF4069FB', BRAND)
+
     def test_logo_and_channel_consumers_must_use_resources(self):
         login = (K / 'ui/login/LoginScreen.kt').read_text()
         self.assertIn('painterResource(id = R.drawable.woow_logo)', login)

@@ -3,6 +3,8 @@ package io.woowtech.odoo.ui.theme
 import io.woowtech.odoo.brand.AppBrand
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -123,6 +125,21 @@ fun WoowTechOdooTheme(
         content = content
     )
 }
+
+/**
+ * Container of a filled button with white text. When [primary] is the brand primary the deeper
+ * [BrandSolidButton] is used (WOOW blue only reaches 3.41:1 with white); any other primary — Apporo (same
+ * value) or a theme colour the user picked — is returned unchanged.
+ */
+internal fun solidButtonContainer(primary: Color): Color =
+    if (primary == BrandPrimaryBlue) BrandSolidButton else primary
+
+/** Colours for filled buttons that sit on the theme primary: brand primary → [solidButtonContainer]. */
+@Composable
+fun brandSolidButtonColors(): ButtonColors = ButtonDefaults.buttonColors(
+    containerColor = solidButtonContainer(MaterialTheme.colorScheme.primary),
+    contentColor = MaterialTheme.colorScheme.onPrimary,
+)
 
 /**
  * 登入前畫面專用：把 [MaterialTheme] 的品牌色**固定**為 [WoowTechBlue]，

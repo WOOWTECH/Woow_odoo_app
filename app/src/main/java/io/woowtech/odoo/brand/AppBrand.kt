@@ -34,6 +34,13 @@ class AppBrand private constructor(
     val lightPrimary: Long get() = if (isApporo) lightContainer else 0xFF8BA3FF
     val secondary: Long get() = if (isApporo) primaryArgb else 0xFF65C2E0
 
+    /**
+     * Container of filled buttons that carry white text. WOOW blue on white is 3.41:1 (below WCAG AA 4.5:1),
+     * so WOOW buttons use the same hue (226.8°) and HSL saturation at lightness 0.619 instead of 0.684:
+     * 4069FB, 4.53:1. Apporo 8B6B24 is already 4.97:1 and stays the primary.
+     */
+    val solidButtonArgb: Long get() = if (isApporo) primaryArgb else 0xFF4069FB
+
     private fun mix(target: Int, fraction: Double): Long {
         val rgb = primaryArgb.toInt()
         var result = 0xFF000000L
