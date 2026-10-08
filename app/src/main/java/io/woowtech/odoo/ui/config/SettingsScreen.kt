@@ -222,14 +222,17 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            SettingsSection(title = stringResource(R.string.push_registration_title)) {
-                Text(stringResource(pushRegistrationStatusResource(pushStatus)))
-                Text(
-                    stringResource(R.string.push_registration_disclaimer),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            // W1-5 / W2-4 L8: the push registration diagnostics are engineering wording; debug builds only.
+            if (showsPushRegistrationDiagnostics()) {
+                SettingsSection(title = stringResource(R.string.push_registration_title)) {
+                    Text(stringResource(pushRegistrationStatusResource(pushStatus)))
+                    Text(
+                        stringResource(R.string.push_registration_disclaimer),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
 
             // Appearance Section
             SettingsSection(title = stringResource(R.string.appearance)) {
@@ -969,6 +972,13 @@ private fun openUrl(context: Context, url: String) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
     context.startActivity(intent)
 }
+
+/**
+ * Whether Settings shows the "Push registration · current account" diagnostics (W1-5 recommendation,
+ * W2-4 L8 2026-10-08): its texts ("server has no Apporo push or its capability could not be verified",
+ * "acknowledgement is not a delivery guarantee") are engineering wording, so release builds hide it.
+ */
+internal fun showsPushRegistrationDiagnostics(isDebugBuild: Boolean = BuildConfig.DEBUG): Boolean = isDebugBuild
 
 internal fun pushRegistrationStatusResource(status: PushRegistrationStatus): Int = when (status) {
     PushRegistrationStatus.NOT_CHECKED -> R.string.push_registration_not_checked
