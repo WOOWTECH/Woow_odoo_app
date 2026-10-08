@@ -463,8 +463,9 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Info,
                     title = stringResource(R.string.app_version_title),
-                    // 直接讀建置時的 versionName，避免「關於」頁跟實際版本脫節（原本寫死 1.0.3）。
-                    subtitle = BuildConfig.VERSION_NAME,
+                    // 直接讀建置時的 versionName／versionCode，避免「關於」頁跟實際版本脫節（原本寫死 1.0.3）；
+                    // W2-4 L3：加上 build 號，例如「1.0 (5)」。
+                    subtitle = appVersionLabel(),
                     onClick = {}
                 )
             }
@@ -972,6 +973,12 @@ private fun openUrl(context: Context, url: String) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
     context.startActivity(intent)
 }
+
+/** Settings "App version": `versionName (versionCode)`, e.g. "1.0 (5)" (W2-4 L3: the build number was missing). */
+internal fun appVersionLabel(
+    versionName: String = BuildConfig.VERSION_NAME,
+    versionCode: Int = BuildConfig.VERSION_CODE,
+): String = "$versionName ($versionCode)"
 
 /**
  * Whether Settings shows the "Push registration · current account" diagnostics (W1-5 recommendation,
