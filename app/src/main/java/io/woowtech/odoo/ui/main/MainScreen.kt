@@ -694,6 +694,18 @@ fun OdooWebView(
         // A second /web/login while still true means self-heal did not recover the session — we route
         // to the re-login surface instead of re-entering self-heal (prevents the Main⇄login bounce).
         val selfHealAttempted = remember { AtomicBoolean(false) }
+        // W2-4 L1: this target's offline screen. Lives in key(target), so a replaced account's WebView can
+        // neither show nor clear the displayed account's screen (its events also fail owns()).
+        val offline = remember { WebViewOfflineState("${target.serverUrl}/web?db=${target.database}") }
+        // Reloads the page that failed (or the account's base page) — only for the displayed account.
+        fun retryOffline() {
+            val view = createdWebView[0] ?: return
+            if (!isCurrentTarget()) return
+            val url = offline.retryUrl { DeepLinkWebPlanner.hostMatches(loadedUrl = it, targetServerUrl = target.serverUrl) }
+                ?: return
+            Timber.d("Retrying the page after a connection error")
+            view.loadUrl(url)
+        }
 
         AndroidView(
             factory = { context ->
@@ -769,11 +781,14 @@ fun OdooWebView(
                         override fun onPageFinished(view: WebView?, url: String?) {
                             super.onPageFinished(view, url)
                             if (!owns(view)) return
+                            // W2-4 L1: the error page of a main-frame connection error is not a loaded
+                            // page (no deep link, no gate, no history reset); a real page ends offline.
+                            val errorPage = offline.onPageFinished()
                             // Self-heal loop guard: a real (non-login) page landed, so re-arm self-heal
                             // for any future, genuinely-new expiry. A /web/login landing must NOT clear
                             // it — that case is handled in shouldOverrideUrlLoading and re-arming here
                             // would let the bounce loop resume.
-                            if (url != null && !url.contains("/web/login")) {
+                            if (!errorPage && url != null && !url.contains("/web/login")) {
                                 selfHealAttempted.set(false)
                                 // A real page of this account loaded: make its (possibly rotated)
                                 // session durable now rather than only when Chromium gets to it.
@@ -833,7 +848,7 @@ fun OdooWebView(
                             // After an account switch only the switch load's own page counts; a late
                             // event of the previous account's page (same host included) is ignored.
                             val targetPageLoaded = loadGate.acceptFinished(
-                                onTargetHost = DeepLinkWebPlanner.hostMatches(
+                                onTargetHost = !errorPage && DeepLinkWebPlanner.hostMatches(
                                     loadedUrl = url,
                                     targetServerUrl = target.serverUrl,
                                 ),
@@ -996,6 +1011,16 @@ fun OdooWebView(
                         ) {
                             super.onReceivedError(view, request, error)
                             Timber.e("Resource error: ${request?.url} - ${error?.description}")
+                            // W2-4 L1: the account's own page could not reach the server — cover
+                            // Chromium's error page (code + server address) with the offline screen.
+                            if (owns(view) && MainFrameErrorPolicy.showsOffline(
+                                    isForMainFrame = request?.isForMainFrame == true,
+                                    errorCode = error?.errorCode ?: ERROR_UNKNOWN,
+                                )
+                            ) {
+                                offline.onMainFrameError(request?.url?.toString())
+                                onLoadingChanged(false)
+                            }
                         }
                     }
 
@@ -1188,6 +1213,13 @@ fun OdooWebView(
                 }
             }
         )
+
+        // W2-4 L1: offline screen over this account's WebView; Retry and a network recovery reload the
+        // page that failed (one automatic retry per recovery while the screen is shown).
+        if (offline.isOffline) {
+            WebViewOfflineScreen(onRetry = ::retryOffline)
+            NetworkRecoveryEffect(onRecovered = ::retryOffline)
+        }
 
         // Always load the account's base page; any pending deep link is applied in onPageFinished once
         // this host has finished loading (load-gated apply). This keeps the "apply only after load"

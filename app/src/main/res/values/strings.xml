@@ -232,4 +232,6 @@
     <string name="login_username_required">Username is required</string>
     <string name="login_password_required">Password is required</string>
     <string name="file_chooser_title">Choose a file</string>
+    <string name="offline_title">Can\'t connect to the server</string>
+    <string name="offline_message">Check your network connection and try again.</string>
 </resources>

@@ -231,4 +231,6 @@
     <string name="login_username_required">请输入用户名</string>
     <string name="login_password_required">请输入密码</string>
     <string name="file_chooser_title">选择文件</string>
+    <string name="offline_title">无法连接到服务器</string>
+    <string name="offline_message">请检查网络连接后再试一次。</string>
 </resources>

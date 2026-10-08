@@ -768,6 +768,9 @@ PIN_PLURALS_RETYPED = {'wrong_pin_attempts_remaining'}
 # W2-4 L7 (owner-approved 2026-10-08, Pixel 7a vc5 acceptance): the file chooser title was a hardcoded
 # Chinese "選擇檔案" in every UI language; now a three-locale string. Same additive contract.
 FILE_CHOOSER_STRINGS = {'file_chooser_title'}
+# W2-4 L1 (owner-approved 2026-10-08): the app's own offline screen over the WebView (title + message; the
+# button reuses the baseline `retry`). Same additive contract.
+OFFLINE_SCREEN_STRINGS = {'offline_title', 'offline_message'}
 # LIVE-0927 Android r3 approved seam: AccountRepository gets the shared SessionReauthenticator so a
 # successful manual sign-in re-closes that account's auto re-auth circuit breaker.
 LIVE_0927_R3_APP_MODULE = (
@@ -915,6 +918,17 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('released.destroy()', screen)
         self.assertIn('class WebViewCookieSequencer', switch)
         self.assertEqual(3, switch.count('if (!isCurrent()) return@removeAllCookies'))
+
+    def test_offline_screen_is_per_target_and_owned(self):
+        # W2-4 L1: the offline state lives inside key(target) and only the displayed account's WebView
+        # (owns) can show it; a retry loads only while the target is current.
+        screen = (K / 'ui/main/MainScreen.kt').read_text()
+        keyed = screen.split('    key(target) {', 1)[1]
+        self.assertIn('val offline = remember { WebViewOfflineState(', keyed)
+        self.assertIn('if (owns(view) && MainFrameErrorPolicy.showsOffline(', keyed)
+        self.assertIn('isForMainFrame = request?.isForMainFrame == true,', keyed)
+        self.assertIn('if (!isCurrentTarget()) return\n', keyed.split('fun retryOffline()', 1)[1])
+        self.assertIn('onTargetHost = !errorPage && DeepLinkWebPlanner.hostMatches(', keyed)
 
     def test_cookie_work_is_serialized_and_invalidated_process_wide(self):
         # pi 0929 recheck-3 P1: the cookie queue and the "current target" decision are process-wide, not per
@@ -1136,7 +1150,8 @@ class BrandIdentityContracts(unittest.TestCase):
                                'login_server_url_required', 'login_database_required',
                                'login_username_required', 'login_password_required'} | SERVER_HTTP_STATUS_STRINGS \
                               | LIVE_0927_R2_STRINGS | LIVE_0927_R3_STRINGS | PIN_LOCKOUT_STRINGS \
-                              | REMOVE_PIN_STRINGS | PIN_DELETE_KEY_STRINGS | FILE_CHOOSER_STRINGS
+                              | REMOVE_PIN_STRINGS | PIN_DELETE_KEY_STRINGS | FILE_CHOOSER_STRINGS \
+                              | OFFLINE_SCREEN_STRINGS
                     self.assertEqual(set(old) | allowed, set(new))
                     self.assertTrue(allowed.isdisjoint(old))
                     def semantic(node):
