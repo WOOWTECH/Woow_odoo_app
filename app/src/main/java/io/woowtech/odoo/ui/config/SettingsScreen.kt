@@ -85,6 +85,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -119,6 +120,13 @@ fun SettingsScreen(
     // Removing the PIN asks for the current PIN first (iOS "Remove PIN" parity); it also turns App Lock off.
     var confirmRemovePin by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
+    // The language really in effect: the system per-app locale (Android 13+) wins over the stored choice,
+    // which it can differ from after a change in system Settings › Apps › Language. Re-read on every
+    // configuration (locale) change.
+    val configuration = LocalConfiguration.current
+    val effectiveLanguage = remember(settings.language, configuration) {
+        effectiveAppLanguage(systemAppLocaleTags(context), settings.language)
+    }
 
     val biometricManager = remember { BiometricManager.from(context) }
     val canUseBiometric = remember {
@@ -375,7 +383,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Default.Language,
                     title = stringResource(R.string.language),
-                    subtitle = appLanguageLabel(LocalContext.current, settings.language),
+                    subtitle = appLanguageLabel(LocalContext.current, effectiveLanguage),
                     onClick = { showLanguagePicker = true }
                 )
             }
@@ -499,7 +507,7 @@ fun SettingsScreen(
     // Language Picker Dialog
     if (showLanguagePicker) {
         LanguagePickerDialog(
-            currentLanguage = settings.language,
+            currentLanguage = effectiveLanguage,
             onLanguageSelected = { selectedLanguage ->
                 viewModel.updateLanguage(selectedLanguage)
                 showLanguagePicker = false
