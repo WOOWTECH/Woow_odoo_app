@@ -49,6 +49,14 @@ val TextSecondaryDark = Color(0xFFB3B3B3)
 // ─── Status colors ───
 
 val ErrorColor = Color(0xFFD32F2F)
+/**
+ * Dark-theme error (field labels and messages on the login form). #D32F2F on the dark background
+ * #121212 is only 3.76:1 (3.44:1 on surface #1C1B1F); the same hue and saturation lightened from
+ * 0.506 to 0.602 gives #DC5757: 4.95:1 on background, 4.52:1 on surface.
+ */
+val ErrorColorDark = Color(0xFFDC5757)
+/** Text on [ErrorColorDark]: white on it is only 3.79:1, the dark background colour is 4.95:1. */
+val OnErrorDark = Color(0xFF121212)
 val SuccessColor = Color(0xFF388E3C)
 val WarningColor = Color(0xFFF57C00)
 val InfoColor = Color(0xFF1976D2)

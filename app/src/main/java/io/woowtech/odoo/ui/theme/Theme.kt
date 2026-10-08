@@ -86,8 +86,8 @@ internal fun createDarkColorScheme(primaryColor: Color) = darkColorScheme(
     onSurfaceVariant = TextSecondaryDark,
     outline = OutlineDark,
     outlineVariant = OutlineVariantDark,
-    error = ErrorColor,
-    onError = Color.White
+    error = ErrorColorDark,
+    onError = OnErrorDark
 )
 
 @Composable
