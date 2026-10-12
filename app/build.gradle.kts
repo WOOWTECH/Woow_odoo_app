@@ -84,7 +84,8 @@ android {
             // vc4＝pi 0929 五輪複查的帳號切換隔離修正（7ab78a1）；
             // vc5＝F5＋1001 系列帳號／推播隔離修正（pi 1001I 原始碼複查無 P1/P2，cf3dd17）；
             // vc6＝W2-4 實機回饋修正＋對比修正（擁有者 2026-10-08 核准，15c791d）。
-            versionCode = 6
+            // vc7＝同一對話重複通知點擊修正（8153ce9；擁有者 2026-10-12 核准內部測試）。
+            versionCode = 7
             buildConfigField("String", "APP_BRAND", "\"apporo\"")
             manifestPlaceholders["brandScheme"] = "apporoodoo"
             signingConfig = signingConfigs.findByName("apporoRelease")
