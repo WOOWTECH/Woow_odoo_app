@@ -75,7 +75,7 @@ class OdooWebViewSwitchRaceTest {
                 planCookies = { id, _, _ -> cookiePlans[id] ?: WebViewCookiePlan.Clear },
                 onCookiesApplied = { id, _ -> ownerRecords += id },
                 deepLinkUrl = deepLink,
-                onDeepLinkConsumed = { deepLink = null },
+                onDeepLinkConsumed = { deepLink.also { deepLink = null } },
                 onWebViewCreated = { webView = it },
                 onLoadingChanged = {},
                 onSelfHeal = { healCalls++; heal?.await() ?: false },

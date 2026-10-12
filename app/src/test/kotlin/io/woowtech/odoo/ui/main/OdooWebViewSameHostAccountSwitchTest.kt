@@ -61,7 +61,7 @@ class OdooWebViewSameHostAccountSwitchTest {
                 planCookies = { id, _, _ -> cookiePlansFor += id; cookiePlans[id] ?: WebViewCookiePlan.Clear },
                 onCookiesApplied = { _, _ -> },
                 deepLinkUrl = deepLink,
-                onDeepLinkConsumed = { deepLink = null },
+                onDeepLinkConsumed = { deepLink.also { deepLink = null } },
                 onWebViewCreated = { webView = it },
                 onLoadingChanged = {},
                 onSelfHeal = { false },
@@ -122,6 +122,24 @@ class OdooWebViewSameHostAccountSwitchTest {
         render()
         assertEquals("$SERVER/web?db=${ACCOUNT_A.database}", lastLoadedUrl())
         pageFinished("$SERVER/odoo/discuss")
+    }
+
+    @Test
+    fun `Given a consumed channel notification and a return to Inbox when the next notification has the same URL then it navigates again`() {
+        showAccountAHome()
+        val channel = "/web#action=mail.action_discuss&active_id=discuss.channel_10"
+        switchTo(ACCOUNT_A, pendingLink = channel)
+        assertEquals("$SERVER$channel", lastLoadedUrl())
+        assertNull(deepLink)
+        pageLoads("$SERVER/odoo/discuss?active_id=discuss.channel_10")
+
+        // Return to Inbox in the same WebView, as in the real repeated-notification failure.
+        composeRule.runOnUiThread { webView.loadUrl("$SERVER/odoo/discuss?active_id=mail.box_inbox") }
+        pageLoads("$SERVER/odoo/discuss?active_id=mail.box_inbox")
+        switchTo(ACCOUNT_A, pendingLink = channel)
+
+        assertEquals("second tap must reload the channel", "$SERVER$channel", lastLoadedUrl())
+        assertNull("second tap must be consumed", deepLink)
     }
 
     @Test

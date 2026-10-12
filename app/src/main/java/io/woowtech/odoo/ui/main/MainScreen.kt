@@ -395,7 +395,7 @@ fun OdooWebView(
     planCookies: (accountId: String, serverUrl: String, webViewHasSessionCookie: Boolean) -> WebViewCookiePlan,
     onCookiesApplied: (accountId: String, plan: WebViewCookiePlan) -> Unit,
     deepLinkUrl: String? = null,
-    onDeepLinkConsumed: () -> Unit = {},
+    onDeepLinkConsumed: () -> String? = { null },
     locationPermissionGate: LocationPermissionGate? = null,
     activeHostSnapshot: String? = null,
     onWebViewCreated: (WebView) -> Unit,
@@ -698,9 +698,9 @@ fun OdooWebView(
         // Binds page events to this instance's own load (defence in depth next to the instance check).
         val loadGate = remember { WebViewSwitchLoadGate() }
         val switchGeneration = remember { if (isSwitch) loadGate.beginSwitch() else null }
-        // The deep link already applied to the current page, so it is applied exactly once whether
-        // it arrives via onPageFinished (cold / switch) or via the warm full-reload path.
-        var appliedDeepLinkUrl by remember { mutableStateOf<String?>(null) }
+        // The account-bound queue is the single-consume gate for both page-finished and warm
+        // callbacks. Do not deduplicate by URL: a later notification for the same conversation
+        // must navigate again after the user has returned to Inbox.
         // True once this account's page has finished loading. Gates the warm apply so a full reload
         // is never fired at a page that is still loading (cold start / mid switch).
         var currentPageLoaded by remember { mutableStateOf(false) }
@@ -876,13 +876,12 @@ fun OdooWebView(
                             val pending = currentDeepLinkUrl
                             if (view != null &&
                                 pending != null &&
-                                appliedDeepLinkUrl != pending &&
                                 currentPageLoaded
                             ) {
-                                applyDeepLink(view, target.serverUrl, pending)
-                                appliedDeepLinkUrl = pending
-                                currentOnDeepLinkConsumed()
-                                Timber.d("Applied pending deep link after page load")
+                                currentOnDeepLinkConsumed()?.let { consumed ->
+                                    applyDeepLink(view, target.serverUrl, consumed)
+                                    Timber.d("Applied pending deep link after page load")
+                                }
                             }
 
                             // D1: after an account switch, drop the previous account's pages from the
@@ -1221,13 +1220,12 @@ fun OdooWebView(
                 val pending = deepLinkUrl
                 if (isCurrentTarget() &&
                     currentPageLoaded &&
-                    pending != null &&
-                    appliedDeepLinkUrl != pending
+                    pending != null
                 ) {
-                    applyDeepLink(webView, target.serverUrl, pending)
-                    appliedDeepLinkUrl = pending
-                    onDeepLinkConsumed()
-                    Timber.d("Applied pending deep link via full reload (warm)")
+                    onDeepLinkConsumed()?.let { consumed ->
+                        applyDeepLink(webView, target.serverUrl, consumed)
+                        Timber.d("Applied pending deep link via full reload (warm)")
+                    }
                 }
             }
         )
