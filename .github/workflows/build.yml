@@ -97,28 +97,21 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            # android-emulator-runner invokes this script with /usr/bin/sh on Ubuntu.
-            # Keep the options POSIX-compatible so the smoke test reaches the emulator.
-            set -eu
+            # android-emulator-runner invokes each non-empty line in a separate /usr/bin/sh.
+            # Keep every command self-contained; shell variables and compound lines do not persist.
             mkdir -p emulator-artifacts
             ./gradlew :app:connected${{ matrix.task }}AndroidTest --stacktrace
-            APK="$(find "app/build/outputs/apk/$BRAND/debug" -name '*.apk' -print -quit)"
-            test -n "$APK"
-            adb install -r "$APK"
+            test -n "$(find "app/build/outputs/apk/$BRAND/debug" -name '*.apk' -print -quit)"
+            adb install -r "$(find "app/build/outputs/apk/$BRAND/debug" -name '*.apk' -print -quit)"
             adb logcat -c
-            adb shell am start -W \
-              -n "$APP_PACKAGE/io.woowtech.odoo.ui.MainActivity" \
-              > "emulator-artifacts/start-$BRAND.txt"
+            adb shell am start -W -n "$APP_PACKAGE/io.woowtech.odoo.ui.MainActivity" > "emulator-artifacts/start-$BRAND.txt"
             sleep 5
             adb shell pidof "$APP_PACKAGE" > "emulator-artifacts/pid-$BRAND.txt"
             test -s "emulator-artifacts/pid-$BRAND.txt"
             adb shell dumpsys activity activities > "emulator-artifacts/activity-$BRAND.txt"
             grep -F "$APP_PACKAGE" "emulator-artifacts/activity-$BRAND.txt"
             adb logcat -d > "emulator-artifacts/logcat-$BRAND.txt"
-            if grep -F "Process: $APP_PACKAGE" "emulator-artifacts/logcat-$BRAND.txt"; then
-              echo "The app crashed during emulator launch" >&2
-              exit 1
-            fi
+            if grep -F "Process: $APP_PACKAGE" "emulator-artifacts/logcat-$BRAND.txt"; then echo "The app crashed during emulator launch" >&2; exit 1; fi
             adb exec-out screencap -p > "emulator-artifacts/screenshot-$BRAND.png"
       - name: Upload emulator evidence
         if: always()
