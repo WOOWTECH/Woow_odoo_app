@@ -756,6 +756,120 @@ LIVE_0927_R3_STRINGS = {'change_pin_verify_subtitle'}
 # every second (iOS `lockout_timer_%lld` parity) and brings the keypad back when it ends. Additive
 # three-locale <plurals>; zh has only the `other` quantity.
 PIN_LOCKOUT_STRINGS = {'pin_lockout_countdown'}
+
+# App Lock reboot-safe persistence (2026-10-14): EncryptedPrefs intentionally replaces the legacy
+# single elapsedRealtime deadline with a versioned boot/wall/monotonic record. Reverse only these
+# exact source deltas before the historical byte-level gate; every unrelated preference remains
+# pinned to BASELINE.
+APP_LOCK_ENCRYPTED_PREFS = (
+    ('''/**
+ * Versioned App Lock lockout state.
+ *
+ * The elapsed deadline is safe only for [bootId]. The wall deadline is a reboot fallback and
+ * [remainingBudgetMs] bounds it so a rolled-back or corrupt wall clock cannot create an unbounded
+ * lockout.
+ */
+data class PersistedPinLockout(
+    val bootId: String,
+    val elapsedDeadlineMs: Long,
+    val wallDeadlineMs: Long,
+    val remainingBudgetMs: Long,
+)
+
+''', ''),
+    ('''            if (settings.pinEnabled) {
+                putInt(KEY_FAILED_PIN_ATTEMPTS, settings.failedPinAttempts)
+            } else {
+                // Removing the PIN is one atomic security-state transition: no stale retry tier or
+                // persisted deadline may be inherited if the user creates a new PIN later.
+                putInt(KEY_FAILED_PIN_ATTEMPTS, 0)
+                removePinLockoutKeys()
+            }
+            // Lockout time has its own versioned, multi-clock record. Never overwrite it with
+            // AppSettings.pinLockoutUntil, which is only a process-local elapsedRealtime deadline.
+''', '''            putInt(KEY_FAILED_PIN_ATTEMPTS, settings.failedPinAttempts)
+            settings.pinLockoutUntil?.let { putLong(KEY_PIN_LOCKOUT_UNTIL, it) }
+                ?: remove(KEY_PIN_LOCKOUT_UNTIL)
+'''),
+    ('''    fun resetFailedPinAttempts() {
+        prefs.edit().apply {
+            putInt(KEY_FAILED_PIN_ATTEMPTS, 0)
+            removePinLockoutKeys()
+        }.apply()
+    }
+
+    fun getPinLockout(): PersistedPinLockout? {
+        if (!prefs.contains(KEY_PIN_LOCKOUT_VERSION)) return null
+
+        val record = runCatching {
+            if (prefs.getInt(KEY_PIN_LOCKOUT_VERSION, 0) != PIN_LOCKOUT_VERSION) return@runCatching null
+
+            PersistedPinLockout(
+                bootId = prefs.getString(KEY_PIN_LOCKOUT_BOOT_ID, null) ?: return@runCatching null,
+                elapsedDeadlineMs = prefs.getLong(KEY_PIN_LOCKOUT_ELAPSED_DEADLINE, -1L),
+                wallDeadlineMs = prefs.getLong(KEY_PIN_LOCKOUT_WALL_DEADLINE, -1L),
+                remainingBudgetMs = prefs.getLong(KEY_PIN_LOCKOUT_REMAINING_BUDGET, -1L),
+            ).takeIf {
+                it.bootId.isNotBlank() &&
+                    it.elapsedDeadlineMs >= 0L &&
+                    it.wallDeadlineMs >= 0L &&
+                    it.remainingBudgetMs > 0L
+            }
+        }.getOrNull()
+
+        if (record == null) clearPinLockout()
+        return record
+    }
+
+    fun setPinLockout(lockout: PersistedPinLockout) {
+        prefs.edit().apply {
+            putInt(KEY_PIN_LOCKOUT_VERSION, PIN_LOCKOUT_VERSION)
+            putString(KEY_PIN_LOCKOUT_BOOT_ID, lockout.bootId)
+            putLong(KEY_PIN_LOCKOUT_ELAPSED_DEADLINE, lockout.elapsedDeadlineMs)
+            putLong(KEY_PIN_LOCKOUT_WALL_DEADLINE, lockout.wallDeadlineMs)
+            putLong(KEY_PIN_LOCKOUT_REMAINING_BUDGET, lockout.remainingBudgetMs)
+            // The old single elapsedRealtime deadline is removed as part of migration.
+            remove(KEY_PIN_LOCKOUT_UNTIL)
+        }.apply()
+    }
+
+    fun clearPinLockout() {
+        prefs.edit().apply { removePinLockoutKeys() }.apply()
+    }
+
+    private fun SharedPreferences.Editor.removePinLockoutKeys() {
+        remove(KEY_PIN_LOCKOUT_UNTIL)
+        remove(KEY_PIN_LOCKOUT_VERSION)
+        remove(KEY_PIN_LOCKOUT_BOOT_ID)
+        remove(KEY_PIN_LOCKOUT_ELAPSED_DEADLINE)
+        remove(KEY_PIN_LOCKOUT_WALL_DEADLINE)
+        remove(KEY_PIN_LOCKOUT_REMAINING_BUDGET)
+    }
+
+''', '''    fun resetFailedPinAttempts() {
+        prefs.edit().apply {
+            putInt(KEY_FAILED_PIN_ATTEMPTS, 0)
+            remove(KEY_PIN_LOCKOUT_UNTIL)
+        }.apply()
+    }
+
+    fun setPinLockout(until: Long) {
+        prefs.edit().putLong(KEY_PIN_LOCKOUT_UNTIL, until).apply()
+    }
+
+'''),
+    ('''        // Legacy v0 value: elapsedRealtime deadline with no boot identity.
+        private const val KEY_PIN_LOCKOUT_UNTIL = "pin_lockout_until"
+        private const val KEY_PIN_LOCKOUT_VERSION = "pin_lockout_version"
+        private const val KEY_PIN_LOCKOUT_BOOT_ID = "pin_lockout_boot_id"
+        private const val KEY_PIN_LOCKOUT_ELAPSED_DEADLINE = "pin_lockout_elapsed_deadline"
+        private const val KEY_PIN_LOCKOUT_WALL_DEADLINE = "pin_lockout_wall_deadline"
+        private const val KEY_PIN_LOCKOUT_REMAINING_BUDGET = "pin_lockout_remaining_budget"
+''', '''        private const val KEY_PIN_LOCKOUT_UNTIL = "pin_lockout_until"
+'''),
+    ('''        private const val PIN_LOCKOUT_VERSION = 1
+''', ''),
+)
 # Remove PIN (2026-09-28, iOS "Remove PIN" parity): the Settings item, its note that App Lock is turned
 # off too, and the current-PIN prompt subtitle. Same additive three-locale contract.
 REMOVE_PIN_STRINGS = {'remove_pin', 'remove_pin_subtitle', 'remove_pin_verify_subtitle'}
@@ -810,11 +924,11 @@ class BrandIdentityContracts(unittest.TestCase):
         self.assertIn('applicationId = "com.apporo.odoo"', GRADLE)
         self.assertIn('applicationIdSuffix = ".debug"', GRADLE)
         self.assertIn('versionName = "1.0"', GRADLE)
-        self.assertIn('versionCode = 7\n', GRADLE)
+        self.assertIn('versionCode = 8\n', GRADLE)
         for voided in (1, 2, 3, 4, 5, 6):  # vc1 voided; vc2–vc6 already used by Play internal testing
             self.assertNotIn(f'versionCode = {voided}\n', GRADLE)
-        self.assertIn('versionName = "1.4.2"', GRADLE)
-        self.assertIn('versionCode = 23', GRADLE)
+        self.assertIn('versionName = "1.4.3"', GRADLE)
+        self.assertIn('versionCode = 24', GRADLE)
 
     def test_scheme_is_variant_placeholder_not_new_external_router(self):
         manifest = (ROOT / "app/src/main/AndroidManifest.xml").read_text()
@@ -992,6 +1106,8 @@ class BrandIdentityContracts(unittest.TestCase):
             path = f'app/src/main/java/io/woowtech/odoo/{file}'
             expected = baseline(path).decode().replace('"#6183FC"', 'AppBrand.current.primaryHex')
             actual = (ROOT / path).read_text().replace('import io.woowtech.odoo.brand.AppBrand\n', '')
+            if file == 'data/local/EncryptedPrefs.kt':
+                actual = reverse_apply(self, actual, APP_LOCK_ENCRYPTED_PREFS)
             self.assertEqual(expected.replace('\n\n\n', '\n\n'), actual.replace('\n\n\n', '\n\n'))
 
     def test_stage_three_and_security_seams_are_byte_identical(self):
@@ -1449,8 +1565,9 @@ class BrandFirebaseContracts(unittest.TestCase):
         self.assertIn('googleServicesJsonFiles.set(listOf(firebaseConfig))', GRADLE)
         self.assertIn('scripts/validate_brand_config.py', GRADLE)
         self.assertEqual(2, GRADLE.count('dependsOn(validateBrand)'))
+        self.assertIn('if (release)', GRADLE)
+        self.assertIn('check(hasSigning(brand))', GRADLE)
         self.assertIn('if (brand == "apporo" && release)', GRADLE)
-        self.assertIn('check(hasSigning("apporo"))', GRADLE)
         self.assertIn('apporoStore != woowStore', GRADLE)
         self.assertIn('apporo-keystore.properties', GRADLE)
         self.assertNotIn('if (file("google-services.json").exists())', GRADLE)
@@ -1462,8 +1579,9 @@ class BrandCheckoutContracts(unittest.TestCase):
         # Scope the assertion to the checkout step, not another action's inputs.
         steps = text.split('    steps:\n', 1)[1].split('      - ')
         checkout = [step for step in steps if step.startswith('uses: actions/checkout@v4\n')]
-        self.assertEqual(1, len(checkout))
-        self.assertRegex(checkout[0], r'(?m)^        with:\n(?:          #[^\n]*\n)*          fetch-depth: 0\s*$')
+        self.assertGreaterEqual(len(checkout), 1)
+        for step in checkout:
+            self.assertRegex(step, r'(?m)^        with:\n(?:          #[^\n]*\n)*          fetch-depth: 0\s*$')
         self.assertLess(text.index('uses: actions/checkout@v4'), text.index('name: Offline brand contracts'))
 
     def test_required_baseline_commit_and_source_objects_exist(self):

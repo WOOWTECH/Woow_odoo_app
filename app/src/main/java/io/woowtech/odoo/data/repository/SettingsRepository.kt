@@ -1,6 +1,7 @@
 package io.woowtech.odoo.data.repository
 
 import io.woowtech.odoo.data.local.EncryptedPrefs
+import io.woowtech.odoo.data.local.PersistedPinLockout
 import io.woowtech.odoo.domain.model.AppLanguage
 import io.woowtech.odoo.domain.model.AppSettings
 import io.woowtech.odoo.domain.model.ThemeMode
@@ -10,7 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import android.os.SystemClock
 import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
@@ -20,9 +20,10 @@ import timber.log.Timber
 
 @Singleton
 class SettingsRepository @Inject constructor(
-    private val encryptedPrefs: EncryptedPrefs
+    private val encryptedPrefs: EncryptedPrefs,
+    private val appLockClock: AppLockClock = AppLockClock(),
 ) {
-    private val _settings = MutableStateFlow(encryptedPrefs.getAppSettings())
+    private val _settings = MutableStateFlow(loadInitialSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     init {
@@ -123,6 +124,8 @@ class SettingsRepository @Inject constructor(
             pinEnabled = false,
             pinHash = null,
             appLockEnabled = false, // co-disable atomically — never leave App Lock armed without a PIN
+            failedPinAttempts = 0,
+            pinLockoutUntil = null,
         )
         encryptedPrefs.saveAppSettings(newSettings)
         _settings.value = newSettings
@@ -134,6 +137,10 @@ class SettingsRepository @Inject constructor(
      */
     fun resetFailedPinAttempts() {
         encryptedPrefs.resetFailedPinAttempts()
+        _settings.value = _settings.value.copy(
+            failedPinAttempts = 0,
+            pinLockoutUntil = null,
+        )
     }
 
     /**
@@ -157,30 +164,22 @@ class SettingsRepository @Inject constructor(
     suspend fun verifyPin(pin: String): Boolean = withContext(Dispatchers.Default) {
         val currentHash = _settings.value.pinHash ?: return@withContext false
 
-        // Check if locked out
-        _settings.value.pinLockoutUntil?.let { lockoutUntil ->
-            if (SystemClock.elapsedRealtime() < lockoutUntil) {
-                return@withContext false
-            }
-        }
+        if (getLockoutRemainingMs() > 0L) return@withContext false
 
         val matches = verifyPbkdf2(pin, currentHash)
         if (matches) {
-            encryptedPrefs.resetFailedPinAttempts()
-            _settings.value = _settings.value.copy(
-                failedPinAttempts = 0,
-                pinLockoutUntil = null
-            )
+            resetFailedPinAttempts()
             true
         } else {
             val attempts = encryptedPrefs.incrementFailedPinAttempts()
             if (attempts >= MAX_PIN_ATTEMPTS) {
                 val lockoutDuration = getLockoutDuration(attempts)
-                val lockoutUntil = SystemClock.elapsedRealtime() + lockoutDuration
-                encryptedPrefs.setPinLockout(lockoutUntil)
+                val now = appLockClock.now()
+                val lockoutUntil = saturatingAdd(now.elapsedRealtimeMs, lockoutDuration)
+                persistLockout(now, lockoutDuration)
                 _settings.value = _settings.value.copy(
                     failedPinAttempts = attempts,
-                    pinLockoutUntil = lockoutUntil
+                    pinLockoutUntil = lockoutUntil,
                 )
             } else {
                 _settings.value = _settings.value.copy(failedPinAttempts = attempts)
@@ -194,13 +193,162 @@ class SettingsRepository @Inject constructor(
     }
 
     fun isLockedOut(): Boolean {
-        val lockoutUntil = _settings.value.pinLockoutUntil ?: return false
-        return SystemClock.elapsedRealtime() < lockoutUntil
+        return getLockoutRemainingMs() > 0L
     }
 
     fun getLockoutRemainingMs(): Long {
         val lockoutUntil = _settings.value.pinLockoutUntil ?: return 0
-        return maxOf(0, lockoutUntil - SystemClock.elapsedRealtime())
+        val now = appLockClock.now()
+        val tierCap = lockoutDurationCap(_settings.value.failedPinAttempts)
+        val remaining = positiveDifference(lockoutUntil, now.elapsedRealtimeMs)
+            .coerceAtMost(tierCap)
+
+        if (remaining == 0L) clearExpiredLockout()
+        return remaining
+    }
+
+    /**
+     * Loads and canonicalises the persisted lockout before exposing settings to the UI.
+     *
+     * Same-boot restarts use only elapsed realtime. After a reboot, the wall deadline is used once
+     * and immediately rebased onto the new monotonic epoch. Every recovered value is capped by both
+     * its saved remaining budget and the lockout tier implied by the persisted failure count.
+     */
+    private fun loadInitialSettings(): AppSettings {
+        val stored = encryptedPrefs.getAppSettings()
+        val persisted = encryptedPrefs.getPinLockout()
+        val legacyDeadline = stored.pinLockoutUntil
+
+        if (persisted == null && legacyDeadline == null) return stored
+
+        val tierCap = lockoutDurationCap(stored.failedPinAttempts)
+        // No lockout tier means any record is stale/corrupt. Clear it without consulting the
+        // Android monotonic clock; ordinary settings reads should not need a platform clock at all.
+        if (tierCap == 0L) {
+            encryptedPrefs.clearPinLockout()
+            return stored.copy(pinLockoutUntil = null)
+        }
+
+        val now = appLockClock.now()
+        val remaining = if (persisted != null) {
+            resolvePersistedLockout(persisted, now, tierCap)
+        } else {
+            resolveLegacyLockout(legacyDeadline, now, tierCap)
+        }
+
+        if (remaining == 0L) {
+            encryptedPrefs.clearPinLockout()
+            return stored.copy(pinLockoutUntil = null)
+        }
+
+        // This also migrates the old v0 elapsed-only value and rebases a cross-boot record.
+        persistLockout(now, remaining)
+        return stored.copy(pinLockoutUntil = saturatingAdd(now.elapsedRealtimeMs, remaining))
+    }
+
+    private fun resolvePersistedLockout(
+        persisted: PersistedPinLockout,
+        now: AppLockTime,
+        tierCap: Long,
+    ): Long {
+        val savedBudget = persisted.remainingBudgetMs.coerceIn(0L, tierCap)
+        if (savedBudget == 0L) return 0L
+
+        val rawRemaining = if (persisted.bootId == now.bootId) {
+            // User wall-clock edits are irrelevant for the entire current boot.
+            positiveDifference(persisted.elapsedDeadlineMs, now.elapsedRealtimeMs)
+        } else {
+            resolveCrossBootWallTime(persisted, now, savedBudget)
+        }
+        return rawRemaining.coerceAtMost(savedBudget)
+    }
+
+    private fun resolveCrossBootWallTime(
+        persisted: PersistedPinLockout,
+        now: AppLockTime,
+        savedBudget: Long,
+    ): Long {
+        // Recover the wall sample at which this canonical record was written. A valid elapsed wall
+        // interval must be non-negative and at least the new boot's current uptime (the record was
+        // necessarily written before this boot began).
+        val savedWallClock = persisted.wallDeadlineMs - savedBudget
+        val wallElapsed = if (
+            savedWallClock >= 0L &&
+            now.wallClockMs >= savedWallClock &&
+            now.elapsedRealtimeMs >= 0L
+        ) {
+            now.wallClockMs - savedWallClock
+        } else {
+            -1L
+        }
+        val plausibleUpperBound = saturatingAdd(savedBudget, MAX_PLAUSIBLE_WALL_OVERRUN_MS)
+        val wallIsImplausible = savedWallClock < 0L ||
+            wallElapsed < now.elapsedRealtimeMs ||
+            wallElapsed > plausibleUpperBound
+
+        if (wallIsImplausible) {
+            // A manual rollback or large forward jump must not bypass App Lock. Requiring at most the
+            // saved budget is conservative but bounded (one hour maximum), then the new monotonic
+            // deadline counts down normally so this cannot become a permanent lockout.
+            return savedBudget
+        }
+
+        // A plausible reboot interval counts against the lockout, including an ordinary reboot that
+        // took slightly longer than the remaining duration.
+        return (savedBudget - wallElapsed).coerceAtLeast(0L)
+    }
+
+    private fun resolveLegacyLockout(
+        legacyDeadline: Long?,
+        now: AppLockTime,
+        tierCap: Long,
+    ): Long {
+        val deadline = legacyDeadline ?: return 0L
+        // v0 has no boot ID. Only a deadline plausible on the current monotonic epoch is retained;
+        // a stale post-reboot value larger than its tier is cleared rather than locking indefinitely.
+        val rawRemaining = positiveDifference(deadline, now.elapsedRealtimeMs)
+        return rawRemaining.takeIf { it in 1L..tierCap } ?: 0L
+    }
+
+    private fun persistLockout(now: AppLockTime, remainingMs: Long) {
+        val boundedRemaining = remainingMs
+            .coerceAtLeast(0L)
+            .coerceAtMost(MAX_LOCKOUT_DURATION_MS)
+        if (boundedRemaining == 0L) {
+            encryptedPrefs.clearPinLockout()
+            return
+        }
+
+        encryptedPrefs.setPinLockout(
+            PersistedPinLockout(
+                bootId = now.bootId,
+                elapsedDeadlineMs = saturatingAdd(now.elapsedRealtimeMs, boundedRemaining),
+                wallDeadlineMs = saturatingAdd(now.wallClockMs, boundedRemaining),
+                remainingBudgetMs = boundedRemaining,
+            )
+        )
+    }
+
+    private fun clearExpiredLockout() {
+        encryptedPrefs.clearPinLockout()
+        if (_settings.value.pinLockoutUntil != null) {
+            _settings.value = _settings.value.copy(pinLockoutUntil = null)
+        }
+    }
+
+    private fun lockoutDurationCap(failedAttempts: Int): Long {
+        if (failedAttempts < MAX_PIN_ATTEMPTS) return 0L
+        return getLockoutDuration(failedAttempts).coerceAtMost(MAX_LOCKOUT_DURATION_MS)
+    }
+
+    private fun positiveDifference(deadline: Long, now: Long): Long {
+        if (deadline <= now || deadline < 0L || now < 0L) return 0L
+        return deadline - now
+    }
+
+    private fun saturatingAdd(base: Long, duration: Long): Long {
+        if (base < 0L || duration <= 0L) return base.coerceAtLeast(0L)
+        return if (base > Long.MAX_VALUE - duration) Long.MAX_VALUE else base + duration
     }
 
     fun updateLanguage(language: AppLanguage) {
@@ -292,6 +440,10 @@ class SettingsRepository @Inject constructor(
             1_800_000L,    // 30 minutes (15 failures)
             3_600_000L,    // 1 hour (20+ failures)
         )
+        private const val MAX_LOCKOUT_DURATION_MS = 3_600_000L
+        // Allows normal reboot/shutdown overhead past an expiry while treating larger RTC jumps as
+        // untrusted. An untrusted value falls back to the bounded saved budget, never an unbounded date.
+        private const val MAX_PLAUSIBLE_WALL_OVERRUN_MS = 5 * 60 * 1_000L
 
         /**
          * Returns lockout duration based on cumulative failed attempts.

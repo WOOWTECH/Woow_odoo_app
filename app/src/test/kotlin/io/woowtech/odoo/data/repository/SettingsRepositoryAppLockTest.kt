@@ -74,7 +74,10 @@ class SettingsRepositoryAppLockTest {
         // Single batched write of the full settings object → no half-written brick window.
         verify(exactly = 1) {
             prefs.saveAppSettings(
-                match { !it.appLockEnabled && !it.pinEnabled && it.pinHash == null },
+                match {
+                    !it.appLockEnabled && !it.pinEnabled && it.pinHash == null &&
+                        it.failedPinAttempts == 0 && it.pinLockoutUntil == null
+                },
             )
         }
         // And it did NOT use the old separate-commit path that left a gap.
@@ -83,6 +86,8 @@ class SettingsRepositoryAppLockTest {
         val s = repo.settings.value
         assertFalse(s.appLockEnabled)
         assertFalse(s.pinEnabled)
+        assertTrue(s.failedPinAttempts == 0)
+        assertTrue(s.pinLockoutUntil == null)
     }
 
     @Test

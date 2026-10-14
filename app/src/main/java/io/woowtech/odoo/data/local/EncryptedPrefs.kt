@@ -12,6 +12,20 @@ import io.woowtech.odoo.domain.model.ThemeMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Versioned App Lock lockout state.
+ *
+ * The elapsed deadline is safe only for [bootId]. The wall deadline is a reboot fallback and
+ * [remainingBudgetMs] bounds it so a rolled-back or corrupt wall clock cannot create an unbounded
+ * lockout.
+ */
+data class PersistedPinLockout(
+    val bootId: String,
+    val elapsedDeadlineMs: Long,
+    val wallDeadlineMs: Long,
+    val remainingBudgetMs: Long,
+)
+
 @Singleton
 class EncryptedPrefs @Inject constructor(
     @ApplicationContext private val context: Context
@@ -66,9 +80,16 @@ class EncryptedPrefs @Inject constructor(
             putBoolean(KEY_PIN_ENABLED, settings.pinEnabled)
             putString(KEY_PIN_HASH, settings.pinHash)
             putString(KEY_LANGUAGE, settings.language.code)
-            putInt(KEY_FAILED_PIN_ATTEMPTS, settings.failedPinAttempts)
-            settings.pinLockoutUntil?.let { putLong(KEY_PIN_LOCKOUT_UNTIL, it) }
-                ?: remove(KEY_PIN_LOCKOUT_UNTIL)
+            if (settings.pinEnabled) {
+                putInt(KEY_FAILED_PIN_ATTEMPTS, settings.failedPinAttempts)
+            } else {
+                // Removing the PIN is one atomic security-state transition: no stale retry tier or
+                // persisted deadline may be inherited if the user creates a new PIN later.
+                putInt(KEY_FAILED_PIN_ATTEMPTS, 0)
+                removePinLockoutKeys()
+            }
+            // Lockout time has its own versioned, multi-clock record. Never overwrite it with
+            // AppSettings.pinLockoutUntil, which is only a process-local elapsedRealtime deadline.
             putBoolean(KEY_LOCATION_ENABLED, settings.locationEnabled)
         }.apply()
     }
@@ -128,12 +149,56 @@ class EncryptedPrefs @Inject constructor(
     fun resetFailedPinAttempts() {
         prefs.edit().apply {
             putInt(KEY_FAILED_PIN_ATTEMPTS, 0)
+            removePinLockoutKeys()
+        }.apply()
+    }
+
+    fun getPinLockout(): PersistedPinLockout? {
+        if (!prefs.contains(KEY_PIN_LOCKOUT_VERSION)) return null
+
+        val record = runCatching {
+            if (prefs.getInt(KEY_PIN_LOCKOUT_VERSION, 0) != PIN_LOCKOUT_VERSION) return@runCatching null
+
+            PersistedPinLockout(
+                bootId = prefs.getString(KEY_PIN_LOCKOUT_BOOT_ID, null) ?: return@runCatching null,
+                elapsedDeadlineMs = prefs.getLong(KEY_PIN_LOCKOUT_ELAPSED_DEADLINE, -1L),
+                wallDeadlineMs = prefs.getLong(KEY_PIN_LOCKOUT_WALL_DEADLINE, -1L),
+                remainingBudgetMs = prefs.getLong(KEY_PIN_LOCKOUT_REMAINING_BUDGET, -1L),
+            ).takeIf {
+                it.bootId.isNotBlank() &&
+                    it.elapsedDeadlineMs >= 0L &&
+                    it.wallDeadlineMs >= 0L &&
+                    it.remainingBudgetMs > 0L
+            }
+        }.getOrNull()
+
+        if (record == null) clearPinLockout()
+        return record
+    }
+
+    fun setPinLockout(lockout: PersistedPinLockout) {
+        prefs.edit().apply {
+            putInt(KEY_PIN_LOCKOUT_VERSION, PIN_LOCKOUT_VERSION)
+            putString(KEY_PIN_LOCKOUT_BOOT_ID, lockout.bootId)
+            putLong(KEY_PIN_LOCKOUT_ELAPSED_DEADLINE, lockout.elapsedDeadlineMs)
+            putLong(KEY_PIN_LOCKOUT_WALL_DEADLINE, lockout.wallDeadlineMs)
+            putLong(KEY_PIN_LOCKOUT_REMAINING_BUDGET, lockout.remainingBudgetMs)
+            // The old single elapsedRealtime deadline is removed as part of migration.
             remove(KEY_PIN_LOCKOUT_UNTIL)
         }.apply()
     }
 
-    fun setPinLockout(until: Long) {
-        prefs.edit().putLong(KEY_PIN_LOCKOUT_UNTIL, until).apply()
+    fun clearPinLockout() {
+        prefs.edit().apply { removePinLockoutKeys() }.apply()
+    }
+
+    private fun SharedPreferences.Editor.removePinLockoutKeys() {
+        remove(KEY_PIN_LOCKOUT_UNTIL)
+        remove(KEY_PIN_LOCKOUT_VERSION)
+        remove(KEY_PIN_LOCKOUT_BOOT_ID)
+        remove(KEY_PIN_LOCKOUT_ELAPSED_DEADLINE)
+        remove(KEY_PIN_LOCKOUT_WALL_DEADLINE)
+        remove(KEY_PIN_LOCKOUT_REMAINING_BUDGET)
     }
 
     fun updateLanguage(language: AppLanguage) {
@@ -182,9 +247,16 @@ class EncryptedPrefs @Inject constructor(
         private const val KEY_PIN_HASH = "pin_hash"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_FAILED_PIN_ATTEMPTS = "failed_pin_attempts"
+        // Legacy v0 value: elapsedRealtime deadline with no boot identity.
         private const val KEY_PIN_LOCKOUT_UNTIL = "pin_lockout_until"
+        private const val KEY_PIN_LOCKOUT_VERSION = "pin_lockout_version"
+        private const val KEY_PIN_LOCKOUT_BOOT_ID = "pin_lockout_boot_id"
+        private const val KEY_PIN_LOCKOUT_ELAPSED_DEADLINE = "pin_lockout_elapsed_deadline"
+        private const val KEY_PIN_LOCKOUT_WALL_DEADLINE = "pin_lockout_wall_deadline"
+        private const val KEY_PIN_LOCKOUT_REMAINING_BUDGET = "pin_lockout_remaining_budget"
         private const val KEY_FCM_TOKEN = "fcm_token"
         private const val KEY_LOCATION_ENABLED = "location_enabled"
         private const val KEY_POST_NOTIF_PERMISSION_REQUESTED = "post_notif_permission_requested"
+        private const val PIN_LOCKOUT_VERSION = 1
     }
 }

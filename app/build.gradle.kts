@@ -44,8 +44,10 @@ android {
         applicationId = "io.woowtech.odoo"
         minSdk = 29
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.4.2"
+        // WOOW 1.4.2 (23) is already published. Functional-parity work starts
+        // at the next Play-safe version so an uploaded artifact cannot reuse vc23.
+        versionCode = 24
+        versionName = "1.4.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -85,7 +87,8 @@ android {
             // vc5＝F5＋1001 系列帳號／推播隔離修正（pi 1001I 原始碼複查無 P1/P2，cf3dd17）；
             // vc6＝W2-4 實機回饋修正＋對比修正（擁有者 2026-10-08 核准，15c791d）。
             // vc7＝同一對話重複通知點擊修正（8153ce9；擁有者 2026-10-12 核准內部測試）。
-            versionCode = 7
+            // vc8＝跨重開機 App Lock lockout 與雙品牌 parity/security 修正。
+            versionCode = 8
             buildConfigField("String", "APP_BRAND", "\"apporo\"")
             manifestPlaceholders["brandScheme"] = "apporoodoo"
             signingConfig = signingConfigs.findByName("apporoRelease")
@@ -157,8 +160,12 @@ androidComponents {
                 "--brand", brand, "--build-type", variant.buildType!!,
                 "--config", firebaseConfig)
             doFirst {
+                if (release) {
+                    check(hasSigning(brand)) {
+                        "${brand.replaceFirstChar { it.uppercase() }} release requires its own release signing inputs"
+                    }
+                }
                 if (brand == "apporo" && release) {
-                    check(hasSigning("apporo")) { "Apporo release requires its own APPORO_RELEASE_* signing inputs" }
                     val apporoStore = file(signingValue("apporo", "STORE_FILE")!!).canonicalFile
                     val woowStore = signingValue("woowtech", "STORE_FILE")?.let { file(it).canonicalFile }
                     check(apporoStore != woowStore &&

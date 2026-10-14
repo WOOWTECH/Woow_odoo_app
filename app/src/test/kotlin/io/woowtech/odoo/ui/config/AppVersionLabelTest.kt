@@ -12,12 +12,12 @@ class AppVersionLabelTest {
 
     @Test
     fun `Given the Apporo release version when labelled then name and build number`() {
-        assertEquals("1.0 (5)", appVersionLabel(versionName = "1.0", versionCode = 5))
+        assertEquals("1.0 (8)", appVersionLabel(versionName = "1.0", versionCode = 8))
     }
 
     @Test
     fun `Given the WOOW release version when labelled then name and build number`() {
-        assertEquals("1.4.2 (23)", appVersionLabel(versionName = "1.4.2", versionCode = 23))
+        assertEquals("1.4.3 (24)", appVersionLabel(versionName = "1.4.3", versionCode = 24))
     }
 
     @Test

@@ -1,6 +1,8 @@
 name: Brand build and unit contracts (no publishing)
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -10,7 +12,9 @@ permissions:
 
 jobs:
   build:
+    name: ${{ matrix.brand }} unit tests and Android Emulator smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -18,9 +22,11 @@ jobs:
           - brand: woowtech
             variant: woowtechDebug
             task: WoowtechDebug
+            package: io.woowtech.odoo.debug
           - brand: apporo
             variant: apporoDebug
             task: ApporoDebug
+            package: com.apporo.odoo.debug
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,20 +39,35 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Offline brand contracts
         run: python3 -B -m unittest discover -s scripts/tests -p 'test_brand*.py' -v
-      - name: Inject approved Apporo client configuration (missing means BLOCKED)
+      - name: Create non-production Apporo CI Firebase fixture
         if: matrix.brand == 'apporo'
-        env:
-          CLIENT_CONFIG: ${{ secrets.APPORO_DEBUG_GOOGLE_SERVICES_JSON }}
         run: |
           python3 - <<'PY'
-          import os
+          import json
           from pathlib import Path
-          value = os.environ.get("CLIENT_CONFIG", "")
-          if not value:
-              raise SystemExit("BLOCKED: approved Apporo Firebase client configuration is required")
+
+          # Identity-valid client metadata for hermetic build/emulator tests only. It contains no
+          # usable Firebase credential and is never packaged into a release variant.
+          project_number = "1234567890"
+          value = {
+              "project_info": {
+                  "project_number": project_number,
+                  "project_id": "apporo-odoo-app",
+              },
+              "client": [{
+                  "client_info": {
+                      "mobilesdk_app_id": f"1:{project_number}:android:0123456789abcdef",
+                      "android_client_info": {"package_name": "com.apporo.odoo.debug"},
+                  },
+                  "oauth_client": [],
+                  "api_key": [{"current_key": "ci-only-not-a-real-firebase-api-key"}],
+                  "services": {},
+              }],
+              "configuration_version": "1",
+          }
           path = Path("app/src/apporoDebug/google-services.json")
           path.parent.mkdir(parents=True, exist_ok=True)
-          path.write_text(value)
+          path.write_text(json.dumps(value))
           PY
       - name: Build and unit tests for the selected flavor
         run: ./gradlew :app:assemble${{ matrix.task }} :app:test${{ matrix.task }}UnitTest --stacktrace
@@ -57,4 +78,61 @@ jobs:
             app/build/outputs/apk/${{ matrix.brand }}/debug/*.apk
             app/build/test-results/test${{ matrix.task }}UnitTest/*.xml
           if-no-files-found: error
+          retention-days: 14
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch and inspect the app on an Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APP_PACKAGE: ${{ matrix.package }}
+          BRAND: ${{ matrix.brand }}
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            mkdir -p emulator-artifacts
+            ./gradlew :app:connected${{ matrix.task }}AndroidTest --stacktrace
+            APK="$(find "app/build/outputs/apk/$BRAND/debug" -name '*.apk' -print -quit)"
+            test -n "$APK"
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell am start -W \
+              -n "$APP_PACKAGE/io.woowtech.odoo.ui.MainActivity" \
+              > "emulator-artifacts/start-$BRAND.txt"
+            sleep 5
+            adb shell pidof "$APP_PACKAGE" > "emulator-artifacts/pid-$BRAND.txt"
+            test -s "emulator-artifacts/pid-$BRAND.txt"
+            adb shell dumpsys activity activities > "emulator-artifacts/activity-$BRAND.txt"
+            grep -F "$APP_PACKAGE" "emulator-artifacts/activity-$BRAND.txt"
+            adb logcat -d > "emulator-artifacts/logcat-$BRAND.txt"
+            if grep -F "Process: $APP_PACKAGE" "emulator-artifacts/logcat-$BRAND.txt"; then
+              echo "The app crashed during emulator launch" >&2
+              exit 1
+            fi
+            adb exec-out screencap -p > "emulator-artifacts/screenshot-$BRAND.png"
+      - name: Upload emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.brand }}-emulator-smoke
+          path: emulator-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload instrumentation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.brand }}-instrumentation-results
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
           retention-days: 14
